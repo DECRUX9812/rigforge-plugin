@@ -60,7 +60,8 @@ function Select({ label, value, options, onChange }) {
 }
 
 const ARCHETYPES = [
-  ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'],
+  ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
 function Studio() {
@@ -298,9 +299,11 @@ function Studio() {
               label: 'PAYLOAD', value: brief.payloadKg, min: 0.1, max: brief.archetype === 'rover' ? 15 : 6, step: 0.1, unit: ' kg',
               onChange: (v) => applyBrief({ payloadKg: v }),
             }),
-            brief.archetype === 'rover'
+            brief.archetype === 'rover' || brief.archetype === 'robot'
               ? h(ParamSlider, {
-                label: 'WHEEL Ø', value: brief.wheelMm || 100, min: 60, max: 130, step: 5, unit: ' mm',
+                label: 'WHEEL Ø', value: brief.wheelMm || (brief.archetype === 'robot' ? 130 : 100),
+                min: brief.archetype === 'robot' ? 80 : 60, max: brief.archetype === 'robot' ? 160 : 130,
+                step: 5, unit: ' mm',
                 onChange: (v) => applyBrief({ wheelMm: v }),
               })
               : h(ParamSlider, {

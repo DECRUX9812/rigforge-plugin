@@ -72,6 +72,12 @@ const quad = mod.composeDesign({ ...mod.DEFAULT_BRIEF, archetype: 'quadruped', p
 check('quad has 12 servos', quad.design.parts.find((p) => p.key === quad.design.metrics.servo && p.qty === 12))
 check('quad firmware has gait', quad.design.firmware.includes('quadGait'))
 
+const full = mod.composeDesign({ ...mod.DEFAULT_BRIEF, archetype: 'robot', payloadKg: 1, reachMm: 450, wheelMm: 130 })
+check('full robot has drive + arm', full.design.parts.some((p) => p.key === 'jgb37') && full.design.actuators.length === 6)
+check('full robot stability computed', typeof full.design.metrics.comOffsetMm === 'number' && full.design.metrics.supportHalfMm > 0)
+check('full robot firmware arbitrates', full.design.firmware.includes('arm locked while driving'))
+check('full robot pin map feeds firmware', full.design.firmware.includes(`PWM_L = ${full.analysis.pins.rows.find((r) => r.signal === 'M1 PWM').pin}`))
+
 const gadget = mod.composeDesign({ ...mod.DEFAULT_BRIEF, archetype: 'gadget', mission: 'desk clock with bme280 temperature', reachMm: 0 })
 check('gadget BOM has chosen sensor', gadget.design.parts.some((p) => p.key === 'bme280'))
 check('gadget has a display', gadget.design.parts.some((p) => mod.PARTS[p.key].cat === 'display'))
@@ -118,7 +124,7 @@ for (const tab of ['spec', 'parts', 'pins', 'power', 'print', 'code', 'steps']) 
 }
 
 // each archetype renders through the page (component-level, not full page)
-for (const archetype of ['arm', 'rover', 'quadruped', 'gripper', 'gadget']) {
+for (const archetype of ['robot', 'arm', 'rover', 'quadruped', 'gripper', 'gadget']) {
   const spec = mod.composeDesign({ ...mod.DEFAULT_BRIEF, archetype, mission: 'render test', reachMm: 400, payloadKg: 1 })
   // panels are pure: render each tab component directly
   const panels = [

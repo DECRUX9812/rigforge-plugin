@@ -8,6 +8,7 @@ function firmwareFor(design, a) {
   const servoCount = design.joints.length + 1
   const mcus = a.mcu.name
 
+  if (design.archetype === 'robot') return fullRobotFirmware(design, a, pin)
   if (design.archetype === 'rover') return roverFirmware(design, a, pin, mcus)
   if (design.archetype === 'gadget') return gadgetFirmware(design, a, pin, mcus)
   return armFirmware(design, a, servoCount, mcus)
@@ -227,6 +228,13 @@ void loop() {
 
 // ── assembly order ──────────────────────────────────────────────────────────
 
+/** Minutes are honest for hand work, unreadable for a 60-hour print. */
+function fmtMinutes(min) {
+  if (min == null) return ''
+  if (min >= 120) return `${(min / 60).toFixed(1)} h`
+  return `${min} min`
+}
+
 function stepsFor(design, a) {
   const steps = []
   const push = (title, detail, tools, min) => steps.push({ n: steps.length + 1, title, detail, tools: tools || [], min: min || 10 })
@@ -248,6 +256,12 @@ function stepsFor(design, a) {
     push('Build the legs', '12 identical servo pockets. Do them in production-line order: all four femurs, then all four tibias. Consistency beats cleverness here.', ['M3 hex key'], 45)
     push('Route the harness', 'Two servo rails, one per side. Keep the power pair twisted and away from the I2C lines — PWM noise on an I2C bus is the classic quadruped ghost bug.', ['wire', 'cable ties'], 30)
     push('Calibrate the stand', 'With the body propped up, command 0° everywhere and adjust horn splines until all four feet are level. Do this BEFORE the first gait attempt.', ['horn wrench'], 25)
+  } else if (design.archetype === 'robot') {
+    push('Build the base', `Deck, rails and bulkheads first, then the four motors. Check the deck is flat to within a millimetre — the arm bolts to it, and a twisted deck becomes a leaning robot.`, ['M3 hex key', 'square'], 40)
+    push('Assemble the arm on the bench', 'Arm first, base second: build the turret, shoulder, upper arm and forearm as one assembly and test it with a bench supply. Lifting a whole robot to fix a binding joint is how backs and robots both break.', ['M3 hex key', 'bench supply'], 50)
+    push('Bolt the arm to the deck', 'Four bolts through the turret flange into heat-set inserts, threadlocker on all four, then check the arm can sweep its full yaw range without the head or the pack in the way.', ['threadlocker'], 20)
+    push('Power and harness', `Split the servo rail from the drive rail: two UBECs, one per side of the deck. Route the arm bundle down through the turret centre so yaw never pulls a wire.`, ['soldering iron', 'cable ties'], 45)
+    push('Ballast and stability test', `With the arm at full extension, ${a.checks.some((c) => /stabilit/i.test(c.msg)) ? 'this machine is on the stability edge per the SPEC tab — add pack weight over the rear axle before the first drive' : 'lift one wheel at a time and confirm the other three stay planted'}.`, [], 15)
   } else if (design.archetype === 'gadget') {
     push('Fit the electronics', 'Display to the lid window, MCU on standoffs, sensor aligned with the vent. Test-fit before glue — you will need to get back in there.', ['M3 hex key'], 20)
     push('Wire the bus', `I2C: SDA→GPIO${I2C.sda}, SCL→GPIO${I2C.scl}, 3V3 and GND to every device. Check the addresses with an I2C scan before closing the case.`, ['soldering iron', 'multimeter'], 25)

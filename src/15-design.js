@@ -24,8 +24,16 @@ function newDesign(archetype, brief) {
 
 function addPart(d, key, qty, role) {
   const found = d.parts.find((p) => p.key === key)
-  if (found) found.qty += qty
-  else d.parts.push({ key, qty, role: role || '' })
+  if (found) {
+    found.qty += qty
+    // One line item, every job it does: "Wrist pitch · Wrist roll · Gripper".
+    if (role && !found.roles.includes(role)) {
+      found.roles.push(role)
+      found.role = found.roles.join(' · ')
+    }
+    return
+  }
+  d.parts.push({ key, qty, role: role || '', roles: role ? [role] : [] })
 }
 
 /** Box node. `pos` is the CENTRE. */

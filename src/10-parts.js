@@ -242,6 +242,10 @@ const PARTS = {
   },
 
   // ── structure & consumables ───────────────────────────────────────────────
+  wheel130: {
+    name: '130mm off-road wheel + 6mm hub', cat: 'mech', price: 9, mass: 120, volts: 0,
+    note: 'Buy the wheel, print only the adapter. Printed tyres on a 3kg robot last a week.',
+  },
   bearing608: {
     name: '608ZZ bearing', cat: 'mech', price: 1.2, mass: 12, volts: 0,
     note: '8x22x7mm. The bearing every printed hub is secretly designed around.',

@@ -276,6 +276,10 @@ const PARTS = {
   },
 
   // ── structure & consumables ───────────────────────────────────────────────
+  wheel130: {
+    name: '130mm off-road wheel + 6mm hub', cat: 'mech', price: 9, mass: 120, volts: 0,
+    note: 'Buy the wheel, print only the adapter. Printed tyres on a 3kg robot last a week.',
+  },
   bearing608: {
     name: '608ZZ bearing', cat: 'mech', price: 1.2, mass: 12, volts: 0,
     note: '8x22x7mm. The bearing every printed hub is secretly designed around.',
@@ -368,8 +372,16 @@ function newDesign(archetype, brief) {
 
 function addPart(d, key, qty, role) {
   const found = d.parts.find((p) => p.key === key)
-  if (found) found.qty += qty
-  else d.parts.push({ key, qty, role: role || '' })
+  if (found) {
+    found.qty += qty
+    // One line item, every job it does: "Wrist pitch · Wrist roll · Gripper".
+    if (role && !found.roles.includes(role)) {
+      found.roles.push(role)
+      found.role = found.roles.join(' · ')
+    }
+    return
+  }
+  d.parts.push({ key, qty, role: role || '', roles: role ? [role] : [] })
 }
 
 /** Box node. `pos` is the CENTRE. */
@@ -913,6 +925,323 @@ function buildGadget(brief) {
   return d
 }
 
+// ── full robot: a mobile manipulator, not a fragment ────────────────────────
+// This is the archetype that answers "build me a robot": a drive base that
+// carries an arm, a head, its own power and its own controller. It reuses the
+// same primitives as the rover and the arm on purpose — the interesting part is
+// what changes when they are one machine:
+//
+//   • the arm's torque cascade now happens on a base that can TIP OVER
+//   • 4 motors + 6 servos share one pack, so peak current is a real budget
+//   • the firmware has to arbitrate: no reaching while driving fast
+
+function buildFullRobot(brief) {
+  const d = newDesign('robot', brief)
+  const payload = clamp(brief.payloadKg || 1, 0.2, 5)
+  const wheelD = clamp(Math.round(brief.wheelMm || 130), 80, 160)
+  const track = clamp(Math.round(wheelD * 2.6), 240, 440)
+  const wheelbase = clamp(Math.round(track * 1.15), 300, 520)
+  const r = wheelD / 2 / 1000
+  const mat = MATERIALS[brief.material] || MATERIALS.petg
+  const density = mat.density / 1000 // g/mm³
+
+  const chassisH = 72
+  const z0 = wheelD / 2
+  const deckZ = z0 + chassisH
+  // Arm over the REAR axle, head at the front: reaching forward then moves the
+  // CoM toward the centre instead of off the front edge.
+  const armX = -wheelbase * 0.18
+  const L1 = clamp((brief.reachMm || 450) * 0.44, 120, 420)
+  const L2 = clamp((brief.reachMm || 450) * 0.36, 100, 360)
+  const L3 = clamp((brief.reachMm || 450) * 0.13, 40, 130)
+  const turretH = 108
+  const shoulderZ = deckZ + turretH
+
+  d.title = `Mobile manipulator · ${Math.round(L1 + L2 + L3)}mm reach on a ${wheelD}mm 4WD base`
+  d.subtitle = `${payload}kg payload · ${Math.round(track)}×${Math.round(wheelbase)}mm footprint · ${mat.name}`
+
+  // ── drive base ───────────────────────────────────────────────────────────
+  box(d, 'deck', [wheelbase, track, 3], [0, 0, deckZ - 2], 'shell', { print: true })
+  for (const sx of [-0.28, 0.12]) {
+    box(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 'shell', { print: true })
+  }
+  for (const sx of [-1, 1]) {
+    box(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 8, 4, 40], [0, sx * (track / 2 + 2), z0 + chassisH / 2 - 2], 'accent', { print: true })
+  }
+  for (const sx of [-1, 1]) {
+    box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 'shell', { print: true })
+  }
+  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
+  box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
+  cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
+
+  const wheels = [
+    [wheelbase / 2 - 8, track / 2], [wheelbase / 2 - 8, -track / 2],
+    [-wheelbase / 2 + 8, track / 2], [-wheelbase / 2 + 8, -track / 2],
+  ]
+  wheels.forEach(([x, y], i) => {
+    const side = y > 0 ? 1 : -1
+    // wheel is BOUGHT (see BOM); only the adapter is printed
+    cyl(d, `wheel-${i}`, wheelD / 2, 30, [x, y + side * 16, z0], 'y', 'rubber')
+    cyl(d, `hub-${i}`, wheelD * 0.24, 34, [x, y + side * 18, z0], 'y', 'accent', { print: true })
+    // motor block sits inboard of the wheel so it is visible in the model
+    cyl(d, `motor-${i}`, 19, 46, [x, y - side * 26, z0], 'y', 'metal')
+  })
+
+  // ── arm ─────────────────────────────────────────────────────────────────
+  cyl(d, 'turret', 46, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
+  cyl(d, 'turret-bearing', 26, 10, [armX, 0, shoulderZ], 'z', 'metal', { part: 'bearing608' })
+  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
+
+  box(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 'shell', { joint: 'yaw', print: true })
+  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
+
+  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
+  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
+  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
+  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
+
+  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
+  const wristX = armX + L1 + L2
+  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
+  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
+
+  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
+  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
+  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
+  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
+  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
+
+  // ── head ────────────────────────────────────────────────────────────────
+  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
+  // clearance in the rest pose, and no way for the boom to shave the sensors.
+  const headX = wheelbase / 2 + 2
+  const headY = 0
+  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
+  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
+  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
+  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
+  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90)
+
+  // ── arm sizing (same cascade as the arm archetype) ──────────────────────
+  const linkMass = (len) => len * 44 * 40 * 0.34 * density
+  const mUpper = linkMass(L1)
+  const mFore = linkMass(L2)
+  const mWrist = linkMass(L3) + 70
+  const mTool = 110 + payload * 120
+  const mPayload = payload
+  const tor = (load) => G * load.reduce((s, x) => s + (x.m / 1000) * (x.dist / 1000), 0)
+  const SAFETY = 1.7
+  const need = {
+    yaw: tor([
+      { m: mUpper, dist: L1 / 2 }, { m: mFore, dist: L1 + L2 / 2 },
+      { m: mWrist, dist: L1 + L2 + L3 / 2 }, { m: mTool, dist: L1 + L2 + L3 },
+      { m: mPayload, dist: L1 + L2 + L3 + 40 },
+    ]) * SAFETY * 0.75,
+    shoulder: tor([
+      { m: mUpper, dist: L1 / 2 }, { m: mFore, dist: L1 + L2 / 2 },
+      { m: mWrist, dist: L1 + L2 + L3 / 2 }, { m: mTool, dist: L1 + L2 + L3 },
+      { m: mPayload, dist: L1 + L2 + L3 + 40 },
+    ]) * SAFETY,
+    elbow: tor([
+      { m: mFore, dist: L2 / 2 }, { m: mWrist, dist: L2 + L3 / 2 },
+      { m: mTool, dist: L2 + L3 }, { m: mPayload, dist: L2 + L3 + 40 },
+    ]) * SAFETY,
+    wrist: (G * (mTool / 1000) * 0.07 + tor([{ m: mPayload, dist: 40 }])) * SAFETY,
+    roll: Math.max(0.35, payload * 0.5),
+    grip: Math.max(0.2, payload * 0.6),
+  }
+
+  const top = SERVO_LADDER[SERVO_LADDER.length - 1]
+  const stairs = []
+  const pick = (label, want) => {
+    let servo = SERVO_LADDER.find((k) => PARTS[k].torque >= want)
+    let ratio = 1
+    if (!servo) {
+      ratio = Math.ceil((want / PARTS[top].torque) * 1.05)
+      servo = top
+      if (ratio > 4) {
+        d.checks.push({ level: 'fail', msg: `${label}: ${fmt(want, 1)} N·m needed — ${ratio}:1 past ${PARTS[top].name}. This is a stepper-class joint; cut payload or reach.` })
+      } else {
+        addPart(d, 'gt2_kit', 1, `${label} ${ratio}:1 belt stage`)
+        d.notes.push(`${label} runs a ${ratio}:1 GT2 stage: ${PARTS[servo].name} gives ${fmt(want / ratio, 2)} N·m at the horn, ${fmt(PARTS[servo].torque, 2)} at the joint.`)
+      }
+    }
+    addPart(d, servo, 1, label)
+    stairs.push({ label, need: want, servo, ratio, effective: PARTS[servo].torque * ratio })
+    return servo
+  }
+
+  pick('Base yaw', need.yaw)
+  pick('Shoulder pitch', need.shoulder)
+  pick('Elbow pitch', need.elbow)
+  pick('Wrist pitch', need.wrist)
+  pick('Wrist roll', need.roll)
+  pick('Gripper', need.grip)
+  d.actuators = stairs
+
+  // ── drive sizing ────────────────────────────────────────────────────────
+  const printKg = (printedVolume(d.nodes) * mat.density) / 1000 / 1000
+  const servoKg = stairs.reduce((s, x) => s + PARTS[x.servo].mass, 0) / 1000
+  const electronicsKg = 0.46
+  let massKg = printKg + servoKg + electronicsKg + payload
+  const Crr = 0.07
+  const needPerWheel = ((massKg * G * Crr + massKg * 0.7) * r) / 4 * 1.5
+  const motor = MOTOR_LADDER.find((k) => PARTS[k].torque >= needPerWheel) || 'jgb37'
+  const mp = PARTS[motor]
+  massKg += (mp.mass / 1000) * 4
+  addPart(d, motor, 4, 'drive')
+  addPart(d, 'pca9685', 1, '6 arm servos')
+  addPart(d, 'buck5a', 2, 'servo + logic rails')
+  addPart(d, 'pack3s', 1, 'drive + servo pack')
+  addPart(d, 'wheel130', 4, 'drive wheels')
+  addPart(d, mp.ampacity > 3 || mp.volts >= 11 ? 'bts7960' : 'tb6612', 1, 'motor driver')
+  addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  addPart(d, 'bno085', 1, 'heading + tilt')
+  addPart(d, 'vl53l0x', 2, 'forward + drop-off')
+  addPart(d, 'mg90s', 1, 'head pan')
+  addPart(d, 'hw_m3', 1, 'frame fasteners')
+  addPart(d, 'bearing608', 2, 'turret + shoulder')
+  addPart(d, 'jst_kit', 1, 'connectors')
+  addPart(d, 'xt60', 1, 'pack connector')
+  addPart(d, 'wire22', 1, 'harness')
+  addPart(d, mat.priceId, 1, 'printed frame')
+
+  // ── static stability: the check nobody runs until the robot falls over ──
+  const reachOut = (armX + L1 + L2 + L3 + 40) / 1000 // m from the axle centre
+  const armMassKg = (mUpper + mFore + mWrist + mTool) / 1000
+  const chassisMassKg = massKg - (mp.mass / 1000) * 4
+  // CoM offset with the arm at full extension, worst case (arm forward)
+  const armOriginX = armX / 1000
+  const comOffset = ((armMassKg + payload) * (armOriginX + reachOut * 0.55) + chassisMassKg * 0.0) / massKg
+  const supportHalf = Math.min(track, wheelbase) / 2 / 1000
+  if (comOffset > supportHalf * 0.92) {
+    d.checks.push({
+      level: 'fail',
+      msg: `Static stability: with the arm out at ${Math.round(reachOut * 1000)}mm the CoM sits ${Math.round(comOffset * 1000)}mm off centre, past the ${Math.round(supportHalf * 1000)}mm support half-width. Widen the track, add ballast over the rear axle, or cap the payload.`,
+    })
+  } else if (comOffset > supportHalf * 0.7) {
+    d.checks.push({ level: 'warn', msg: `CoM ${Math.round(comOffset * 1000)}mm off centre at full reach — stable, but drive gently with the arm extended.` })
+  }
+
+  d.notes.push(`Drive: ${mp.name} — ${fmt(needPerWheel, 2)} N·m per wheel needed for ${fmt(massKg, 1)}kg, ${fmt(mp.torque, 2)} N·m available.`)
+  d.notes.push(`Arm holds ${payload}kg at ${Math.round((L1 + L2 + L3) / 10)}cm reach with a ${SAFETY}× factor; the base is what limits it, not the servos.`)
+  d.notes.push('The arm shadows the head camera at full reach. The pan joint is there for exactly that: yaw the head 60-90° away from the boom, or mount the camera pod off-centre on the next revision.')
+  if (wheelbase > 380) {
+    d.notes.push('Deck is ' + Math.round(wheelbase) + 'mm: print it in two dovetailed halves, or cut it from 3mm aluminium — same mass, no warp, no 40-hour print.')
+  }
+
+  Object.assign(d.metrics, {
+    joints: d.joints.length,
+    reachMm: Math.round(L1 + L2 + L3),
+    payloadKg: payload,
+    massKg,
+    wheelD,
+    motor,
+    speedMps: (mp.speed * Math.PI * (wheelD / 1000)) / 60,
+    torquePerWheel: needPerWheel,
+    comOffsetMm: Math.round(comOffset * 1000),
+    supportHalfMm: Math.round(supportHalf * 1000),
+  })
+  return d
+}
+
+/** Combined firmware: one loop that arbitrates drive and arm. */
+function fullRobotFirmware(design, a, pin) {
+  const m = design.metrics
+  const driver = design.parts.find((p) => p.key === 'tb6612' || p.key === 'bts7960')?.key || 'bts6612'
+  return `/* ${design.title} — ${a.mcu.name}
+ * Generated by Rigforge: mobile manipulator, ${design.joints.length} arm servos on a
+ * PCA9685 + 4 driven wheels. One pack, one loop, one arbiter.
+ */
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
+
+// ── drive ──────────────────────────────────────────────────────────────────
+// Pin numbers come from the analysis pass — the PINS tab and this file cannot drift.
+const uint8_t PWM_L = ${pin('M1 PWM', 4)}, IN1_L = ${pin('M1 IN1', 5)}, IN2_L = ${pin('M1 IN2', 6)};
+const uint8_t PWM_R = ${pin('M2 PWM', 7)}, IN1_R = ${pin('M2 IN1', 15)}, IN2_R = ${pin('M2 IN2', 16)};
+const float   TRACK = ${((m.wheelD || 130) * 2.4 / 1000).toFixed(3)};
+const float   VMAX  = ${Math.max(0.25, (m.speedMps || 0.6)).toFixed(2)};
+
+// ── arm ────────────────────────────────────────────────────────────────────
+const uint8_t JOINTS = ${design.joints.length};
+const int16_t LIMITS[][2] = { ${design.joints.map((j) => `{${j.min}, ${j.max}}`).join(', ')} };
+int16_t target[${design.joints.length}] = {0};
+int16_t current[${design.joints.length}] = {0};
+
+float speedNow = 0.0f;
+
+void writeJoint(uint8_t i, int16_t deg) {
+  uint16_t us = 500 + (uint32_t)((deg + 180) * 2000) / 360;
+  pwm.setPWM(i, 0, (uint16_t)((us / 20000.0) * 4096));
+}
+
+void setMotor(uint8_t ch, uint8_t in1, uint8_t in2, float cmd) {
+  cmd = constrain(cmd, -1.0f, 1.0f);
+  digitalWrite(in1, cmd > 0.02f);
+  digitalWrite(in2, cmd < -0.02f);
+  ledcWrite(ch, (uint8_t)(fabsf(cmd) * 255));
+  speedNow = fabsf(cmd) * VMAX;
+}
+
+void drive(float v, float w) {
+  setMotor(0, IN1_L, IN2_L, (v - w * TRACK / 2) / VMAX);
+  setMotor(1, IN1_R, IN2_R, (v + w * TRACK / 2) / VMAX);
+}
+
+void stop() { setMotor(0, IN1_L, IN2_L, 0); setMotor(1, IN1_R, IN2_R, 0); }
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(${I2C.sda}, ${I2C.scl});
+  pwm.begin();
+  pwm.setPWMFreq(50);
+  ledcAttach(PWM_L, 20000, 8);
+  ledcAttach(PWM_R, 20000, 8);
+  pinMode(IN1_L, OUTPUT); pinMode(IN2_L, OUTPUT);
+  pinMode(IN1_R, OUTPUT); pinMode(IN2_R, OUTPUT);
+  stop();
+  for (uint8_t i = 0; i < JOINTS; i++) writeJoint(i, 0);
+  Serial.println("${design.title} ready — 'D v w' to drive, 'J i deg' to pose, 'S' to stop");
+}
+
+void loop() {
+  // The arbiter: reaching while moving is what tips this machine over. Below
+  // 0.25 VMAX the arm is free, above it the arm is held and targets are refused.
+  static uint32_t lastCmd = 0;
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'D' || c == 'd') {
+      float v = Serial.parseFloat(), w = Serial.parseFloat();
+      drive(v, w);
+      lastCmd = millis();
+    } else if (c == 'J' || c == 'j') {
+      int idx = Serial.parseInt(), deg = Serial.parseInt();
+      if (speedNow > 0.25f * VMAX) {
+        Serial.println("refused: arm locked while driving");
+      } else if (idx >= 0 && idx < JOINTS) {
+        target[idx] = constrain(deg, LIMITS[idx][0], LIMITS[idx][1]);
+      }
+    } else if (c == 'S' || c == 's') {
+      stop();
+      for (uint8_t i = 0; i < JOINTS; i++) target[i] = current[i];
+    }
+  }
+  if (millis() - lastCmd > 800) stop();   // lost client = stop, never wander
+
+  for (uint8_t i = 0; i < JOINTS; i++) {
+    if (current[i] == target[i]) continue;
+    current[i] += (target[i] > current[i]) ? 1 : -1;
+    writeJoint(i, current[i]);
+  }
+  delay(8);
+}`
+}
+
 // ── analysis: the numbers that make it a spec, not a mood board ─────────────
 
 const I2C = { sda: 8, scl: 9 }
@@ -969,16 +1298,28 @@ function pinMap(design) {
         }
         break
       case 'servo':
-        if (design.parts.some((p) => p.key === 'pca9685')) {
-          design.joints.forEach((j, i) => rows.push({ pin: `CH${i}`, signal: j.label, dir: 'pwm', part: PARTS[key].name, note: `${j.min}° … ${j.max}°` }))
-          rows.push({ pin: `CH${design.joints.length}`, signal: 'Tool / end effector', dir: 'pwm', part: PARTS[key].name, note: '50Hz' })
-        } else {
+        // Servos on a PCA9685 are addressed by CHANNEL, one block for the whole
+        // design — per-part emission printed the same channels once per servo type.
+        if (!design.parts.some((p) => p.key === 'pca9685')) {
           for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
         break
     }
+  }
+
+  if (design.parts.some((p) => p.key === 'pca9685')) {
+    const actuators = design.actuators || []
+    design.joints.forEach((j, i) => {
+      const act = actuators.find((a) => a.label === j.label)
+      rows.push({
+        pin: `CH${i}`, signal: j.label, dir: 'pwm',
+        part: act ? PARTS[act.servo].name : 'servo',
+        note: `${j.min}° … ${j.max}°${act && act.ratio > 1 ? ` · ${act.ratio}:1` : ''}`,
+      })
+    })
+    rows.push({ pin: `CH${design.joints.length}`, signal: 'Tool / end effector', dir: 'pwm', part: 'servo', note: '50Hz' })
   }
 
   if (buses.has('i2c')) {
@@ -1118,6 +1459,7 @@ function firmwareFor(design, a) {
   const servoCount = design.joints.length + 1
   const mcus = a.mcu.name
 
+  if (design.archetype === 'robot') return fullRobotFirmware(design, a, pin)
   if (design.archetype === 'rover') return roverFirmware(design, a, pin, mcus)
   if (design.archetype === 'gadget') return gadgetFirmware(design, a, pin, mcus)
   return armFirmware(design, a, servoCount, mcus)
@@ -1337,6 +1679,13 @@ void loop() {
 
 // ── assembly order ──────────────────────────────────────────────────────────
 
+/** Minutes are honest for hand work, unreadable for a 60-hour print. */
+function fmtMinutes(min) {
+  if (min == null) return ''
+  if (min >= 120) return `${(min / 60).toFixed(1)} h`
+  return `${min} min`
+}
+
 function stepsFor(design, a) {
   const steps = []
   const push = (title, detail, tools, min) => steps.push({ n: steps.length + 1, title, detail, tools: tools || [], min: min || 10 })
@@ -1358,6 +1707,12 @@ function stepsFor(design, a) {
     push('Build the legs', '12 identical servo pockets. Do them in production-line order: all four femurs, then all four tibias. Consistency beats cleverness here.', ['M3 hex key'], 45)
     push('Route the harness', 'Two servo rails, one per side. Keep the power pair twisted and away from the I2C lines — PWM noise on an I2C bus is the classic quadruped ghost bug.', ['wire', 'cable ties'], 30)
     push('Calibrate the stand', 'With the body propped up, command 0° everywhere and adjust horn splines until all four feet are level. Do this BEFORE the first gait attempt.', ['horn wrench'], 25)
+  } else if (design.archetype === 'robot') {
+    push('Build the base', `Deck, rails and bulkheads first, then the four motors. Check the deck is flat to within a millimetre — the arm bolts to it, and a twisted deck becomes a leaning robot.`, ['M3 hex key', 'square'], 40)
+    push('Assemble the arm on the bench', 'Arm first, base second: build the turret, shoulder, upper arm and forearm as one assembly and test it with a bench supply. Lifting a whole robot to fix a binding joint is how backs and robots both break.', ['M3 hex key', 'bench supply'], 50)
+    push('Bolt the arm to the deck', 'Four bolts through the turret flange into heat-set inserts, threadlocker on all four, then check the arm can sweep its full yaw range without the head or the pack in the way.', ['threadlocker'], 20)
+    push('Power and harness', `Split the servo rail from the drive rail: two UBECs, one per side of the deck. Route the arm bundle down through the turret centre so yaw never pulls a wire.`, ['soldering iron', 'cable ties'], 45)
+    push('Ballast and stability test', `With the arm at full extension, ${a.checks.some((c) => /stabilit/i.test(c.msg)) ? 'this machine is on the stability edge per the SPEC tab — add pack weight over the rear axle before the first drive' : 'lift one wheel at a time and confirm the other three stay planted'}.`, [], 15)
   } else if (design.archetype === 'gadget') {
     push('Fit the electronics', 'Display to the lid window, MCU on standoffs, sensor aligned with the vent. Test-fit before glue — you will need to get back in there.', ['M3 hex key'], 20)
     push('Wire the bus', `I2C: SDA→GPIO${I2C.sda}, SCL→GPIO${I2C.scl}, 3V3 and GND to every device. Check the addresses with an I2C scan before closing the case.`, ['soldering iron', 'multimeter'], 25)
@@ -1568,7 +1923,7 @@ function toSpecMarkdown(design, a) {
 
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
   L.push('## Assembly', '')
-  for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${s.min} min) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)
+  for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${fmtMinutes(s.min)}) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)
   L.push('')
   if (design.notes.length) {
     L.push('## Design notes', '')
@@ -1597,11 +1952,13 @@ const PRESETS = [
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
+  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
   if (/gripper|claw|jaw|end.?effector/.test(t)) return 'gripper'
   if (/\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/.test(t)) return 'arm'
@@ -1616,8 +1973,12 @@ function parseBrief(text) {
   if (kg) out.payloadKg = parseFloat(kg[1].replace(',', '.'))
   const g = text.match(/(\d{2,4})\s*g(?:ram)?\b/i)
   if (!kg && g) out.payloadKg = Math.max(0.1, parseFloat(g[1]) / 1000)
-  const mm = text.match(/(\d{2,4})\s*mm/i)
-  if (mm) out.reachMm = parseInt(mm[1], 10)
+  // "130mm wheels" is a wheel Ø, not a reach — the units are the same, the
+  // noun is what tells them apart.
+  const wheel = text.match(/(\d{2,3})\s*mm[^.,;]{0,14}?wheels?/i) || text.match(/wheels?[^.,;]{0,14}?(\d{2,3})\s*mm/i)
+  if (wheel) out.wheelMm = clamp(parseInt(wheel[1], 10), 60, 160)
+  const mm = text.match(/(\d{2,4})\s*mm(?!\s*[^.,;]{0,10}wheels?)/i)
+  if (mm && !(out.wheelMm && parseInt(mm[1], 10) === out.wheelMm)) out.reachMm = parseInt(mm[1], 10)
   const cm = text.match(/(\d{1,3})\s*cm/i)
   if (!mm && cm) out.reachMm = parseInt(cm[1], 10) * 10
   const dof = text.match(/([3-6])\s*(?:dof|degrees? of freedom|axis)/i)
@@ -1629,6 +1990,9 @@ function parseBrief(text) {
   if (/lipo/i.test(text)) out.battery = /3s/i.test(text) ? 'lipo3s' : 'lipo2s'
   if (/usb|tethered|desk/i.test(text)) out.battery = 'pd5v'
   if (out.archetype === 'gadget' && !/mm/i.test(text)) out.reachMm = 0
+  // DEFAULT_BRIEF carries wheelMm:100, so "not set" has to be decided by the
+  // regex, not by the inherited value.
+  if (out.archetype === 'robot' && !wheel) out.wheelMm = 130
   return out
 }
 
@@ -1639,7 +2003,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'rover' ? buildRover(b)
+  const design = b.archetype === 'robot' ? buildFullRobot(b)
+    : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
       : b.archetype === 'gripper' ? buildGripper(b)
         : b.archetype === 'gadget' ? buildGadget(b)
@@ -2508,14 +2873,15 @@ function TabSteps({ design, analysis }) {
       h('div', { style: { flex: '1', minWidth: 0 } },
         h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' } },
           h('div', { style: { fontSize: '12px', fontWeight: 600, color: C.text } }, s.title),
-          h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, whiteSpace: 'nowrap' } }, `${s.min} min`)),
+          h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, whiteSpace: 'nowrap' } }, fmtMinutes(s.min))),
         h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.55, marginTop: '2px' } }, s.detail),
         s.tools.length
           ? h('div', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.cyan, marginTop: '4px', letterSpacing: '0.04em' } }, s.tools.join(' · '))
           : null))),
     h('div', { style: { marginTop: '6px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '10.5px' } },
       h('span', { style: { color: C.faint } }, 'ESTIMATED BUILD'),
-      h('span', { style: { color: C.text } }, `${Math.round(design.steps.reduce((s, x) => s + x.min, 0) / 6) / 10} h`)),
+      h('span', { style: { color: C.text } }, `${(design.steps.reduce((s, x) => s + x.min, 0) / 60).toFixed(1)} h`)),
+    h('div', { style: { height: '20px' } }),
   ]
 }
 
@@ -2581,7 +2947,8 @@ function Select({ label, value, options, onChange }) {
 }
 
 const ARCHETYPES = [
-  ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'],
+  ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
 function Studio() {
@@ -2819,9 +3186,11 @@ function Studio() {
               label: 'PAYLOAD', value: brief.payloadKg, min: 0.1, max: brief.archetype === 'rover' ? 15 : 6, step: 0.1, unit: ' kg',
               onChange: (v) => applyBrief({ payloadKg: v }),
             }),
-            brief.archetype === 'rover'
+            brief.archetype === 'rover' || brief.archetype === 'robot'
               ? h(ParamSlider, {
-                label: 'WHEEL Ø', value: brief.wheelMm || 100, min: 60, max: 130, step: 5, unit: ' mm',
+                label: 'WHEEL Ø', value: brief.wheelMm || (brief.archetype === 'robot' ? 130 : 100),
+                min: brief.archetype === 'robot' ? 80 : 60, max: brief.archetype === 'robot' ? 160 : 130,
+                step: 5, unit: ' mm',
                 onChange: (v) => applyBrief({ wheelMm: v }),
               })
               : h(ParamSlider, {
@@ -3021,6 +3390,7 @@ const plugin = {
     })
 
     quick('rigforge.open', 'Rigforge: build studio', ['robot', 'hardware', 'cad', '3d', 'esp32'], null, 'Robots and printed machines, spec’d end to end')
+    quick('rigforge.robot', 'Rigforge: new full robot', ['full robot', 'mobile manipulator', 'arm on a base'], PRESETS.find((p) => p.brief.archetype === 'robot').brief, '4WD base + 5-DoF arm + head, sized as one machine')
     quick('rigforge.arm', 'Rigforge: new robot arm', ['servo', 'arm', 'manipulator'], PRESETS[0].brief, '5-DoF arm with sized servos')
     quick('rigforge.rover', 'Rigforge: new rover', ['rover', 'wheels', 'drive'], PRESETS[1].brief, '4WD rover with torque + runtime maths')
     quick('rigforge.quad', 'Rigforge: new quadruped', ['quadruped', 'walking', 'servos'], PRESETS[2].brief, '12-servo gait machine')

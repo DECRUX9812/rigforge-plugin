@@ -53,5 +53,13 @@ await page.locator('button:has-text("ROVER")').first().click().catch(() => {})
 await page.waitForTimeout(600)
 await page.screenshot({ path: out('rf-rover.png') })
 
+// full robot
+await page.locator('button:has-text("FULL ROBOT")').first().click().catch(() => {})
+await page.waitForTimeout(700)
+await page.screenshot({ path: out('rf-robot.png') })
+await page.locator('button', { hasText: /^BUILD$/ }).first().click().catch(() => {})
+await page.waitForTimeout(300)
+await page.screenshot({ path: out('rf-robot-build.png') })
+
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors')
 await browser.close()

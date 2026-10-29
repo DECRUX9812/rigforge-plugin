@@ -22,7 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-ARCHETYPES = ("arm", "rover", "quadruped", "gripper", "gadget")
+ARCHETYPES = ("robot", "arm", "rover", "quadruped", "gripper", "gadget")
 
 DEFAULT_BRIEF: Dict[str, Any] = {
     "archetype": "arm",
@@ -154,6 +154,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def detect_archetype(text: str) -> str:
     t = text.lower()
+    if re.search(r"full robot|mobile manipulator|robot arm on a (rover|base|chassis)|whole robot", t):
+        return "robot"
     if re.search(r"quadruped|four.?leg|walking|dog\b|trot", t):
         return "quadruped"
     if re.search(r"gripper|claw|\bjaw\b|end.?effector", t):
@@ -180,9 +182,12 @@ def parse_brief(text: str) -> Dict[str, Any]:
         if grams:
             brief["payloadKg"] = round(_clamp(int(grams.group(1)) / 1000, 0.1, 15), 2)
 
-    mm = re.search(r"(\d{2,4})\s*mm", text, re.I)
+    wheel = re.search(r"(\d{2,3})\s*mm[^.,;]{0,14}?wheels?", text, re.I) or re.search(r"wheels?[^.,;]{0,14}?(\d{2,3})\s*mm", text, re.I)
+    if wheel:
+        brief["wheelMm"] = int(_clamp(int(wheel.group(1)), 60, 160))
+    mm = re.search(r"(\d{2,4})\s*mm(?!\s*[^.,;]{0,10}wheels?)", text, re.I)
     cm = re.search(r"(\d{1,3})\s*cm", text, re.I)
-    if mm:
+    if mm and not (brief.get("wheelMm") and int(mm.group(1)) == brief["wheelMm"]):
         brief["reachMm"] = int(_clamp(int(mm.group(1)), 120, 1200))
     elif cm:
         brief["reachMm"] = int(_clamp(int(cm.group(1)) * 10, 120, 1200))
@@ -205,6 +210,8 @@ def parse_brief(text: str) -> Dict[str, Any]:
         brief["battery"] = "pd5v"
     if brief["archetype"] == "gadget":
         brief["reachMm"] = 0
+    if brief["archetype"] == "robot" and not wheel:
+        brief["wheelMm"] = 130
     return brief
 
 
@@ -315,7 +322,7 @@ _SCHEMA_BUILD = {
                 "type": ["string", "object"],
                 "description": "One sentence ('4WD rover, 2kg payload, 100mm wheels') or a params object.",
             },
-            "archetype": {"type": "string", "enum": list(ARCHETYPES), "description": "Override the archetype."},
+            "archetype": {"type": "string", "enum": list(ARCHETYPES), "description": "Override the archetype ('robot' is a full mobile manipulator)."},
             "payload_kg": {"type": "number", "description": "Payload mass in kg."},
             "reach_mm": {"type": "number", "description": "Reach / leg span / jaw opening in mm."},
             "dof": {"type": "integer", "description": "Joint count for an arm (3-6)."},

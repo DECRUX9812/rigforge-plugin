@@ -244,13 +244,14 @@ function TabSteps({ design, analysis }) {
       h('div', { style: { flex: '1', minWidth: 0 } },
         h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' } },
           h('div', { style: { fontSize: '12px', fontWeight: 600, color: C.text } }, s.title),
-          h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, whiteSpace: 'nowrap' } }, `${s.min} min`)),
+          h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, whiteSpace: 'nowrap' } }, fmtMinutes(s.min))),
         h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.55, marginTop: '2px' } }, s.detail),
         s.tools.length
           ? h('div', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.cyan, marginTop: '4px', letterSpacing: '0.04em' } }, s.tools.join(' · '))
           : null))),
     h('div', { style: { marginTop: '6px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '10.5px' } },
       h('span', { style: { color: C.faint } }, 'ESTIMATED BUILD'),
-      h('span', { style: { color: C.text } }, `${Math.round(design.steps.reduce((s, x) => s + x.min, 0) / 6) / 10} h`)),
+      h('span', { style: { color: C.text } }, `${(design.steps.reduce((s, x) => s + x.min, 0) / 60).toFixed(1)} h`)),
+    h('div', { style: { height: '20px' } }),
   ]
 }

@@ -195,7 +195,7 @@ function toSpecMarkdown(design, a) {
 
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
   L.push('## Assembly', '')
-  for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${s.min} min) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)
+  for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${fmtMinutes(s.min)}) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)
   L.push('')
   if (design.notes.length) {
     L.push('## Design notes', '')

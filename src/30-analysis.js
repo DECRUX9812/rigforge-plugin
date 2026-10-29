@@ -54,16 +54,28 @@ function pinMap(design) {
         }
         break
       case 'servo':
-        if (design.parts.some((p) => p.key === 'pca9685')) {
-          design.joints.forEach((j, i) => rows.push({ pin: `CH${i}`, signal: j.label, dir: 'pwm', part: PARTS[key].name, note: `${j.min}° … ${j.max}°` }))
-          rows.push({ pin: `CH${design.joints.length}`, signal: 'Tool / end effector', dir: 'pwm', part: PARTS[key].name, note: '50Hz' })
-        } else {
+        // Servos on a PCA9685 are addressed by CHANNEL, one block for the whole
+        // design — per-part emission printed the same channels once per servo type.
+        if (!design.parts.some((p) => p.key === 'pca9685')) {
           for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
         break
     }
+  }
+
+  if (design.parts.some((p) => p.key === 'pca9685')) {
+    const actuators = design.actuators || []
+    design.joints.forEach((j, i) => {
+      const act = actuators.find((a) => a.label === j.label)
+      rows.push({
+        pin: `CH${i}`, signal: j.label, dir: 'pwm',
+        part: act ? PARTS[act.servo].name : 'servo',
+        note: `${j.min}° … ${j.max}°${act && act.ratio > 1 ? ` · ${act.ratio}:1` : ''}`,
+      })
+    })
+    rows.push({ pin: `CH${design.joints.length}`, signal: 'Tool / end effector', dir: 'pwm', part: 'servo', note: '50Hz' })
   }
 
   if (buses.has('i2c')) {

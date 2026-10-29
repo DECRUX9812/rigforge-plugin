@@ -17,11 +17,13 @@ const PRESETS = [
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
+  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
   if (/gripper|claw|jaw|end.?effector/.test(t)) return 'gripper'
   if (/\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/.test(t)) return 'arm'
@@ -36,8 +38,12 @@ function parseBrief(text) {
   if (kg) out.payloadKg = parseFloat(kg[1].replace(',', '.'))
   const g = text.match(/(\d{2,4})\s*g(?:ram)?\b/i)
   if (!kg && g) out.payloadKg = Math.max(0.1, parseFloat(g[1]) / 1000)
-  const mm = text.match(/(\d{2,4})\s*mm/i)
-  if (mm) out.reachMm = parseInt(mm[1], 10)
+  // "130mm wheels" is a wheel Ø, not a reach — the units are the same, the
+  // noun is what tells them apart.
+  const wheel = text.match(/(\d{2,3})\s*mm[^.,;]{0,14}?wheels?/i) || text.match(/wheels?[^.,;]{0,14}?(\d{2,3})\s*mm/i)
+  if (wheel) out.wheelMm = clamp(parseInt(wheel[1], 10), 60, 160)
+  const mm = text.match(/(\d{2,4})\s*mm(?!\s*[^.,;]{0,10}wheels?)/i)
+  if (mm && !(out.wheelMm && parseInt(mm[1], 10) === out.wheelMm)) out.reachMm = parseInt(mm[1], 10)
   const cm = text.match(/(\d{1,3})\s*cm/i)
   if (!mm && cm) out.reachMm = parseInt(cm[1], 10) * 10
   const dof = text.match(/([3-6])\s*(?:dof|degrees? of freedom|axis)/i)
@@ -49,6 +55,9 @@ function parseBrief(text) {
   if (/lipo/i.test(text)) out.battery = /3s/i.test(text) ? 'lipo3s' : 'lipo2s'
   if (/usb|tethered|desk/i.test(text)) out.battery = 'pd5v'
   if (out.archetype === 'gadget' && !/mm/i.test(text)) out.reachMm = 0
+  // DEFAULT_BRIEF carries wheelMm:100, so "not set" has to be decided by the
+  // regex, not by the inherited value.
+  if (out.archetype === 'robot' && !wheel) out.wheelMm = 130
   return out
 }
 
@@ -59,7 +68,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'rover' ? buildRover(b)
+  const design = b.archetype === 'robot' ? buildFullRobot(b)
+    : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
       : b.archetype === 'gripper' ? buildGripper(b)
         : b.archetype === 'gadget' ? buildGadget(b)

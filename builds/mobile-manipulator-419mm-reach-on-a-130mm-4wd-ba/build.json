@@ -1,0 +1,363 @@
+{
+  "brief": {
+    "archetype": "robot",
+    "mission": "mobile manipulator: 4WD base, 130mm wheels, 450mm arm reach, 1kg payload",
+    "payloadKg": 1,
+    "reachMm": 450,
+    "dof": 5,
+    "material": "petg",
+    "mcu": "esp32s3",
+    "battery": "pack3s",
+    "wheelMm": 130
+  },
+  "title": "Mobile manipulator · 419mm reach on a 130mm 4WD base",
+  "subtitle": "1kg payload · 338×389mm footprint · PETG",
+  "metrics": {
+    "joints": 6,
+    "reachMm": 419,
+    "payloadKg": 1,
+    "massKg": 3.608496169528248,
+    "wheelD": 130,
+    "motor": "jgb37",
+    "speedMps": 1.2116075667344637,
+    "torquePerWheel": 0.10734999477961851,
+    "comOffsetMm": 64,
+    "supportHalfMm": 169
+  },
+  "parts": [
+    {
+      "key": "sts3215",
+      "qty": 2,
+      "role": "Base yaw · Shoulder pitch",
+      "roles": [
+        "Base yaw",
+        "Shoulder pitch"
+      ]
+    },
+    {
+      "key": "gt2_kit",
+      "qty": 1,
+      "role": "Shoulder pitch 2:1 belt stage",
+      "roles": [
+        "Shoulder pitch 2:1 belt stage"
+      ]
+    },
+    {
+      "key": "ds3218",
+      "qty": 1,
+      "role": "Elbow pitch",
+      "roles": [
+        "Elbow pitch"
+      ]
+    },
+    {
+      "key": "mg996r",
+      "qty": 3,
+      "role": "Wrist pitch · Wrist roll · Gripper",
+      "roles": [
+        "Wrist pitch",
+        "Wrist roll",
+        "Gripper"
+      ]
+    },
+    {
+      "key": "jgb37",
+      "qty": 4,
+      "role": "drive",
+      "roles": [
+        "drive"
+      ]
+    },
+    {
+      "key": "pca9685",
+      "qty": 1,
+      "role": "6 arm servos",
+      "roles": [
+        "6 arm servos"
+      ]
+    },
+    {
+      "key": "buck5a",
+      "qty": 2,
+      "role": "servo + logic rails",
+      "roles": [
+        "servo + logic rails"
+      ]
+    },
+    {
+      "key": "pack3s",
+      "qty": 1,
+      "role": "drive + servo pack",
+      "roles": [
+        "drive + servo pack"
+      ]
+    },
+    {
+      "key": "wheel130",
+      "qty": 4,
+      "role": "drive wheels",
+      "roles": [
+        "drive wheels"
+      ]
+    },
+    {
+      "key": "bts7960",
+      "qty": 1,
+      "role": "motor driver",
+      "roles": [
+        "motor driver"
+      ]
+    },
+    {
+      "key": "esp32s3",
+      "qty": 1,
+      "role": "controller",
+      "roles": [
+        "controller"
+      ]
+    },
+    {
+      "key": "bno085",
+      "qty": 1,
+      "role": "heading + tilt",
+      "roles": [
+        "heading + tilt"
+      ]
+    },
+    {
+      "key": "vl53l0x",
+      "qty": 2,
+      "role": "forward + drop-off",
+      "roles": [
+        "forward + drop-off"
+      ]
+    },
+    {
+      "key": "mg90s",
+      "qty": 1,
+      "role": "head pan",
+      "roles": [
+        "head pan"
+      ]
+    },
+    {
+      "key": "hw_m3",
+      "qty": 1,
+      "role": "frame fasteners",
+      "roles": [
+        "frame fasteners"
+      ]
+    },
+    {
+      "key": "bearing608",
+      "qty": 2,
+      "role": "turret + shoulder",
+      "roles": [
+        "turret + shoulder"
+      ]
+    },
+    {
+      "key": "jst_kit",
+      "qty": 1,
+      "role": "connectors",
+      "roles": [
+        "connectors"
+      ]
+    },
+    {
+      "key": "xt60",
+      "qty": 1,
+      "role": "pack connector",
+      "roles": [
+        "pack connector"
+      ]
+    },
+    {
+      "key": "wire22",
+      "qty": 1,
+      "role": "harness",
+      "roles": [
+        "harness"
+      ]
+    },
+    {
+      "key": "petg_kg",
+      "qty": 1,
+      "role": "printed frame",
+      "roles": [
+        "printed frame"
+      ]
+    }
+  ],
+  "analysis": {
+    "cost": 433.1174195600932,
+    "massG": 3134.8961695282483,
+    "print": {
+      "grams": 1367.4961695282482,
+      "hours": 59.82047985687874,
+      "mm3": 1076768.6374238173,
+      "material": {
+        "name": "PETG",
+        "density": 1.27,
+        "priceId": "petg_kg",
+        "strength": 1.35
+      }
+    },
+    "power": {
+      "typ": 5.115,
+      "peak": 26.560000000000002,
+      "runtimeMin": 23.46041055718475
+    },
+    "dims": [
+      657.98,
+      408,
+      286
+    ],
+    "checks": [
+      {
+        "level": "ok",
+        "msg": "Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits."
+      },
+      {
+        "level": "warn",
+        "msg": "Stall/peak 26.6A exceeds the pack's 8A burst — add a current limit so a jam does not brown out the MCU."
+      },
+      {
+        "level": "warn",
+        "msg": "1367g of filament — that is most of a spool and 60h of printing."
+      },
+      {
+        "level": "warn",
+        "msg": "Longest dimension 658mm: split the print or check your bed (256mm is typical)."
+      }
+    ]
+  },
+  "joints": [
+    {
+      "id": "yaw",
+      "label": "Base yaw",
+      "axis": "z",
+      "min": -160,
+      "max": 160
+    },
+    {
+      "id": "shoulder",
+      "label": "Shoulder pitch",
+      "axis": "y",
+      "min": -80,
+      "max": 80
+    },
+    {
+      "id": "elbow",
+      "label": "Elbow pitch",
+      "axis": "y",
+      "min": -135,
+      "max": 135
+    },
+    {
+      "id": "wrist",
+      "label": "Wrist pitch",
+      "axis": "y",
+      "min": -100,
+      "max": 100
+    },
+    {
+      "id": "roll",
+      "label": "Wrist roll",
+      "axis": "x",
+      "min": -180,
+      "max": 180
+    },
+    {
+      "id": "head-pan",
+      "label": "Head pan",
+      "axis": "z",
+      "min": -90,
+      "max": 90
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "title": "Print the frame",
+      "detail": "21 printed parts, 1367g PETG, 60h on a 0.4mm nozzle at 0.2mm layers. Orient load-bearing links so layer lines run along the load, not across it.",
+      "tools": [
+        "printer",
+        "slicer"
+      ],
+      "min": 3589
+    },
+    {
+      "n": 2,
+      "title": "Build the base",
+      "detail": "Deck, rails and bulkheads first, then the four motors. Check the deck is flat to within a millimetre — the arm bolts to it, and a twisted deck becomes a leaning robot.",
+      "tools": [
+        "M3 hex key",
+        "square"
+      ],
+      "min": 40
+    },
+    {
+      "n": 3,
+      "title": "Assemble the arm on the bench",
+      "detail": "Arm first, base second: build the turret, shoulder, upper arm and forearm as one assembly and test it with a bench supply. Lifting a whole robot to fix a binding joint is how backs and robots both break.",
+      "tools": [
+        "M3 hex key",
+        "bench supply"
+      ],
+      "min": 50
+    },
+    {
+      "n": 4,
+      "title": "Bolt the arm to the deck",
+      "detail": "Four bolts through the turret flange into heat-set inserts, threadlocker on all four, then check the arm can sweep its full yaw range without the head or the pack in the way.",
+      "tools": [
+        "threadlocker"
+      ],
+      "min": 20
+    },
+    {
+      "n": 5,
+      "title": "Power and harness",
+      "detail": "Split the servo rail from the drive rail: two UBECs, one per side of the deck. Route the arm bundle down through the turret centre so yaw never pulls a wire.",
+      "tools": [
+        "soldering iron",
+        "cable ties"
+      ],
+      "min": 45
+    },
+    {
+      "n": 6,
+      "title": "Ballast and stability test",
+      "detail": "With the arm at full extension, lift one wheel at a time and confirm the other three stay planted.",
+      "tools": [],
+      "min": 15
+    },
+    {
+      "n": 7,
+      "title": "Bring up the MCU",
+      "detail": "Flash the generated sketch. Open the serial monitor at 115200 and confirm you see the boot line before you send any command.",
+      "tools": [
+        "USB-C cable",
+        "arduino-cli"
+      ],
+      "min": 15
+    },
+    {
+      "n": 8,
+      "title": "Load test",
+      "detail": "Run the machine unloaded for 5 minutes, then measure current at the pack: typical should be ~5.1A, and no connector should be more than hand-warm.",
+      "tools": [
+        "multimeter / clamp meter"
+      ],
+      "min": 20
+    },
+    {
+      "n": 9,
+      "title": "Verify limits",
+      "detail": "Walk every joint to its soft limit slowly and confirm the firmware stops it. All sizing checks passed at build time.",
+      "tools": [],
+      "min": 15
+    }
+  ]
+}
