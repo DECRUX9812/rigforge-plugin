@@ -48,6 +48,12 @@ const plugin = {
 
   register(ctx) {
     CTX = ctx
+    // One line in the renderer console: proof of life when a plugin "isn't there".
+    try {
+      console.log('[rigforge] registered — page /rigforge, 2 tools, directive ::rigforge')
+    } catch {
+      // console unavailable (SSR/test harness) — never fatal
+    }
 
     ctx.contribution(ROUTES_AREA, {
       id: 'rigforge.page',
