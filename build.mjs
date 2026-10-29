@@ -12,5 +12,5 @@ for (const f of files) {
   out += readFileSync(join(srcDir, f), 'utf8').replace(/\s+$/, '') + '\n\n'
 }
 mkdirSync(join(here, 'desktop'), { recursive: true })
-writeFileSync(join(here, 'desktop/plugin.js'), out)
-console.log(`built desktop/plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)
+writeFileSync(join(here, 'web/plugin.js'), out)
+console.log(`built web/plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)
