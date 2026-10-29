@@ -60,8 +60,8 @@ function Select({ label, value, options, onChange }) {
 }
 
 const ARCHETYPES = [
-  ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'],
-  ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'],
+  ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
 function Studio() {
@@ -71,6 +71,7 @@ function Studio() {
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
+  const [jointGroup, setJointGroup] = useState('all')
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -307,7 +308,7 @@ function Studio() {
                 onChange: (v) => applyBrief({ wheelMm: v }),
               })
               : h(ParamSlider, {
-                label: brief.archetype === 'gripper' ? 'JAW OPENING' : brief.archetype === 'quadruped' ? 'LEG SPAN' : 'REACH',
+                label: brief.archetype === 'gripper' ? 'JAW OPENING' : brief.archetype === 'quadruped' ? 'LEG SPAN' : brief.archetype === 'humanoid' ? 'HEIGHT' : 'REACH',
                 value: brief.reachMm, min: 120, max: 1200, step: 10, unit: ' mm',
                 onChange: (v) => applyBrief({ reachMm: v }),
               }),
@@ -383,8 +384,33 @@ function Studio() {
             onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
           }, 'ORTHO')),
         h('div', { style: S.jointBar },
+          // 23 joints do not fit in one row: a group filter beats a scrollbar
+          // nobody notices, and it is how you actually pose a humanoid.
+          design.joints.length > 6
+            ? h('div', {
+              style: {
+                display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto',
+                paddingRight: '10px', marginRight: '4px', borderRight: `1px solid ${C.line}`,
+              },
+            },
+              h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', color: C.faint } },
+                `${design.joints.length} JOINTS`),
+              h('div', { style: { display: 'flex', gap: '3px' } },
+                [['all', 'ALL'], ['body', 'TORSO'], ['l', 'LEFT'], ['r', 'RIGHT']].map(([id, label]) => h('button', {
+                  key: id,
+                  style: { ...(jointGroup === id ? S.toolOn : S.tool), width: 'auto', padding: '3px 7px' },
+                  onClick: () => setJointGroup(id),
+                }, label)),
+              jointGroup === 'all'
+                ? h('span', { style: { fontFamily: C.mono, fontSize: '8px', color: C.faint, letterSpacing: '0.06em' } }, 'scroll →')
+                : null))
+            : null,
           design.joints.length
-            ? design.joints.map((j, i) => h('div', { key: j.id, style: S.joint },
+            ? design.joints.map((j, i) => [j, i])
+              .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
+                ? j.id.startsWith('waist') || j.id.startsWith('neck')
+                : j.id.startsWith(`${jointGroup}-`)))
+              .map(([j, i]) => h('div', { key: j.id, style: S.joint },
               h('div', { style: S.jointTop },
                 h('span', {}, j.label.toUpperCase().slice(0, 14)),
                 h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}°`)),

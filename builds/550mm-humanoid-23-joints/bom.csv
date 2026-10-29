@@ -1,0 +1,13 @@
+part,category,qty,unit_usd,line_usd,role
+Feetech STS3215 serial bus servo,servo,23,28.00,644.00,23 joints on 2 serial buses
+Feetech UART bus adapter (TTL half-duplex),driver,2,8.00,16.00,leg bus + arm bus
+BNO085 9-DoF IMU,sensor,1,22.00,22.00,balance IMU
+ESP32-S3 DevKitC-1,mcu,1,14.00,14.00,controller
+LiPo 3S 2200mAh 30C,battery,2,25.00,50.00,split packs: legs / arms
+UBEC 5V 5A (buck),power,3,7.00,21.00,3 isolated rails
+VL53L0X ToF rangefinder,sensor,1,6.00,6.00,forward ranging
+M3 hardware kit (screws/nuts/inserts),mech,1,12.00,12.00,frame fasteners
+608ZZ bearing,mech,8,1.20,9.60,hip + knee bearings
+22AWG silicone wire (6 colours),mech,1,9.00,9.00,harness
+JST-XH + Dupont connector kit,mech,1,10.00,10.00,connectors
+PETG filament (1kg),mech,1,21.00,21.00,printed skeleton

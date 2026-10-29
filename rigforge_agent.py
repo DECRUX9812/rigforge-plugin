@@ -22,7 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-ARCHETYPES = ("robot", "arm", "rover", "quadruped", "gripper", "gadget")
+ARCHETYPES = ("humanoid", "robot", "arm", "rover", "quadruped", "gripper", "gadget")
 
 DEFAULT_BRIEF: Dict[str, Any] = {
     "archetype": "arm",
@@ -154,6 +154,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def detect_archetype(text: str) -> str:
     t = text.lower()
+    if re.search(r"humanoid|biped|two.?leg|android", t):
+        return "humanoid"
     if re.search(r"full robot|mobile manipulator|robot arm on a (rover|base|chassis)|whole robot", t):
         return "robot"
     if re.search(r"quadruped|four.?leg|walking|dog\b|trot", t):
@@ -210,6 +212,8 @@ def parse_brief(text: str) -> Dict[str, Any]:
         brief["battery"] = "pd5v"
     if brief["archetype"] == "gadget":
         brief["reachMm"] = 0
+    if brief["archetype"] == "humanoid" and not mm:
+        brief["reachMm"] = 550
     if brief["archetype"] == "robot" and not wheel:
         brief["wheelMm"] = 130
     return brief

@@ -140,7 +140,7 @@ const S = {
     color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`, background: 'transparent',
     borderTop: 'none', borderLeft: 'none', borderRight: 'none',
   },
-  tabBody: { overflowY: 'auto', padding: '12px 14px 24px', flex: '1 1 auto', minHeight: 0 },
+  tabBody: { overflowY: 'auto', padding: '12px 14px 44px', flex: '1 1 auto', minHeight: 0 },
   table: { width: '100%', borderCollapse: 'collapse', fontFamily: C.mono, fontSize: '10.5px' },
   th: {
     textAlign: 'left', padding: '4px 6px', color: C.faint, fontWeight: 500,

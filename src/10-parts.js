@@ -117,6 +117,11 @@ const PARTS = {
     curr: { idle: 0.01, typ: 0.02, peak: 0.03 }, ampacity: 1.5,
     note: 'Set Vref before you connect the motor. Always.',
   },
+  bus_adapter: {
+    name: 'Feetech UART bus adapter (TTL half-duplex)', cat: 'driver', price: 8, mass: 6, volts: 5,
+    curr: { idle: 0.005, typ: 0.01, peak: 0.02 },
+    note: 'One UART, up to 253 addressable servos. This is how 23 joints fit on an ESP32.',
+  },
   buck5a: {
     name: 'UBEC 5V 5A (buck)',
     cat: 'power', price: 7, mass: 18, volts: 12,

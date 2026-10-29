@@ -1,0 +1,444 @@
+{
+  "brief": {
+    "archetype": "humanoid",
+    "mission": "550mm bipedal humanoid, 23 joints, 0.5kg per hand, balance IMU",
+    "payloadKg": 0.5,
+    "reachMm": 550,
+    "dof": 5,
+    "material": "petg",
+    "mcu": "esp32s3",
+    "battery": "pack3s",
+    "wheelMm": 100
+  },
+  "title": "550mm humanoid · 23 joints",
+  "subtitle": "0.5kg per hand · PETG skeleton · serial-bus servos",
+  "metrics": {
+    "joints": 23,
+    "heightMm": 550,
+    "massKg": 4.0787803245908005,
+    "torque": {
+      "Ankle": 2.3669509480760302,
+      "Knee": 2.3320316717317904,
+      "Hip": 1.3780514417087517,
+      "Shoulder": 1.7881246619029807
+    },
+    "servo": "sts3215",
+    "actuatorCost": 644,
+    "printedG": 872.7803245908001
+  },
+  "parts": [
+    {
+      "key": "sts3215",
+      "qty": 23,
+      "role": "23 joints on 2 serial buses",
+      "roles": [
+        "23 joints on 2 serial buses"
+      ]
+    },
+    {
+      "key": "bus_adapter",
+      "qty": 2,
+      "role": "leg bus + arm bus",
+      "roles": [
+        "leg bus + arm bus"
+      ]
+    },
+    {
+      "key": "bno085",
+      "qty": 1,
+      "role": "balance IMU",
+      "roles": [
+        "balance IMU"
+      ]
+    },
+    {
+      "key": "esp32s3",
+      "qty": 1,
+      "role": "controller",
+      "roles": [
+        "controller"
+      ]
+    },
+    {
+      "key": "lipo3s",
+      "qty": 2,
+      "role": "split packs: legs / arms",
+      "roles": [
+        "split packs: legs / arms"
+      ]
+    },
+    {
+      "key": "buck5a",
+      "qty": 3,
+      "role": "3 isolated rails",
+      "roles": [
+        "3 isolated rails"
+      ]
+    },
+    {
+      "key": "vl53l0x",
+      "qty": 1,
+      "role": "forward ranging",
+      "roles": [
+        "forward ranging"
+      ]
+    },
+    {
+      "key": "hw_m3",
+      "qty": 1,
+      "role": "frame fasteners",
+      "roles": [
+        "frame fasteners"
+      ]
+    },
+    {
+      "key": "bearing608",
+      "qty": 8,
+      "role": "hip + knee bearings",
+      "roles": [
+        "hip + knee bearings"
+      ]
+    },
+    {
+      "key": "wire22",
+      "qty": 1,
+      "role": "harness",
+      "roles": [
+        "harness"
+      ]
+    },
+    {
+      "key": "jst_kit",
+      "qty": 1,
+      "role": "connectors",
+      "roles": [
+        "connectors"
+      ]
+    },
+    {
+      "key": "petg_kg",
+      "qty": 1,
+      "role": "printed skeleton",
+      "roles": [
+        "printed skeleton"
+      ]
+    }
+  ],
+  "analysis": {
+    "cost": 852.9283868164068,
+    "massG": 3035.7803245908,
+    "print": {
+      "grams": 872.7803245908001,
+      "hours": 38.17936678,
+      "mm3": 687228.60204,
+      "material": {
+        "name": "PETG",
+        "density": 1.27,
+        "priceId": "petg_kg",
+        "strength": 1.35
+      }
+    },
+    "power": {
+      "typ": 10.565,
+      "peak": 46.71,
+      "runtimeMin": 9.995267392333178
+    },
+    "dims": [
+      193.5,
+      118.06,
+      550.3
+    ],
+    "checks": [
+      {
+        "level": "ok",
+        "msg": "Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits."
+      },
+      {
+        "level": "warn",
+        "msg": "Balance: a biped's support polygon is the line between two feet (102×66mm per foot). Static stability is impossible — this needs the IMU and a closed-loop balance controller. The generated firmware holds a stand pose; walking is a control project, not a print project."
+      },
+      {
+        "level": "warn",
+        "msg": "23 joint actuators cost $644 — that is 78% of the machine. Budget the servos first; everything else is cheap."
+      },
+      {
+        "level": "warn",
+        "msg": "Runtime is 10 min at typical load — use a bigger pack or a tethered supply."
+      },
+      {
+        "level": "warn",
+        "msg": "Longest dimension 550mm: split the print or check your bed (256mm is typical)."
+      }
+    ]
+  },
+  "joints": [
+    {
+      "id": "waist",
+      "label": "Waist yaw",
+      "axis": "z",
+      "min": -60,
+      "max": 60
+    },
+    {
+      "id": "neck-pan",
+      "label": "Head pan",
+      "axis": "z",
+      "min": -70,
+      "max": 70
+    },
+    {
+      "id": "neck-tilt",
+      "label": "Head tilt",
+      "axis": "y",
+      "min": -25,
+      "max": 25
+    },
+    {
+      "id": "l-hip-yaw",
+      "label": "Left hip yaw",
+      "axis": "z",
+      "min": -45,
+      "max": 45
+    },
+    {
+      "id": "l-hip-roll",
+      "label": "Left hip roll",
+      "axis": "x",
+      "min": -25,
+      "max": 25
+    },
+    {
+      "id": "l-hip-pitch",
+      "label": "Left hip pitch",
+      "axis": "y",
+      "min": -100,
+      "max": 45
+    },
+    {
+      "id": "l-knee",
+      "label": "Left knee",
+      "axis": "y",
+      "min": -5,
+      "max": 135
+    },
+    {
+      "id": "l-ankle-pitch",
+      "label": "Left ankle pitch",
+      "axis": "y",
+      "min": -35,
+      "max": 35
+    },
+    {
+      "id": "l-ankle-roll",
+      "label": "Left ankle roll",
+      "axis": "x",
+      "min": -20,
+      "max": 20
+    },
+    {
+      "id": "r-hip-yaw",
+      "label": "Right hip yaw",
+      "axis": "z",
+      "min": -45,
+      "max": 45
+    },
+    {
+      "id": "r-hip-roll",
+      "label": "Right hip roll",
+      "axis": "x",
+      "min": -25,
+      "max": 25
+    },
+    {
+      "id": "r-hip-pitch",
+      "label": "Right hip pitch",
+      "axis": "y",
+      "min": -100,
+      "max": 45
+    },
+    {
+      "id": "r-knee",
+      "label": "Right knee",
+      "axis": "y",
+      "min": -5,
+      "max": 135
+    },
+    {
+      "id": "r-ankle-pitch",
+      "label": "Right ankle pitch",
+      "axis": "y",
+      "min": -35,
+      "max": 35
+    },
+    {
+      "id": "r-ankle-roll",
+      "label": "Right ankle roll",
+      "axis": "x",
+      "min": -20,
+      "max": 20
+    },
+    {
+      "id": "l-shoulder-roll",
+      "label": "Left shoulder roll",
+      "axis": "x",
+      "min": -35,
+      "max": 90
+    },
+    {
+      "id": "l-shoulder-pitch",
+      "label": "Left shoulder pitch",
+      "axis": "y",
+      "min": -110,
+      "max": 60
+    },
+    {
+      "id": "l-elbow",
+      "label": "Left elbow",
+      "axis": "y",
+      "min": -140,
+      "max": 5
+    },
+    {
+      "id": "l-wrist",
+      "label": "Left wrist",
+      "axis": "y",
+      "min": -80,
+      "max": 80
+    },
+    {
+      "id": "r-shoulder-roll",
+      "label": "Right shoulder roll",
+      "axis": "x",
+      "min": -35,
+      "max": 90
+    },
+    {
+      "id": "r-shoulder-pitch",
+      "label": "Right shoulder pitch",
+      "axis": "y",
+      "min": -110,
+      "max": 60
+    },
+    {
+      "id": "r-elbow",
+      "label": "Right elbow",
+      "axis": "y",
+      "min": -140,
+      "max": 5
+    },
+    {
+      "id": "r-wrist",
+      "label": "Right wrist",
+      "axis": "y",
+      "min": -80,
+      "max": 80
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "title": "Print the frame",
+      "detail": "18 printed parts, 873g PETG, 38h on a 0.4mm nozzle at 0.2mm layers. Orient load-bearing links so layer lines run along the load, not across it.",
+      "tools": [
+        "printer",
+        "slicer"
+      ],
+      "min": 2291
+    },
+    {
+      "n": 2,
+      "title": "Print the skeleton in PETG",
+      "detail": "873g over 38h. Thighs, shins and hip brackets take repeated shock loads — PETG, 4 walls, and print them upright so the layer lines run along the limb, not across it.",
+      "tools": [
+        "printer",
+        "slicer"
+      ],
+      "min": 2291
+    },
+    {
+      "n": 3,
+      "title": "Press the hip and knee bearings",
+      "detail": "Heat-set inserts, then 608 bearings into the hip and knee hubs. Bind here and the servo fights the bearing until one of them dies.",
+      "tools": [
+        "heat-set tip",
+        "vise"
+      ],
+      "min": 40
+    },
+    {
+      "n": 4,
+      "title": "Build both legs as mirror pairs",
+      "detail": "Assemble the left leg fully, then build the right against it as a jig — mirror-image legs that differ by 2mm walk in circles forever.",
+      "tools": [
+        "M3 hex key"
+      ],
+      "min": 60
+    },
+    {
+      "n": 5,
+      "title": "Assemble the pelvis and torso",
+      "detail": "Bolt both legs to the pelvis hub, then the torso and the pack. Put the machine in a stand or hang it from a strap before it can hold itself up.",
+      "tools": [
+        "M3 hex key",
+        "stand or strap"
+      ],
+      "min": 30
+    },
+    {
+      "n": 6,
+      "title": "Two buses, three rails",
+      "detail": "Legs on bus 0, arms and head on bus 1, each bus on its own UBEC from its own pack. One shared rail will brown out the MCU the first time a hip stalls.",
+      "tools": [
+        "soldering iron",
+        "multimeter"
+      ],
+      "min": 60
+    },
+    {
+      "n": 7,
+      "title": "Address every servo before assembly",
+      "detail": "Connect one servo at a time and set its ID while it is still off the robot. Renumbering a servo inside an assembled leg is an hour of disassembly.",
+      "tools": [
+        "bus adapter",
+        "PC"
+      ],
+      "min": 30
+    },
+    {
+      "n": 8,
+      "title": "First power: standing pose, low torque",
+      "detail": "Run the generated stand pose with torque limits at 30%. Watch joint loads on the serial log — a joint that climbs and stays high is binding.",
+      "tools": [
+        "USB-C",
+        "bench supply"
+      ],
+      "min": 25
+    },
+    {
+      "n": 9,
+      "title": "Bring up the MCU",
+      "detail": "Flash the generated sketch. Open the serial monitor at 115200 and confirm you see the boot line before you send any command.",
+      "tools": [
+        "USB-C cable",
+        "arduino-cli"
+      ],
+      "min": 15
+    },
+    {
+      "n": 10,
+      "title": "Load test",
+      "detail": "Run the machine unloaded for 5 minutes, then measure current at the pack: typical should be ~10.6A, and no connector should be more than hand-warm.",
+      "tools": [
+        "multimeter / clamp meter"
+      ],
+      "min": 20
+    },
+    {
+      "n": 11,
+      "title": "Verify limits",
+      "detail": "Walk every joint to its soft limit slowly and confirm the firmware stops it. All sizing checks passed at build time.",
+      "tools": [],
+      "min": 15
+    }
+  ]
+}

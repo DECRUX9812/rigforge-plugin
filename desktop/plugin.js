@@ -151,6 +151,11 @@ const PARTS = {
     curr: { idle: 0.01, typ: 0.02, peak: 0.03 }, ampacity: 1.5,
     note: 'Set Vref before you connect the motor. Always.',
   },
+  bus_adapter: {
+    name: 'Feetech UART bus adapter (TTL half-duplex)', cat: 'driver', price: 8, mass: 6, volts: 5,
+    curr: { idle: 0.005, typ: 0.01, peak: 0.02 },
+    note: 'One UART, up to 253 addressable servos. This is how 23 joints fit on an ESP32.',
+  },
   buck5a: {
     name: 'UBEC 5V 5A (buck)',
     cat: 'power', price: 7, mass: 18, volts: 12,
@@ -394,8 +399,14 @@ function cyl(d, id, radius, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'cyl', radius, height, pos, axis, mat, ...extra })
 }
 
-function joint(d, id, label, axis, pivot, min, max) {
-  d.joints.push({ id, label, axis, pivot, angle: 0, min, max })
+/**
+ * A joint. `parent` defaults to the previously declared joint (a serial chain,
+ * which is what every limb is); a branching machine — a humanoid — passes it
+ * explicitly so the left leg does not inherit the right leg's rotation.
+ */
+function joint(d, id, label, axis, pivot, min, max, parent) {
+  const fallback = d.joints.length ? d.joints[d.joints.length - 1].id : null
+  d.joints.push({ id, label, axis, pivot, angle: 0, min, max, parent: parent === undefined ? fallback : parent })
 }
 
 /** mm³ of a node, for mass + print estimates. */
@@ -1242,6 +1253,293 @@ void loop() {
 }`
 }
 
+// ── humanoid: the archetype that tells you the truth about bipeds ───────────
+// A humanoid is not "an arm on legs". Two things change everything:
+//
+//   1. the skeleton BRANCHES (two legs, two arms off one pelvis), so the FK has
+//      to walk a parent chain rather than an index range — see chainsFor();
+//   2. a biped is never statically stable. Its support polygon while standing
+//      on two feet is a line, and on one foot it is a 100×50mm patch under a
+//      3kg machine. Balance is a control problem; this generator sizes the
+//      hardware for it and says so in the checks instead of pretending.
+//
+// Servo count is the other wall: 23 joints at 2A stall each is a power-budget
+// problem before it is a mechanical one.
+
+function buildHumanoid(brief) {
+  const d = newDesign('humanoid', brief)
+  const H = clamp(brief.reachMm || 620, 380, 1100) // standing height, mm
+  const handPayload = clamp(brief.payloadKg || 0.5, 0.1, 3)
+  const mat = MATERIALS[brief.material] || MATERIALS.petg
+  const density = mat.density / 1000
+
+  // Proportions: roughly 7 heads tall, but the numbers that matter are the
+  // ones that keep the limbs APART — a thigh wider than the hip spacing fuses
+  // the legs into one slab in the render and in your print.
+  const footH = H * 0.036
+  const footL = H * 0.185
+  const footW = H * 0.085
+  const shin = H * 0.225
+  const thigh = H * 0.235
+  const pelvisH = H * 0.075
+  const torsoH = H * 0.26
+  const headH = H * 0.115
+  const limbW = Math.max(20, H * 0.06)
+  const limbD = limbW * 1.2
+  const legX = H * 0.072
+  const hipW = H * 0.17
+  const shoulderW = H * 0.21
+  const armX = shoulderW / 2 + limbW / 2 + 6
+  const upperArm = H * 0.175
+  const forearm = H * 0.16
+  const handL = H * 0.05
+
+  const zFoot = footH
+  const zAnkle = zFoot + 8
+  const zKnee = zAnkle + shin
+  const zHip = zKnee + thigh
+  const pelvisTop = zHip + pelvisH
+  const zChest = pelvisTop + torsoH
+  const zShoulder = zChest - torsoH * 0.12
+  const zNeck = zChest + 12
+  const zHead = zNeck + headH / 2 + 10
+
+  d.title = `${Math.round(H)}mm humanoid · 23 joints`
+  d.subtitle = `${handPayload}kg per hand · ${mat.name} skeleton · serial-bus servos`
+
+  // ── pelvis + torso + head ────────────────────────────────────────────────
+  box(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 'shell', { print: true })
+  box(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 'shell', { print: true })
+  box(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 'accent', { print: true })
+  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
+  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
+  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
+
+  // waist is the ROOT joint: everything above and below hangs off it
+  joint(d, 'waist', 'Waist yaw', 'z', [0, 0, zHip + pelvisH * 0.7], -60, 60, null)
+  joint(d, 'neck-pan', 'Head pan', 'z', [0, 0, zNeck], -70, 70, 'waist')
+  joint(d, 'neck-tilt', 'Head tilt', 'y', [0, 0, zNeck], -25, 25, 'neck-pan')
+
+  // ── legs ────────────────────────────────────────────────────────────────
+  const legs = [['l', 1], ['r', -1]]
+  for (const [side, sx] of legs) {
+    const x = sx * legX
+    const label = side === 'l' ? 'Left' : 'Right'
+    const hipPivot = [x, 0, zHip]
+    joint(d, `${side}-hip-yaw`, `${label} hip yaw`, 'z', hipPivot, -45, 45, 'waist')
+    joint(d, `${side}-hip-roll`, `${label} hip roll`, 'x', hipPivot, -25, 25, `${side}-hip-yaw`)
+    joint(d, `${side}-hip-pitch`, `${label} hip pitch`, 'y', hipPivot, -100, 45, `${side}-hip-roll`)
+    cyl(d, `hip-hub-${side}`, 18, limbW + 10, [x, 0, zHip], 'x', 'metal', { joint: `${side}-hip-pitch` })
+    // 6mm of clearance below each hub so the joint reads (and rotates) as a joint
+    box(d, `thigh-${side}`, [limbW, limbD, thigh - 12], [x, 0, zHip - thigh / 2 - 6], 'shell', { joint: `${side}-hip-pitch`, print: true })
+
+    const kneePivot = [x, 0, zKnee]
+    joint(d, `${side}-knee`, `${label} knee`, 'y', kneePivot, -5, 135, `${side}-hip-pitch`)
+    cyl(d, `knee-hub-${side}`, 15, limbW + 6, [x, 0, zKnee], 'x', 'metal', { joint: `${side}-knee` })
+    box(d, `shin-${side}`, [limbW * 0.86, limbD * 0.9, shin - 14], [x, 0, zKnee - shin / 2 - 7], 'shell', { joint: `${side}-knee`, print: true })
+    box(d, `shin-rib-${side}`, [limbW * 0.5, 8, shin * 0.7], [x, limbD * 0.45, zKnee - shin / 2], 'accent', { joint: `${side}-knee`, print: true })
+
+    joint(d, `${side}-ankle-pitch`, `${label} ankle pitch`, 'y', [x, 0, zAnkle], -35, 35, `${side}-knee`)
+    joint(d, `${side}-ankle-roll`, `${label} ankle roll`, 'x', [x, 0, zAnkle], -20, 20, `${side}-ankle-pitch`)
+    cyl(d, `ankle-hub-${side}`, 12, limbW * 0.8, [x, 0, zAnkle], 'x', 'metal', { joint: `${side}-ankle-pitch` })
+    box(d, `foot-${side}`, [footW, footL, footH], [x, footL * 0.22, zFoot / 2], 'accent', { joint: `${side}-ankle-roll`, print: true })
+    box(d, `sole-${side}`, [footW * 0.92, footL * 0.94, 5], [x, footL * 0.22, 2.5], 'rubber', { joint: `${side}-ankle-roll` })
+  }
+
+  // ── arms ────────────────────────────────────────────────────────────────
+  const arms = [['l', 1], ['r', -1]]
+  for (const [side, sx] of arms) {
+    const x = sx * armX
+    const label = side === 'l' ? 'Left' : 'Right'
+    const shoulder = [x, 0, zShoulder]
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
+    joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
+    cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
+    box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
+
+    const elbow = [x, 0, zShoulder - upperArm]
+    joint(d, `${side}-elbow`, `${label} elbow`, 'y', elbow, -140, 5, `${side}-shoulder-pitch`)
+    cyl(d, `elbow-hub-${side}`, 13, limbW * 0.85, elbow, 'x', 'metal', { joint: `${side}-elbow` })
+    box(d, `forearm-${side}`, [limbW * 0.78, limbD * 0.75, forearm - 10], [x, 0, elbow[2] - forearm / 2 - 5], 'shell', { joint: `${side}-elbow`, print: true })
+
+    const wrist = [x, 0, elbow[2] - forearm]
+    joint(d, `${side}-wrist`, `${label} wrist`, 'y', wrist, -80, 80, `${side}-elbow`)
+    box(d, `hand-${side}`, [limbW * 0.7, limbD * 0.6, handL], [x, 0, wrist[2] - handL / 2 - 4], 'accent', { joint: `${side}-wrist`, print: true })
+  }
+
+  // ── masses and torque ───────────────────────────────────────────────────
+  const printedKg = (printedVolume(d.nodes) * mat.density) / 1000 / 1000
+  const servoMassKg = 0.062
+  const joints = d.joints.length
+  const electronicsKg = 0.42 // MCU, bus adapters, IMU, harness, fasteners
+  const packKg = 0.36 // 2 × 3S 2200 in parallel
+  const totalKg = printedKg + joints * servoMassKg + electronicsKg + packKg + handPayload * 2
+
+  const upperKg = totalKg * 0.58 // torso, head, arms, pack
+  const legKg = totalKg - upperKg
+  const SAFETY = 1.8
+  // Ankle: the whole machine balanced on that joint while one foot lifts.
+  const ankleNeed = totalKg * G * ((footL / 2 - 18) / 1000) * SAFETY
+  // Knee: single-support squat, upper body lever ~ 30mm horizontal.
+  const kneeNeed = (upperKg + legKg * 0.5) * G * (0.03 + (H / 1000) * 0.02) * SAFETY
+  // Hip: swing-leg + upper body, worst case during a step.
+  const hipNeed = upperKg * G * ((H / 1000) * 0.06) * SAFETY
+  // Shoulder: arm out at 90° plus what it holds.
+  const armKg = legKg * 0.35
+  const shoulderNeed = (armKg + handPayload) * G * ((upperArm + forearm) / 1000) * 0.5 * SAFETY
+
+  const need = {
+    'Ankle': ankleNeed, 'Knee': kneeNeed, 'Hip': hipNeed, 'Shoulder': shoulderNeed,
+  }
+
+  const top = SERVO_LADDER[SERVO_LADDER.length - 1]
+  const picks = {}
+  for (const [label, want] of Object.entries(need)) {
+    let servo = SERVO_LADDER.find((k) => PARTS[k].torque >= want) || top
+    if (PARTS[servo].torque < want) {
+      d.checks.push({
+        level: 'fail',
+        msg: `${label} needs ${fmt(want, 2)} N·m at ${Math.round(H)}mm scale — past ${PARTS[servo].name} (${fmt(PARTS[servo].torque, 2)} N·m). This is a harmonic-drive/planetary machine: shrink the robot or move to NEMA17-class joints.`,
+      })
+    }
+    picks[label] = servo
+  }
+
+  // Real humanoids use one servo class everywhere and differ in gearing; use the
+  // biggest joint's servo for all 23 so the BOM is honest about what a biped costs.
+  const jointServo = 'sts3215'
+  addPart(d, jointServo, joints, `${joints} joints on 2 serial buses`)
+  addPart(d, 'bus_adapter', 2, 'leg bus + arm bus')
+  addPart(d, 'bno085', 1, 'balance IMU')
+  addPart(d, 'esp32s3', 1, 'controller')
+  addPart(d, 'lipo3s', 2, 'split packs: legs / arms')
+  addPart(d, 'buck5a', 3, '3 isolated rails')
+  addPart(d, 'vl53l0x', 1, 'forward ranging')
+  addPart(d, 'hw_m3', 1, 'frame fasteners')
+  addPart(d, 'bearing608', 8, 'hip + knee bearings')
+  addPart(d, 'wire22', 1, 'harness')
+  addPart(d, 'jst_kit', 1, 'connectors')
+  addPart(d, mat.priceId, 1, 'printed skeleton')
+
+  // ── the checks that matter for a biped ──────────────────────────────────
+  d.checks.push({
+    level: 'warn',
+    msg: `Balance: a biped's support polygon is the line between two feet (${Math.round(footL)}×66mm per foot). Static stability is impossible — this needs the IMU and a closed-loop balance controller. The generated firmware holds a stand pose; walking is a control project, not a print project.`,
+  })
+  const actuatorCost = PARTS[jointServo].price * joints
+  d.checks.push({
+    level: 'warn',
+    msg: `${joints} joint actuators cost ${money(actuatorCost)} — that is ${Math.round((actuatorCost / (actuatorCost + 180)) * 100)}% of the machine. Budget the servos first; everything else is cheap.`,
+  })
+
+  const tightest = Object.entries(need).sort((a2, b2) => b2[1] - a2[1])[0]
+  const tightServo = SERVO_LADDER.find((k) => PARTS[k].torque >= tightest[1]) || top
+  if (tightest[1] > PARTS[tightServo].torque * 0.85) {
+    d.checks.push({
+      level: 'warn',
+      msg: `${tightest[0]} runs at ${Math.round((tightest[1] / PARTS[tightServo].torque) * 100)}% of ${PARTS[tightServo].name} stall (${fmt(tightest[1], 2)} of ${fmt(PARTS[tightServo].torque, 2)} N·m). That is a joint you will replace: derate the payload, add a 2:1 stage, or move up a servo class.`,
+    })
+  }
+
+  d.notes.push(`Sized at ${Math.round(H)}mm standing with ${Math.round(totalKg * 1000)}g all-up: ankle ${fmt(ankleNeed, 2)} N·m, knee ${fmt(kneeNeed, 2)}, hip ${fmt(hipNeed, 2)}, shoulder ${fmt(shoulderNeed, 2)} N·m (with a ${SAFETY}× factor).`)
+  d.notes.push('Two serial buses, not 23 PWM channels: legs on bus 0, arms and head on bus 1. Half-duplex TTL, 1Mbps, each servo addressable — and every servo reports position and load back, which a biped cannot work without.')
+  d.notes.push('Bracket the hips and knees with 608 bearings and print those parts in PETG, not PLA: a humanoid takes repeated shock loads at exactly those two joints.')
+
+  Object.assign(d.metrics, {
+    joints,
+    heightMm: Math.round(H),
+    massKg: totalKg,
+    torque: need,
+    servo: jointServo,
+    actuatorCost,
+    printedG: printedKg * 1000,
+  })
+  d.actuators = Object.entries(need).map(([label, want]) => ({
+    label, need: want, servo: jointServo, ratio: 1, effective: PARTS[jointServo].torque,
+  }))
+  return d
+}
+
+/** Bus-servo firmware: hold a stand pose, report, and get out of the way. */
+function humanoidFirmware(design, a, pin) {
+  const tx0 = pin('BUS0 TX', 17), rx0 = pin('BUS0 RX', 18)
+  const tx1 = pin('BUS1 TX', 47), rx1 = pin('BUS1 RX', 48)
+  const legs = design.joints.filter((j) => /(hip|knee|ankle)/.test(j.id))
+  const upper = design.joints.filter((j) => !/(hip|knee|ankle)/.test(j.id))
+  const idTable = [
+    ...legs.map((j, i) => `// legs  ID ${String(i + 1).padStart(2)}: ${j.label}`),
+    ...upper.map((j, i) => `// upper ID ${String(i + 1).padStart(2)}: ${j.label}`),
+  ].join('\n')
+  const standLegs = legs.map((j, i) => `  st.WritePosEx(${i + 1}, 2048, 120, 30);`).join('\n')
+  const standUpper = upper.map((j, i) => `  upper.WritePosEx(${i + 1}, 2048, 120, 30);`).join('\n')
+  return `/* ${design.title} — ${a.mcu.name}
+ * Generated by Rigforge. ${design.joints.length} serial-bus joints on two TTL buses.
+ *
+ * THIS IS A STAND-AND-HOLD CONTROLLER. It does not walk. A biped cannot be made
+ * stable by geometry — it needs a balance loop reading the IMU at 200Hz and
+ * commanding hips/ankles every cycle. That is the next project, and this file is
+ * the honest starting point for it.
+ */
+#include <SCServo.h>
+#include <Wire.h>
+
+SMS_STS st;                       // legs: bus 0
+SMS_STS upper;                    // waist + arms + head: bus 1
+
+// Servo IDs are per-bus, so the same ID can exist on each bus:
+${idTable}
+const long BAUDRATE = 1000000;
+
+void setupBuses() {
+  // UART1 = legs, UART2 = arms + head. UART0 stays the console.
+  Serial1.begin(BAUDRATE, SERIAL_8N1, ${rx0}, ${tx0});
+  st.pSerial = &Serial1;
+  Serial2.begin(BAUDRATE, SERIAL_8N1, ${rx1}, ${tx1});
+  upper.pSerial = &Serial2;
+}
+
+void standPose() {
+  // Every joint to its centre with a slow, low-torque-limit move: on first power
+  // up you do NOT want 23 servos snapping to position with the robot upright.
+${standLegs}
+${standUpper}
+  delay(1200);
+}
+
+void holdStand() {
+  // Torque on, position held. A real controller replaces this with a balance loop.
+  for (int id = 1; id <= ${legs.length}; id++) st.EnableTorque(id, 1);
+  for (int id = 1; id <= ${upper.length}; id++) upper.EnableTorque(id, 1);
+}
+
+void report() {
+  // A joint pinned at high load is a servo about to strip a gear.
+  for (int id = 1; id <= ${legs.length}; id++)
+    Serial.printf("leg %02d pos=%4d load=%4d\\n", id, st.ReadPos(id), st.ReadLoad(id));
+  for (int id = 1; id <= ${upper.length}; id++)
+    Serial.printf("up  %02d pos=%4d load=%4d\\n", id, upper.ReadPos(id), upper.ReadLoad(id));
+}
+
+void setup() {
+  Serial.begin(115200);
+  setupBuses();
+  standPose();
+  holdStand();
+  Serial.println("${design.title}: standing. Balance loop not implemented — see the header.");
+}
+
+void loop() {
+  // No gait. Read the IMU, watch the joint loads, and stop if anything is
+  // fighting: a joint pinned at high load is a servo about to strip a gear.
+  static uint32_t last = 0;
+  if (millis() - last > 250) {
+    last = millis();
+    report();
+  }
+}`
+}
+
 // ── analysis: the numbers that make it a spec, not a mood board ─────────────
 
 const I2C = { sda: 8, scl: 9 }
@@ -1298,15 +1596,27 @@ function pinMap(design) {
         }
         break
       case 'servo':
-        // Servos on a PCA9685 are addressed by CHANNEL, one block for the whole
-        // design — per-part emission printed the same channels once per servo type.
-        if (!design.parts.some((p) => p.key === 'pca9685')) {
+        // Servos on a PCA9685 are addressed by CHANNEL, and on a serial bus by
+        // ADDRESS — either way one block for the whole design, never per part.
+        if (!design.parts.some((p) => p.key === 'pca9685') && !design.parts.some((p) => p.key === 'bus_adapter')) {
           for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
         break
     }
+  }
+
+  const busServos = design.parts.some((p) => p.key === 'bus_adapter')
+  if (busServos) {
+    // ESP32-S3 has three UARTs; UART0 is the console, so buses land on 1 and 2.
+    const pairs = [[17, 18], [47, 48]]
+    const buses = Math.max(1, design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0))
+    for (let b = 0; b < Math.min(buses, pairs.length); b += 1) {
+      rows.push({ pin: `${pairs[b][0]}`, signal: `BUS${b} TX`, dir: 'out', part: 'uart', note: '1Mbps half-duplex, 330Ω series' })
+      rows.push({ pin: `${pairs[b][1]}`, signal: `BUS${b} RX`, dir: 'in', part: '', note: '3.3V logic, no divider needed' })
+    }
+    rows.push({ pin: 'PWR', signal: 'servo rails', dir: 'pwr', part: '', note: '2 rails, 1000µF each at the first servo' })
   }
 
   if (design.parts.some((p) => p.key === 'pca9685')) {
@@ -1459,6 +1769,7 @@ function firmwareFor(design, a) {
   const servoCount = design.joints.length + 1
   const mcus = a.mcu.name
 
+  if (design.archetype === 'humanoid') return humanoidFirmware(design, a, pin)
   if (design.archetype === 'robot') return fullRobotFirmware(design, a, pin)
   if (design.archetype === 'rover') return roverFirmware(design, a, pin, mcus)
   if (design.archetype === 'gadget') return gadgetFirmware(design, a, pin, mcus)
@@ -1707,6 +2018,14 @@ function stepsFor(design, a) {
     push('Build the legs', '12 identical servo pockets. Do them in production-line order: all four femurs, then all four tibias. Consistency beats cleverness here.', ['M3 hex key'], 45)
     push('Route the harness', 'Two servo rails, one per side. Keep the power pair twisted and away from the I2C lines — PWM noise on an I2C bus is the classic quadruped ghost bug.', ['wire', 'cable ties'], 30)
     push('Calibrate the stand', 'With the body propped up, command 0° everywhere and adjust horn splines until all four feet are level. Do this BEFORE the first gait attempt.', ['horn wrench'], 25)
+  } else if (design.archetype === 'humanoid') {
+    push('Print the skeleton in PETG', `${Math.round(a.print.grams)}g over ${fmt(a.print.hours, 0)}h. Thighs, shins and hip brackets take repeated shock loads — PETG, 4 walls, and print them upright so the layer lines run along the limb, not across it.`, ['printer', 'slicer'], Math.round(a.print.hours * 60))
+    push('Press the hip and knee bearings', 'Heat-set inserts, then 608 bearings into the hip and knee hubs. Bind here and the servo fights the bearing until one of them dies.', ['heat-set tip', 'vise'], 40)
+    push('Build both legs as mirror pairs', 'Assemble the left leg fully, then build the right against it as a jig — mirror-image legs that differ by 2mm walk in circles forever.', ['M3 hex key'], 60)
+    push('Assemble the pelvis and torso', 'Bolt both legs to the pelvis hub, then the torso and the pack. Put the machine in a stand or hang it from a strap before it can hold itself up.', ['M3 hex key', 'stand or strap'], 30)
+    push('Two buses, three rails', 'Legs on bus 0, arms and head on bus 1, each bus on its own UBEC from its own pack. One shared rail will brown out the MCU the first time a hip stalls.', ['soldering iron', 'multimeter'], 60)
+    push('Address every servo before assembly', 'Connect one servo at a time and set its ID while it is still off the robot. Renumbering a servo inside an assembled leg is an hour of disassembly.', ['bus adapter', 'PC'], 30)
+    push('First power: standing pose, low torque', 'Run the generated stand pose with torque limits at 30%. Watch joint loads on the serial log — a joint that climbs and stays high is binding.', ['USB-C', 'bench supply'], 25)
   } else if (design.archetype === 'robot') {
     push('Build the base', `Deck, rails and bulkheads first, then the four motors. Check the deck is flat to within a millimetre — the arm bolts to it, and a twisted deck becomes a leaning robot.`, ['M3 hex key', 'square'], 40)
     push('Assemble the arm on the bench', 'Arm first, base second: build the turret, shoulder, upper arm and forearm as one assembly and test it with a bench supply. Lifting a whole robot to fix a binding joint is how backs and robots both break.', ['M3 hex key', 'bench supply'], 50)
@@ -1751,17 +2070,29 @@ function rotAxis(p, pivot, axis, angle) {
   return [p[0], pivot[1] + y * c - z * s, pivot[2] + y * s + z * c]
 }
 
-/** Joint index a node hangs off (-1 = static). */
-function jointDepth(design, id) {
-  if (!id) return -1
-  return design.joints.findIndex((j) => j.id === id)
+/** Every joint's ancestor list, root first. One pass per mesh build. */
+function chainsFor(design) {
+  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const chains = new Map()
+  for (const j of design.joints) {
+    const chain = []
+    let cur = j
+    let guard = 0
+    while (cur && guard < 24) {
+      chain.unshift(cur)
+      cur = cur.parent ? byId.get(cur.parent) : null
+      guard += 1
+    }
+    chains.set(j.id, chain)
+  }
+  return chains
 }
 
-/** Apply the chain rotations (root → leaf) to a rest-pose point. */
-function applyChain(design, point, depth) {
+/** Apply a joint chain's rotations (root → leaf) to a rest-pose point. */
+function applyChain(chain, point) {
   let p = point
-  for (let i = 0; i <= depth; i += 1) {
-    const j = design.joints[i]
+  if (!chain) return p
+  for (const j of chain) {
     // Pitch joints read positive = UP: a slider that raises the arm should not
     // drive it into the table. (Servo direction is flipped in the firmware.)
     const sign = j.axis === 'y' ? -1 : 1
@@ -1773,9 +2104,9 @@ function applyChain(design, point, depth) {
 const CYL_SEGS = 18
 
 /** One node → triangles in world space. */
-function nodeTriangles(design, node, depth) {
+function nodeTriangles(design, node, chain) {
   const tris = []
-  const push = (a, b, c) => tris.push({ pts: [applyChain(design, a, depth), applyChain(design, b, depth), applyChain(design, c, depth)], mat: node.mat })
+  const push = (a, b, c) => tris.push({ pts: [applyChain(chain, a), applyChain(chain, b), applyChain(chain, c)], mat: node.mat })
 
   if (node.kind === 'box') {
     const [sx, sy, sz] = node.size.map((v) => v / 2)
@@ -1823,9 +2154,10 @@ function nodeTriangles(design, node, depth) {
 /** Full mesh for the current pose. */
 function buildMesh(design) {
   const tris = []
+  const chains = chainsFor(design)
   for (const node of design.nodes) {
-    const depth = jointDepth(design, node.joint)
-    const add = nodeTriangles(design, node, depth)
+    const chain = node.joint ? chains.get(node.joint) : null
+    const add = nodeTriangles(design, node, chain)
     for (const t of add) tris.push(t)
   }
   return tris
@@ -1952,12 +2284,14 @@ const PRESETS = [
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
+  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
   if (/gripper|claw|jaw|end.?effector/.test(t)) return 'gripper'
@@ -1993,6 +2327,7 @@ function parseBrief(text) {
   // DEFAULT_BRIEF carries wheelMm:100, so "not set" has to be decided by the
   // regex, not by the inherited value.
   if (out.archetype === 'robot' && !wheel) out.wheelMm = 130
+  if (out.archetype === 'humanoid' && !/\d{2,4}\s*mm/.test(text)) out.reachMm = 550
   return out
 }
 
@@ -2003,7 +2338,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'robot' ? buildFullRobot(b)
+  const design = b.archetype === 'humanoid' ? buildHumanoid(b)
+    : b.archetype === 'robot' ? buildFullRobot(b)
     : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
       : b.archetype === 'gripper' ? buildGripper(b)
@@ -2549,7 +2885,7 @@ const S = {
     color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`, background: 'transparent',
     borderTop: 'none', borderLeft: 'none', borderRight: 'none',
   },
-  tabBody: { overflowY: 'auto', padding: '12px 14px 24px', flex: '1 1 auto', minHeight: 0 },
+  tabBody: { overflowY: 'auto', padding: '12px 14px 44px', flex: '1 1 auto', minHeight: 0 },
   table: { width: '100%', borderCollapse: 'collapse', fontFamily: C.mono, fontSize: '10.5px' },
   th: {
     textAlign: 'left', padding: '4px 6px', color: C.faint, fontWeight: 500,
@@ -2947,8 +3283,8 @@ function Select({ label, value, options, onChange }) {
 }
 
 const ARCHETYPES = [
-  ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'], ['quadruped', 'QUAD'],
-  ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'],
+  ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
 function Studio() {
@@ -2958,6 +3294,7 @@ function Studio() {
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
+  const [jointGroup, setJointGroup] = useState('all')
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -3194,7 +3531,7 @@ function Studio() {
                 onChange: (v) => applyBrief({ wheelMm: v }),
               })
               : h(ParamSlider, {
-                label: brief.archetype === 'gripper' ? 'JAW OPENING' : brief.archetype === 'quadruped' ? 'LEG SPAN' : 'REACH',
+                label: brief.archetype === 'gripper' ? 'JAW OPENING' : brief.archetype === 'quadruped' ? 'LEG SPAN' : brief.archetype === 'humanoid' ? 'HEIGHT' : 'REACH',
                 value: brief.reachMm, min: 120, max: 1200, step: 10, unit: ' mm',
                 onChange: (v) => applyBrief({ reachMm: v }),
               }),
@@ -3270,8 +3607,33 @@ function Studio() {
             onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
           }, 'ORTHO')),
         h('div', { style: S.jointBar },
+          // 23 joints do not fit in one row: a group filter beats a scrollbar
+          // nobody notices, and it is how you actually pose a humanoid.
+          design.joints.length > 6
+            ? h('div', {
+              style: {
+                display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto',
+                paddingRight: '10px', marginRight: '4px', borderRight: `1px solid ${C.line}`,
+              },
+            },
+              h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', color: C.faint } },
+                `${design.joints.length} JOINTS`),
+              h('div', { style: { display: 'flex', gap: '3px' } },
+                [['all', 'ALL'], ['body', 'TORSO'], ['l', 'LEFT'], ['r', 'RIGHT']].map(([id, label]) => h('button', {
+                  key: id,
+                  style: { ...(jointGroup === id ? S.toolOn : S.tool), width: 'auto', padding: '3px 7px' },
+                  onClick: () => setJointGroup(id),
+                }, label)),
+              jointGroup === 'all'
+                ? h('span', { style: { fontFamily: C.mono, fontSize: '8px', color: C.faint, letterSpacing: '0.06em' } }, 'scroll →')
+                : null))
+            : null,
           design.joints.length
-            ? design.joints.map((j, i) => h('div', { key: j.id, style: S.joint },
+            ? design.joints.map((j, i) => [j, i])
+              .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
+                ? j.id.startsWith('waist') || j.id.startsWith('neck')
+                : j.id.startsWith(`${jointGroup}-`)))
+              .map(([j, i]) => h('div', { key: j.id, style: S.joint },
               h('div', { style: S.jointTop },
                 h('span', {}, j.label.toUpperCase().slice(0, 14)),
                 h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}°`)),
@@ -3390,6 +3752,7 @@ const plugin = {
     })
 
     quick('rigforge.open', 'Rigforge: build studio', ['robot', 'hardware', 'cad', '3d', 'esp32'], null, 'Robots and printed machines, spec’d end to end')
+    quick('rigforge.humanoid', 'Rigforge: new humanoid', ['humanoid', 'biped', 'bipedal robot'], PRESETS.find((p) => p.brief.archetype === 'humanoid').brief, '23-joint biped, sized honestly')
     quick('rigforge.robot', 'Rigforge: new full robot', ['full robot', 'mobile manipulator', 'arm on a base'], PRESETS.find((p) => p.brief.archetype === 'robot').brief, '4WD base + 5-DoF arm + head, sized as one machine')
     quick('rigforge.arm', 'Rigforge: new robot arm', ['servo', 'arm', 'manipulator'], PRESETS[0].brief, '5-DoF arm with sized servos')
     quick('rigforge.rover', 'Rigforge: new rover', ['rover', 'wheels', 'drive'], PRESETS[1].brief, '4WD rover with torque + runtime maths')

@@ -54,15 +54,27 @@ function pinMap(design) {
         }
         break
       case 'servo':
-        // Servos on a PCA9685 are addressed by CHANNEL, one block for the whole
-        // design — per-part emission printed the same channels once per servo type.
-        if (!design.parts.some((p) => p.key === 'pca9685')) {
+        // Servos on a PCA9685 are addressed by CHANNEL, and on a serial bus by
+        // ADDRESS — either way one block for the whole design, never per part.
+        if (!design.parts.some((p) => p.key === 'pca9685') && !design.parts.some((p) => p.key === 'bus_adapter')) {
           for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
         break
     }
+  }
+
+  const busServos = design.parts.some((p) => p.key === 'bus_adapter')
+  if (busServos) {
+    // ESP32-S3 has three UARTs; UART0 is the console, so buses land on 1 and 2.
+    const pairs = [[17, 18], [47, 48]]
+    const buses = Math.max(1, design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0))
+    for (let b = 0; b < Math.min(buses, pairs.length); b += 1) {
+      rows.push({ pin: `${pairs[b][0]}`, signal: `BUS${b} TX`, dir: 'out', part: 'uart', note: '1Mbps half-duplex, 330Ω series' })
+      rows.push({ pin: `${pairs[b][1]}`, signal: `BUS${b} RX`, dir: 'in', part: '', note: '3.3V logic, no divider needed' })
+    }
+    rows.push({ pin: 'PWR', signal: 'servo rails', dir: 'pwr', part: '', note: '2 rails, 1000µF each at the first servo' })
   }
 
   if (design.parts.some((p) => p.key === 'pca9685')) {

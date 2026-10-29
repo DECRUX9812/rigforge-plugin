@@ -17,12 +17,14 @@ const PRESETS = [
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
+  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
   if (/gripper|claw|jaw|end.?effector/.test(t)) return 'gripper'
@@ -58,6 +60,7 @@ function parseBrief(text) {
   // DEFAULT_BRIEF carries wheelMm:100, so "not set" has to be decided by the
   // regex, not by the inherited value.
   if (out.archetype === 'robot' && !wheel) out.wheelMm = 130
+  if (out.archetype === 'humanoid' && !/\d{2,4}\s*mm/.test(text)) out.reachMm = 550
   return out
 }
 
@@ -68,7 +71,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'robot' ? buildFullRobot(b)
+  const design = b.archetype === 'humanoid' ? buildHumanoid(b)
+    : b.archetype === 'robot' ? buildFullRobot(b)
     : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
       : b.archetype === 'gripper' ? buildGripper(b)

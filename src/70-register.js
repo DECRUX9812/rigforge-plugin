@@ -80,6 +80,7 @@ const plugin = {
     })
 
     quick('rigforge.open', 'Rigforge: build studio', ['robot', 'hardware', 'cad', '3d', 'esp32'], null, 'Robots and printed machines, spec’d end to end')
+    quick('rigforge.humanoid', 'Rigforge: new humanoid', ['humanoid', 'biped', 'bipedal robot'], PRESETS.find((p) => p.brief.archetype === 'humanoid').brief, '23-joint biped, sized honestly')
     quick('rigforge.robot', 'Rigforge: new full robot', ['full robot', 'mobile manipulator', 'arm on a base'], PRESETS.find((p) => p.brief.archetype === 'robot').brief, '4WD base + 5-DoF arm + head, sized as one machine')
     quick('rigforge.arm', 'Rigforge: new robot arm', ['servo', 'arm', 'manipulator'], PRESETS[0].brief, '5-DoF arm with sized servos')
     quick('rigforge.rover', 'Rigforge: new rover', ['rover', 'wheels', 'drive'], PRESETS[1].brief, '4WD rover with torque + runtime maths')

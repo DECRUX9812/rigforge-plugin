@@ -53,6 +53,11 @@ await page.locator('button:has-text("ROVER")').first().click().catch(() => {})
 await page.waitForTimeout(600)
 await page.screenshot({ path: out('rf-rover.png') })
 
+// humanoid
+await page.locator('button:has-text("HUMANOID")').first().click().catch(() => {})
+await page.waitForTimeout(800)
+await page.screenshot({ path: out('rf-humanoid.png') })
+
 // full robot
 await page.locator('button:has-text("FULL ROBOT")').first().click().catch(() => {})
 await page.waitForTimeout(700)

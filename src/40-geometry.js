@@ -23,17 +23,29 @@ function rotAxis(p, pivot, axis, angle) {
   return [p[0], pivot[1] + y * c - z * s, pivot[2] + y * s + z * c]
 }
 
-/** Joint index a node hangs off (-1 = static). */
-function jointDepth(design, id) {
-  if (!id) return -1
-  return design.joints.findIndex((j) => j.id === id)
+/** Every joint's ancestor list, root first. One pass per mesh build. */
+function chainsFor(design) {
+  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const chains = new Map()
+  for (const j of design.joints) {
+    const chain = []
+    let cur = j
+    let guard = 0
+    while (cur && guard < 24) {
+      chain.unshift(cur)
+      cur = cur.parent ? byId.get(cur.parent) : null
+      guard += 1
+    }
+    chains.set(j.id, chain)
+  }
+  return chains
 }
 
-/** Apply the chain rotations (root → leaf) to a rest-pose point. */
-function applyChain(design, point, depth) {
+/** Apply a joint chain's rotations (root → leaf) to a rest-pose point. */
+function applyChain(chain, point) {
   let p = point
-  for (let i = 0; i <= depth; i += 1) {
-    const j = design.joints[i]
+  if (!chain) return p
+  for (const j of chain) {
     // Pitch joints read positive = UP: a slider that raises the arm should not
     // drive it into the table. (Servo direction is flipped in the firmware.)
     const sign = j.axis === 'y' ? -1 : 1
@@ -45,9 +57,9 @@ function applyChain(design, point, depth) {
 const CYL_SEGS = 18
 
 /** One node → triangles in world space. */
-function nodeTriangles(design, node, depth) {
+function nodeTriangles(design, node, chain) {
   const tris = []
-  const push = (a, b, c) => tris.push({ pts: [applyChain(design, a, depth), applyChain(design, b, depth), applyChain(design, c, depth)], mat: node.mat })
+  const push = (a, b, c) => tris.push({ pts: [applyChain(chain, a), applyChain(chain, b), applyChain(chain, c)], mat: node.mat })
 
   if (node.kind === 'box') {
     const [sx, sy, sz] = node.size.map((v) => v / 2)
@@ -95,9 +107,10 @@ function nodeTriangles(design, node, depth) {
 /** Full mesh for the current pose. */
 function buildMesh(design) {
   const tris = []
+  const chains = chainsFor(design)
   for (const node of design.nodes) {
-    const depth = jointDepth(design, node.joint)
-    const add = nodeTriangles(design, node, depth)
+    const chain = node.joint ? chains.get(node.joint) : null
+    const add = nodeTriangles(design, node, chain)
     for (const t of add) tris.push(t)
   }
   return tris

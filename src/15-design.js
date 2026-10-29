@@ -46,8 +46,14 @@ function cyl(d, id, radius, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'cyl', radius, height, pos, axis, mat, ...extra })
 }
 
-function joint(d, id, label, axis, pivot, min, max) {
-  d.joints.push({ id, label, axis, pivot, angle: 0, min, max })
+/**
+ * A joint. `parent` defaults to the previously declared joint (a serial chain,
+ * which is what every limb is); a branching machine — a humanoid — passes it
+ * explicitly so the left leg does not inherit the right leg's rotation.
+ */
+function joint(d, id, label, axis, pivot, min, max, parent) {
+  const fallback = d.joints.length ? d.joints[d.joints.length - 1].id : null
+  d.joints.push({ id, label, axis, pivot, angle: 0, min, max, parent: parent === undefined ? fallback : parent })
 }
 
 /** mm³ of a node, for mass + print estimates. */
