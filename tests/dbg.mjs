@@ -1,0 +1,10 @@
+import { chromium } from 'playwright'
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] })
+const p = await b.newPage()
+p.on('pageerror', e => console.log('PAGEERROR', e.message))
+p.on('console', m => console.log('CONSOLE', m.type(), m.text().slice(0,300)))
+p.on('requestfailed', r => console.log('REQFAIL', r.url(), r.failure()?.errorText))
+await p.goto('file:///home/decrux/Code/rigforge-plugin/tests/tmp/preview.html')
+await p.waitForTimeout(1500)
+console.log('root html len', (await p.content()).length)
+await b.close()
