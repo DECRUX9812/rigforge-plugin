@@ -1,0 +1,11 @@
+{
+  "name": "rigforge",
+  "label": "Rigforge",
+  "description": "Build studio for robots and printed machines: posed 3D geometry, joint sizing, power budget, pin map, firmware, BOM and STL export.",
+  "icon": "Cpu",
+  "version": "1.0.0",
+  "api": "plugin_api.py",
+  "tab": {
+    "hidden": true
+  }
+}

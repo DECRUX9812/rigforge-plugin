@@ -1,6 +1,6 @@
 // Concatenate src/*.js (sorted) into the single-plugin bundle.
 // Order matters; the numeric prefixes are the build order.
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -11,5 +11,6 @@ let out = ''
 for (const f of files) {
   out += readFileSync(join(srcDir, f), 'utf8').replace(/\s+$/, '') + '\n\n'
 }
-writeFileSync(join(here, 'plugin.js'), out)
-console.log(`built plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)
+mkdirSync(join(here, 'desktop'), { recursive: true })
+writeFileSync(join(here, 'desktop/plugin.js'), out)
+console.log(`built desktop/plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)

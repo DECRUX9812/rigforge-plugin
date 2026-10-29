@@ -2,6 +2,30 @@
 
 let CTX = null // set in register(); the storage/host door for every component
 
+// ── the agent bridge ────────────────────────────────────────────────────────
+// ctx.rest is namespace-scoped to /api/plugins/rigforge. A plugin with no
+// mounted backend, an OAuth remote or an older host simply fails closed, so
+// every call is wrapped and the topbar shows LINKED / OFFLINE rather than lying.
+async function bridge(path, opts) {
+  if (!CTX || typeof CTX.rest !== 'function') throw new Error('no plugin backend')
+  return CTX.rest(path, opts)
+}
+
+/** What the agent reads back after a build: bounded, rounded, no geometry. */
+function summarise(design, analysis, brief) {
+  return {
+    title: design.title,
+    archetype: brief.archetype,
+    brief,
+    cost: Number(analysis.cost.toFixed(2)),
+    massG: Math.round(analysis.mass.totalG),
+    printHours: Number(analysis.print.hours.toFixed(1)),
+    peakAmps: Number(analysis.power.peak.toFixed(2)),
+    partCount: design.parts.reduce((s, p) => s + p.qty, 0),
+    checks: analysis.checks.slice(0, 6).map((c) => ({ level: c.level, msg: c.msg.slice(0, 200) })),
+  }
+}
+
 // Fit the camera to the machine: the largest dimension should occupy ~70% of
 // the viewport, so the thing the user just designed is actually readable.
 const CAM_FOR = (dims) => {
@@ -45,6 +69,7 @@ function Studio() {
   const [tab, setTab] = useState('spec')
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
+  const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -75,6 +100,53 @@ function Studio() {
       CTX.storage.remove('pendingBrief')
       setBrief({ ...DEFAULT_BRIEF, ...pending })
       setMission(pending.mission || '')
+    }
+  }, [])
+
+  // Publish the computed summary so the agent can read back what was built
+  // (`rigforge_state`): debounced, because sliders rebuild the design live.
+  useEffect(() => {
+    let alive = true
+    const t = setTimeout(async () => {
+      try {
+        await bridge('/state', { method: 'POST', body: summarise(design, analysis, brief) })
+        if (alive) setLink('live')
+      } catch {
+        if (alive) setLink('offline')
+      }
+    }, 600)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [design, analysis, brief])
+
+  // Drain what the agent queued. Draining (not peeking) means each request is
+  // applied exactly once, even with two windows open.
+  useEffect(() => {
+    let stopped = false
+    const tick = async () => {
+      try {
+        const res = await bridge('/queue?limit=5')
+        if (stopped) return
+        setLink('live')
+        const requests = (res && res.requests) || []
+        if (!requests.length) return
+        const req = requests[requests.length - 1] // oldest of the batch wins
+        const next = { ...DEFAULT_BRIEF, ...(req.brief || {}) }
+        setBrief(next)
+        if (next.mission) setMission(next.mission)
+        setTab('spec')
+        host.notify({ kind: 'success', message: `Hermes queued a build: ${next.archetype}${req.note ? ' — ' + req.note : ''}` })
+      } catch {
+        if (!stopped) setLink('offline')
+      }
+    }
+    tick()
+    const id = setInterval(tick, 4000)
+    return () => {
+      stopped = true
+      clearInterval(id)
     }
   }, [])
 
@@ -174,6 +246,7 @@ function Studio() {
         h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
         h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h` }),
         h(StatChip, { k: 'CHECKS', v: fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS', color: fails ? C.red : warns ? C.amber : C.green }),
+        h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
         h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
         h('div', { style: { position: 'relative' } },
           h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),

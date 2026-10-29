@@ -20,19 +20,43 @@ export const host = {
   navigate: () => {},
   request: async () => ({}),
   composer: { setDraft: async () => true, focus: () => {} },
+  // simulated plugin backend: the real page talks to /api/plugins/rigforge
+  rest: async (path) => (String(path).indexOf('/queue') === 0 ? { requests: [] } : { ok: true }),
 }
 `)
 
 const files = readdirSync(join(here, '../src')).filter((f) => f.endsWith('.js')).sort()
 let code = files.map((f) => readFileSync(join(here, '../src', f), 'utf8')).join('\n\n')
 code = code.replace(/from '@hermes\/plugin-sdk'/g, `from './sdk-stub.mjs'`)
-  .concat(`\nexport { Studio }\n`)
+  .concat(`\nexport { Studio, plugin }\n`)
 writeFileSync(join(tmp, 'preview.mjs'), code)
 
 writeFileSync(join(tmp, 'preview-entry.mjs'), `
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { Studio } from './preview.mjs'
+import { Studio, plugin } from './preview.mjs'
+
+// Register for real so the page's ctx door (storage + rest) is wired exactly as
+// the app wires it — otherwise the AGENT chip reads OFFLINE and the harness lies.
+const store = new Map()
+plugin.register({
+  contribution: () => () => {},
+  registerMany: () => () => {},
+  registerSettingsPage: () => () => {},
+  onDispose: () => {},
+  onEvent: () => () => {},
+  setTimeout: (fn, ms) => { const id = setTimeout(fn, ms); return () => clearTimeout(id) },
+  setInterval: (fn, ms) => { const id = setInterval(fn, ms); return () => clearInterval(id) },
+  addEventListener: () => () => {},
+  storage: {
+    get: (k, d) => (store.has(k) ? store.get(k) : d),
+    set: (k, v) => store.set(k, v),
+    remove: (k) => store.delete(k),
+  },
+  rest: async (path) => (String(path).indexOf('/queue') === 0 ? { requests: [] } : { ok: true }),
+  os: {},
+  i18n: {},
+})
 
 const el = document.getElementById('root')
 createRoot(el).render(React.createElement(Studio))

@@ -23,6 +23,36 @@ is the studio's.
 `arm` · `rover` · `quadruped` · `gripper` · `gadget` (ESP32 desk device, parts chosen
 from the mission text: weather → BME280, plant → soil probe, clock → TFT, …)
 
+## The agent half
+
+Two tools, one small state dir (`$HERMES_HOME/rigforge/*.json`):
+
+| tool | does |
+|---|---|
+| `rigforge_build` | parses a sentence or a params object, queues the build, returns the brief + a `::rigforge{…}` directive |
+| `rigforge_state` | reads back what the studio computed last: cost, mass, print hours, peak amps, readiness checks |
+
+The loop is two files and no polling from Python:
+
+```
+agent --rigforge_build--> queue.json --GET /api/plugins/rigforge/queue--> studio page
+agent <--rigforge_state-- state.json <--POST /api/plugins/rigforge/state-- studio page
+```
+
+Backend routes (`dashboard/plugin_api.py`, mounted at `/api/plugins/rigforge/`):
+
+```
+GET  /health
+GET  /queue?peek=1&limit=5     read-only
+GET  /queue?limit=5            drain (the page's poller — each request applied once)
+POST /queue                    {"brief": …, "note": …}
+GET  /state
+POST /state                    the studio's computed summary
+```
+
+Payloads are bounded on the way in (text lengths, check count, clamped numbers), so
+neither side can grow the store without limit.
+
 ## Where it lives
 
 - UI page `/rigforge` + a sidebar row + five command-palette rows
@@ -30,6 +60,10 @@ from the mission text: weather → BME280, plant → soil probe, clock → TFT, 
   writes one line in chat and a "load into studio" card appears
 - **ASK HERMES** on the page stages a structured prompt with the live spec in the
   composer (plugin → agent), and tells the agent to reply with the same directive
+- `rigforge_build` / `rigforge_state` tools + the queue/state routes above — the
+  agent can start a build without a chat round-trip, and read the result back
+- the topbar's **AGENT** chip is the honest liveness read: LINKED only when the
+  plugin backend actually answered
 
 ## Install
 
@@ -66,6 +100,7 @@ node tests/render-ssr.mjs       # every component through real React 19 (SSR)
 node tests/make-preview.mjs     # bundle a standalone preview page
 node tests/shoot.mjs            # headless screenshots of every tab
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
+HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
 
 ## Gotchas worth remembering
@@ -74,6 +109,8 @@ node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
   The local `h()` factory handles that.
 - A camera basis needs `up = back × right`. The byte-simple `[sy·sp, -cy·sp, cp]`
   is not orthogonal and shifts the whole frame downward — it looks like a CSS bug.
+- The agent half's CLI verb (`hermes rigforge …`) is skipped under host isolation —
+  drive it through `rigforge_build` or the routes instead.
 - Desktop plugins may import only `@hermes/plugin-sdk`, `react`, `react/jsx-runtime`.
   The area constants (`ROUTES_AREA`, `SIDEBAR_NAV_AREA`, `PALETTE_AREA`,
   `TRANSCRIPT_DIRECTIVE_AREA`) and `__HERMES_PLUGIN_SDK__` are present in the live

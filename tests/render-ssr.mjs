@@ -26,6 +26,7 @@ export const host = {
     setDraft: async (sid, text) => { calls.push(['setDraft', text]); return true },
     focus: () => calls.push(['focus']),
   },
+  rest: async (path) => (String(path).indexOf('/queue') === 0 ? { requests: [] } : { ok: true }),
 }
 `
 mkdirSync(join(here, 'tmp'), { recursive: true })

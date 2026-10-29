@@ -1,0 +1,38 @@
+name: rigforge
+version: "1.0.0"
+description: >-
+  Rigforge — the build studio for robots and printed machines. Describe a machine
+  and get the whole build: posed 3D geometry, joint torque sizing that picks real
+  servos (or a belt stage when one cannot do it), a per-rail power budget with
+  runtime, an ESP32 pin map that refuses strapping and flash pins, firmware
+  generated from that same map, a priced BOM with mass and print time, STL and
+  OpenSCAD export, and an assembly order. The engine is deterministic and
+  offline — geometry, torque, current and cost are computed, never narrated.
+  Archetypes: arm · rover · quadruped · gripper · gadget (ESP32 desk devices).
+author: "Ritesh Patel (DECRUX9812), Hermes Agent"
+license: MIT
+kind: standalone
+requires_hermes: ">=0.19"
+platforms:
+  - linux
+  - macos
+tags:
+  - robotics
+  - cad
+  - 3d
+  - esp32
+  - hardware
+  - desktop
+provides_tools:
+  - rigforge_build
+  - rigforge_state
+provides_hooks: []
+provides_middleware: []
+requires_env: []
+config_schema:
+  queue_poll_ms:
+    type: integer
+    default: 4000
+    description: >-
+      How often the studio page checks for a build the agent queued. The page
+      also polls on focus, so this only bounds idle latency.
