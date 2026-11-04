@@ -13,4 +13,7 @@ for (const f of files) {
 }
 mkdirSync(join(here, 'desktop'), { recursive: true })
 writeFileSync(join(here, 'web/plugin.js'), out)
-console.log(`built web/plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)
+// desktop/plugin.js is the layout `hermes plugins install` (and the catalog)
+// discovers — web/plugin.js stays for the manual cp-instructions flow.
+writeFileSync(join(here, 'desktop/plugin.js'), out)
+console.log(`built web/plugin.js + desktop/plugin.js from ${files.length} files — ${out.split('\n').length} lines, ${(out.length / 1024).toFixed(1)} KB`)
