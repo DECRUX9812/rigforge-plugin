@@ -2,26 +2,45 @@
 
 **A build studio for robots and printed machines, inside Hermes Desktop.**
 
+![Rigforge studio](docs/screenshots/hero.png)
+
 Schematik answers *"what circuits do I wire"*. Rigforge answers *"what do I build"* —
 a complete machine from one brief:
 
 | | |
 |---|---|
-| geometry | posed 3D assembly, orbit/zoom, joint sliders, real forward kinematics |
-| mechanics | joint torque cascade → servo/belt-stage selection, wheel torque → motor choice |
-| power | per-rail typical and stall current → pack → runtime |
-| electronics | pin map that refuses strapping pins and the flash bus, PCA9685 channels |
-| firmware | Arduino skeleton generated from the same pin map |
-| manufacturing | BOM with prices, mass, print grams/hours, STL + OpenSCAD export, assembly order |
+| geometry | posed 3D assembly, orbit/zoom, joint sliders, real forward kinematics, exploded view |
+| mechanics | joint torque cascade → servo/belt-stage selection, wheel torque → motor choice, link bending + deflection |
+| power | per-rail typical and stall current → pack → runtime, wire gauge, fuse and connector sizing |
+| electronics | pin map that refuses strapping pins and the flash bus, PCA9685 channels, UART bus reservation |
+| firmware | Arduino skeleton generated from the same pin map — homing, encoders, gait loops |
+| manufacturing | BOM with prices + SKUs, mass, print grams/hours, per-part STL pack (zip), OpenSCAD, assembly order |
 
 The engine is deterministic and offline: the same brief always produces the same
 machine, and every number is computed (not narrated). The agent designs; the maths
 is the studio's.
 
+## Anybody can build
+
+- **Click a machine card** — pick a robot dog, a gripper, a humanoid; the whole
+  spec appears instantly. No typing required.
+- **Or type one sentence and press Enter** — *"a robot car that maps my room"*
+  is a complete brief.
+- Every control says what it does in plain words, and the readiness block leads
+  with a sentence — *"Ready to build — every engineering check passed."* — before
+  the engineering tables a grown-up might want.
+
 ## Archetypes
 
-`arm` · `rover` · `quadruped` · `gripper` · `gadget` (ESP32 desk device, parts chosen
-from the mission text: weather → BME280, plant → soil probe, clock → TFT, …)
+`arm` · `rover` · `quadruped` · `gripper` · `humanoid` (23-joint biped, two servo
+buses) · `robot` (mobile manipulator: 4WD base + arm + pan head) · `gadget` (ESP32
+desk device, parts chosen from the mission text: weather → BME280, plant → soil
+probe, clock → TFT, …)
+
+| | |
+|---|---|
+| ![Quadruped posed](docs/screenshots/quad.png) | ![Gripper closed](docs/screenshots/gripper.png) |
+| ![Rover](docs/screenshots/rover.png) | ![Posed](docs/screenshots/posed.png) |
 
 ## The agent half
 
