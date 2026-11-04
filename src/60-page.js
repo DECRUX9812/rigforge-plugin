@@ -64,6 +64,10 @@ const ARCHETYPES = [
   ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
+const MAT_OPTIONS = Object.entries(MATERIALS).map(([k, m]) => ({
+  value: k, label: `${m.name} · E${m.elastic}GPa`,
+}))
+
 function Studio() {
   const [brief, setBrief] = useState(() => (CTX && CTX.storage.get('lastBrief', null)) || DEFAULT_BRIEF)
   const [mission, setMission] = useState(() => brief.mission)
@@ -78,7 +82,7 @@ function Studio() {
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -157,7 +161,7 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: pose[i] || 0 })),
   }), [design, pose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign), [posedDesign])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -209,6 +213,7 @@ function Studio() {
   const fileBase = slug(design.title)
   const exports = [
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
+    ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design), 'text/csv')],
@@ -292,7 +297,7 @@ function Studio() {
         brief.archetype === 'gadget'
           ? h(Select, {
             label: 'MATERIAL', value: brief.material,
-            options: [{ value: 'pla', label: 'PLA+ · stiff' }, { value: 'petg', label: 'PETG · tough' }],
+            options: MAT_OPTIONS,
             onChange: (v) => applyBrief({ material: v }),
           })
           : h('div', {},
@@ -317,7 +322,7 @@ function Studio() {
               : null,
             h(Select, {
               label: 'MATERIAL', value: brief.material,
-              options: [{ value: 'petg', label: 'PETG · tough' }, { value: 'pla', label: 'PLA+ · stiff' }],
+              options: MAT_OPTIONS,
               onChange: (v) => applyBrief({ material: v }),
             })),
 
@@ -380,6 +385,10 @@ function Studio() {
             onClick: () => setOpts((o) => ({ ...o, wire: !o.wire })),
           }, 'WIRE'),
           h('button', {
+            style: opts.explode ? S.toolOn : S.tool,
+            onClick: () => setOpts((o) => ({ ...o, explode: !o.explode })),
+          }, 'EXPLODE'),
+          h('button', {
             style: cam.ortho ? S.toolOn : S.tool,
             onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
           }, 'ORTHO')),
@@ -413,7 +422,7 @@ function Studio() {
               .map(([j, i]) => h('div', { key: j.id, style: S.joint },
               h('div', { style: S.jointTop },
                 h('span', {}, j.label.toUpperCase().slice(0, 14)),
-                h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}°`)),
+                h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}${j.slide ? 'mm' : '°'}`)),
               h('input', {
                 type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
                 style: { ...S.range, height: '14px' },
@@ -428,7 +437,7 @@ function Studio() {
             h('button', { style: S.tool, onClick: () => setPose(design.joints.map(() => 0)) }, 'HOME'),
             h('button', {
               style: S.tool,
-              onClick: () => setPose(design.joints.map((j, i) => (i === 0 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
+              onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
             }, 'POSE')))),
 
       // right rail: the spec

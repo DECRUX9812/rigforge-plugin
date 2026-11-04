@@ -12,13 +12,20 @@ const I2S = { bclk: 5, lrclk: 6, din: 7, dout: 4 }
 function pinMap(design) {
   const rows = []
   const used = new Set([...Object.values(I2C), ...Object.values(SPI), ...Object.values(I2S), 43, 44]) // 43/44 = UART0 console
-  const take = (n) => {
+  // UART hard pairs must be reserved up front or take() hands them to a servo.
+  const busCount = design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0)
+  const hasGpsUart = design.parts.some((p) => PARTS[p.key]?.bus === 'uart')
+  if (busCount > 0 || hasGpsUart) for (const p of [17, 18, 47, 48]) used.add(p)
+  let taken = 0 // pins actually allocated — the pin-budget number, not the reservation
+  const take = () => {
     const free = SAFE_PINS.find((p) => !used.has(p))
     if (free == null) return null
     used.add(free)
+    taken += 1
     return free
   }
-  const mcuKey = design.parts.find((p) => PARTS[p.key].cat === 'mcu')?.key || 'esp32s3'
+  const takePin = () => String(take() ?? '—')
+  const mcuKey = design.parts.find((p) => PARTS[p.key]?.cat === 'mcu')?.key || 'esp32s3'
   const mcu = PARTS[mcuKey]
   const buses = new Set()
 
@@ -36,20 +43,25 @@ function pinMap(design) {
         if (part.bus === 'spi') buses.add('spi-display')
         if (part.bus === 'uart') buses.add('uart1')
         if (part.bus === 'i2s') buses.add(part.name.includes('amp') ? 'i2s-out' : 'i2s-in')
+        if (part.bus === 'switch') {
+          for (let i = 0; i < qty; i += 1) {
+            rows.push({ pin: takePin(), signal: `LIMIT ${i + 1}`, dir: 'in', note: 'INPUT_PULLUP, wire NC — open wire reads as a hit' })
+          }
+        }
         break
       case 'driver':
         if (key === 'pca9685') buses.add('i2c')
         break
       case 'motor':
         for (let i = 0; i < qty; i += 1) {
-          const pwm = take()
-          const in1 = take()
-          const in2 = take()
+          const pwm = takePin()
+          const in1 = takePin()
+          const in2 = takePin()
           rows.push({ pin: String(pwm), signal: `M${i + 1} PWM`, dir: 'out', note: 'LEDC 20kHz' })
           rows.push({ pin: String(in1), signal: `M${i + 1} IN1`, dir: 'out', note: 'direction' })
           rows.push({ pin: String(in2), signal: `M${i + 1} IN2`, dir: 'out', note: 'direction' })
           if (part.encoder) {
-            rows.push({ pin: String(take()), signal: `M${i + 1} ENC A`, dir: 'in', note: 'interrupt, pull-up' })
+            rows.push({ pin: takePin(), signal: `M${i + 1} ENC A`, dir: 'in', note: 'interrupt, pull-up' })
           }
         }
         break
@@ -57,7 +69,7 @@ function pinMap(design) {
         // Servos on a PCA9685 are addressed by CHANNEL, and on a serial bus by
         // ADDRESS — either way one block for the whole design, never per part.
         if (!design.parts.some((p) => p.key === 'pca9685') && !design.parts.some((p) => p.key === 'bus_adapter')) {
-          for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
+          for (let i = 0; i < qty; i += 1) rows.push({ pin: takePin(), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
@@ -65,15 +77,14 @@ function pinMap(design) {
     }
   }
 
-  const busServos = design.parts.some((p) => p.key === 'bus_adapter')
-  if (busServos) {
+  if (busCount > 0) {
     // ESP32-S3 has three UARTs; UART0 is the console, so buses land on 1 and 2.
     const pairs = [[17, 18], [47, 48]]
-    const buses = Math.max(1, design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0))
-    for (let b = 0; b < Math.min(buses, pairs.length); b += 1) {
+    for (let b = 0; b < Math.min(busCount, pairs.length); b += 1) {
       rows.push({ pin: `${pairs[b][0]}`, signal: `BUS${b} TX`, dir: 'out', part: 'uart', note: '1Mbps half-duplex, 330Ω series' })
       rows.push({ pin: `${pairs[b][1]}`, signal: `BUS${b} RX`, dir: 'in', part: '', note: '3.3V logic, no divider needed' })
     }
+    if (busCount > pairs.length) rows.push({ pin: '—', signal: `${busCount - pairs.length} more bus(es)`, dir: 'err', part: '', note: 'ESP32-S3 has only two free UARTs' })
     rows.push({ pin: 'PWR', signal: 'servo rails', dir: 'pwr', part: '', note: '2 rails, 1000µF each at the first servo' })
   }
 
@@ -98,12 +109,17 @@ function pinMap(design) {
   if (buses.has('spi-display')) {
     rows.push({ pin: String(SPI.sck), signal: 'TFT SCK', dir: 'out', note: 'SPI2 40MHz' })
     rows.push({ pin: String(SPI.mosi), signal: 'TFT MOSI', dir: 'out', note: '' })
-    rows.push({ pin: String(take()), signal: 'TFT CS', dir: 'out', note: '' })
-    rows.push({ pin: String(take()), signal: 'TFT DC', dir: 'out', note: '' })
+    rows.push({ pin: takePin(), signal: 'TFT CS', dir: 'out', note: '' })
+    rows.push({ pin: takePin(), signal: 'TFT DC', dir: 'out', note: '' })
   }
   if (buses.has('uart1')) {
-    rows.push({ pin: '17', signal: 'GPS TX→RX', dir: 'in', note: '9600 baud NMEA' })
-    rows.push({ pin: '18', signal: 'GPS RX→TX', dir: 'out', note: '' })
+    // GPS takes the UART pair the servo buses did not claim.
+    const gpsPair = busCount > 0 ? [47, 48] : [17, 18]
+    if (busCount > 1) rows.push({ pin: '—', signal: 'GPS UART', dir: 'err', note: 'no free UART — both are servo buses' })
+    else {
+      rows.push({ pin: String(gpsPair[0]), signal: 'GPS TX→RX', dir: 'in', note: '9600 baud NMEA' })
+      rows.push({ pin: String(gpsPair[1]), signal: 'GPS RX→TX', dir: 'out', note: '' })
+    }
   }
   if (buses.has('i2s-in') || buses.has('i2s-out')) {
     rows.push({ pin: String(I2S.bclk), signal: 'I2S BCLK', dir: 'out', note: '' })
@@ -112,11 +128,19 @@ function pinMap(design) {
     if (buses.has('i2s-out')) rows.push({ pin: String(I2S.dout), signal: 'I2S DOUT', dir: 'out', note: 'amp data' })
   }
   if (design.archetype === 'gadget') {
-    rows.push({ pin: String(take()), signal: 'KNOB', dir: 'in', note: 'ADC1, 12-bit' })
-    rows.push({ pin: String(take()), signal: 'BUTTON', dir: 'in', note: 'INPUT_PULLUP' })
+    rows.push({ pin: takePin(), signal: 'KNOB', dir: 'in', note: 'ADC1, 12-bit' })
+    rows.push({ pin: takePin(), signal: 'BUTTON', dir: 'in', note: 'INPUT_PULLUP' })
   }
 
-  return { rows, mcu, mcuKey, safePins: SAFE_PINS.length, used: used.size }
+  // Budget count = allocated pins + bus pins actually in use — the seeded
+  // reservation is a floor, not a draw.
+  let usedCount = taken
+  if (buses.has('i2c')) usedCount += 2
+  if (buses.has('spi-display')) usedCount += 3
+  if (buses.has('uart1')) usedCount += 2
+  if (buses.has('i2s-in') || buses.has('i2s-out')) usedCount += 3
+  usedCount += Math.min(busCount, 2) * 2
+  return { rows, mcu, mcuKey, safePins: SAFE_PINS.length, used: usedCount }
 }
 
 /** Power budget: rails, peak, typical, and what the pack can actually do. */
@@ -124,22 +148,77 @@ function powerBudget(design) {
   const rails = { '3V3': { typ: 0, peak: 0, items: [] }, '5V': { typ: 0, peak: 0, items: [] }, motor: { typ: 0, peak: 0, items: [] } }
   for (const { key, qty, role } of design.parts) {
     const p = PARTS[key]
-    if (!p || !p.curr) continue
+    if (!p || !p.curr) {
+      // an agent can hand us a key we do not stock — flag it, don't crash
+      if (!p) design.checks?.push({ level: 'warn', msg: `Unknown part key '${key}' in the parts list — check the brief or directive spelling.` })
+      continue
+    }
     const rail = p.cat === 'motor' || p.cat === 'servo' ? (p.volts >= 7 ? 'motor' : '5V') : '3V3'
     rails[rail].typ += p.curr.typ * qty
     rails[rail].peak += p.curr.peak * qty
     rails[rail].items.push({ key, qty, role, typ: p.curr.typ * qty, peak: p.curr.peak * qty })
   }
-  const battery = design.parts.find((p) => PARTS[p.key].cat === 'battery')
+  const battery = design.parts.find((p) => PARTS[p.key]?.cat === 'battery')
   const bat = battery ? PARTS[battery.key] : null
   const typ = rails['3V3'].typ + rails['5V'].typ + rails.motor.typ
   const peak = rails['3V3'].peak + rails['5V'].peak + rails.motor.peak
-  const runtime = bat && bat.mah > 0 ? ((bat.mah / 1000) * 0.8 * 60) / typ : null
-  return { rails, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
+  const runtime = bat && bat.mah > 0 && typ > 0.01 ? ((bat.mah / 1000) * 0.8 * 60) / typ : null
+
+  // Wiring: the power rails are sized for the stall case, the logic rail for
+  // what it actually draws. Fuse between them — it protects the WIRE.
+  const railLabel = { '3V3': '3V3 logic', '5V': '6V servo', motor: 'motor' }
+  const wiring = Object.entries(rails)
+    .filter(([, v]) => v.peak > 0.01)
+    .map(([name, v]) => ({
+      rail: railLabel[name] || name,
+      amps: Math.max(v.typ, 0.05),
+      peak: v.peak,
+      awg: wireFor(name === '3V3' ? Math.max(v.typ, 0.1) : v.peak * 0.8),
+      fuse: name === '3V3' ? null : fuseFor(Math.max(v.typ, 0.1)),
+      conn: name === '3V3' ? 'JST-PH / Dupont' : v.peak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH',
+    }))
+
+  return { rails, wiring, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
+}
+
+/**
+ * Screws and inserts nobody wants to count by hand. Called from analyze so the
+ * BOM, cost and CSV all agree — run once, guarded, because analyze() can run
+ * again on a rebuilt design that already carries the lines.
+ */
+function autoFasteners(design) {
+  if (design._fastened) return
+  design._fastened = true
+  let m3 = 0
+  let m2 = 0
+  let boards = 0
+  for (const { key, qty } of design.parts) {
+    const cat = PARTS[key]?.cat
+    if (cat === 'servo') m3 += qty * 4 // ear bolts per servo
+    else if (cat === 'motor') m3 += qty * 4 // face-mount pattern
+    else if (cat === 'mcu' || cat === 'driver' || cat === 'display') boards += qty
+    else if (cat === 'sensor' && PARTS[key].bus === 'switch') m2 += qty * 2
+  }
+  const screws10 = Math.ceil((m3 + boards * 4) / 10)
+  const inserts10 = Math.ceil(m3 / 10)
+  // A design that already carries the assortment kit does not also need the
+  // counted lines — one or the other, never both.
+  const hasKit = design.parts.some((p) => p.key === 'hw_m3' || p.key === 'm3_screws')
+  if (screws10 > 0 && !hasKit) {
+    addPart(design, 'm3_screws', screws10, `${m3 + boards * 4} counted M3 (servos, motors, boards)`)
+    addPart(design, 'insert_m3', Math.max(1, inserts10), `${m3} heat-set threads at loaded joints`)
+  }
+  if (m2 > 0 && !design.parts.some((p) => p.key === 'm2_screws')) {
+    addPart(design, 'm2_screws', 1, `${m2} micro screws`)
+  }
+  if (boards > 0 && !design.parts.some((p) => p.key === 'standoff_m3')) {
+    addPart(design, 'standoff_m3', 1, `${boards} boards off the deck`)
+  }
 }
 
 /** Everything the UI and every export reads. Pure: design in, numbers out. */
 function analyze(design) {
+  autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
@@ -200,19 +279,31 @@ function analyze(design) {
   }
 }
 
-function boundsOf(nodes) {
-  const min = [Infinity, Infinity, Infinity]
-  const max = [-Infinity, -Infinity, -Infinity]
-  for (const n of nodes) {
-    const half = n.kind === 'box'
-      ? [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
-      : n.axis === 'x' ? [n.height / 2, n.radius, n.radius]
-        : n.axis === 'y' ? [n.radius, n.height / 2, n.radius]
-          : [n.radius, n.radius, n.height / 2]
-    for (let i = 0; i < 3; i += 1) {
-      min[i] = Math.min(min[i], n.pos[i] - half[i])
-      max[i] = Math.max(max[i], n.pos[i] + half[i])
-    }
+/** Axis-aligned half extents for every node kind the engine emits. */
+function nodeHalf(n) {
+  if (n.size) return [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2] // box/rbox/wedge/rack
+  if (n.kind === 'sphere') return [n.radius, n.radius, n.radius]
+  if (n.kind === 'ring') {
+    return n.axis === 'x' ? [n.height / 2, n.outer, n.outer]
+      : n.axis === 'y' ? [n.outer, n.height / 2, n.outer] : [n.outer, n.outer, n.height / 2]
   }
-  return { min, max }
+  if (n.kind === 'torus') {
+    const R = n.R + n.r
+    return n.axis === 'x' ? [n.r, R, R] : n.axis === 'y' ? [R, n.r, R] : [R, R, n.r]
+  }
+  if (n.kind === 'bend') {
+    const e = n.R + n.r // conservative: the arc sweeps a square footprint
+    return [e, e, Math.max(n.r, e * 0.6)]
+  }
+  if (n.kind === 'gear') {
+    const tip = (n.module * n.teeth) / 2 + n.module
+    const half = n.width / 2
+    return n.axis === 'x' ? [half, tip, tip] : n.axis === 'y' ? [tip, half, tip] : [tip, tip, half]
+  }
+  const r = n.radius || 0
+  const h = n.height || r * 2
+  return n.axis === 'x' ? [h / 2, r, r] : n.axis === 'y' ? [r, h / 2, r] : [r, r, h / 2]
 }
+
+// boundsOf() lives in 40-geometry.js — the one that knows rot'd parts need
+// radial bounds. nodeHalf() above is for the print table's per-part dims.

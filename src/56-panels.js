@@ -65,6 +65,20 @@ function TabSpec({ design, analysis }) {
           `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
   }
 
+  if (design.mech && design.mech.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'mechanics'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'CHECK'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'VALUE'),
+        h('th', { style: S.th }, 'LIMIT'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'OK'))),
+      h('tbody', {}, design.mech.map((r) => h('tr', { key: r.label },
+        h('td', { style: S.td }, r.label),
+        h('td', { style: S.tdNum }, r.value),
+        h('td', { style: { ...S.td, color: C.faint } }, r.limit),
+        h('td', { style: { ...S.tdNum, color: r.ok == null ? C.faint : r.ok ? C.green : C.red } },
+          r.ok == null ? '·' : r.ok ? '✓' : '✗'))))))
+  }
+
   if (m.motor) {
     const mp = PARTS[m.motor]
     blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'drivetrain'))
@@ -111,7 +125,7 @@ function TabParts({ design, analysis }) {
         h('td', { style: S.td },
           h('div', { style: { color: C.text } }, r.part.name),
           h('div', { style: { color: C.faint, fontSize: '9.5px', marginTop: '2px', lineHeight: 1.4 } },
-            [r.role, r.part.note].filter(Boolean).join(' · '))),
+            [r.role, r.part.dims ? r.part.dims.join('×') + 'mm' : '', r.part.sku ? `⌕ ${r.part.sku}` : '', r.part.note].filter(Boolean).join(' · '))),
         h('td', { style: { ...S.tdNum, color: C.dim } }, `×${r.qty}`),
         h('td', { style: S.tdNum }, money(r.part.price * r.qty)))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${C.line}`, fontFamily: C.mono, fontSize: '11px' } },
@@ -172,6 +186,22 @@ function TabPower({ analysis }) {
       h(StatBlock, { label: 'TYPICAL', value: `${fmt(typ, 2)}A` }),
       h(StatBlock, { label: 'PEAK', value: `${fmt(peak, 2)}A`, color: C.accent })),
     ...bars,
+    analysis.power.wiring && analysis.power.wiring.length
+      ? h('div', {},
+        h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'wiring'),
+        h('table', { style: S.table },
+          h('thead', {}, h('tr', {},
+            h('th', { style: S.th }, 'RAIL'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'DRAW'),
+            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
+            h('th', { style: S.th }, 'CONNECTOR'))),
+          h('tbody', {}, analysis.power.wiring.map((w) => h('tr', { key: w.rail },
+            h('td', { style: S.td }, w.rail),
+            h('td', { style: S.tdNum }, `${fmt(w.amps, 2)}A`),
+            h('td', { style: { ...S.tdNum, color: C.cyan } }, `${w.awg} AWG`),
+            h('td', { style: { ...S.tdNum, color: w.fuse ? C.amber : C.faint } }, w.fuse ? `${w.fuse}A` : '—'),
+            h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
+      )
+      : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },
       bat ? h(KV, { k: 'pack', v: bat.name }) : h(KV, { k: 'source', v: 'n/a' }),
@@ -189,7 +219,7 @@ function TabPower({ analysis }) {
 function TabPrint({ design, analysis }) {
   const nodes = design.nodes.filter((n) => n.print)
   const rows = nodes
-    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: n.kind === 'box' ? n.size : [n.radius * 2, n.radius * 2, n.height] }))
+    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
   return [

@@ -41,6 +41,12 @@ const G = 9.80665
 //   curr:   {idle, typ, peak} in AMPS at the part's own voltage
 //   mass:   grams
 //   price:  USD, single unit, 2026 maker pricing (order-of-magnitude honest)
+//   dims:   [l,w,h] mm overall envelope — the BOM shows it, the renderer uses it
+//   shaft:  output interface spec (spline / D-flat / bore)
+//   mount:  fastener pattern text, e.g. "4×M3 on 10.5×49mm ears"
+//   conn:   the connector it arrives with / expects
+//   sku:    the term you paste into a vendor search to buy it
+//   src:    ali | amzn | pololu | hw (local hardware) | print
 
 const PARTS = {
   // ── MCUs ──────────────────────────────────────────────────────────────────
@@ -50,6 +56,8 @@ const PARTS = {
     curr: { idle: 0.04, typ: 0.13, peak: 0.55 },
     pinBudget: 44, adcPins: 20, pwmPins: 8,
     features: ['wifi', 'ble', 'usb', 'psram'],
+    dims: [62, 26, 8], conn: '2× USB-C + 2.54 headers', mount: '4×M2.5 or breadboard',
+    sku: 'ESP32-S3-DevKitC-1-N16R8', src: 'ali',
     note: '16MB flash / 8MB PSRAM. 3.3V logic, 5V VIN.',
   },
   esp32c6: {
@@ -58,6 +66,8 @@ const PARTS = {
     curr: { idle: 0.035, typ: 0.11, peak: 0.45 },
     pinBudget: 30, adcPins: 7, pwmPins: 6,
     features: ['wifi6', 'ble', 'thread', 'zigbee'],
+    dims: [55, 26, 8], conn: 'USB-C + 2.54 headers', mount: '4×M2.5 or breadboard',
+    sku: 'ESP32-C6-DevKitC-1', src: 'ali',
     note: 'Thread/Zigbee for home automation. Fewer GPIO — plan for an expander.',
   },
   pico: {
@@ -66,6 +76,8 @@ const PARTS = {
     curr: { idle: 0.02, typ: 0.06, peak: 0.25 },
     pinBudget: 26, adcPins: 3, pwmPins: 16,
     features: ['pio', 'usb'],
+    dims: [51, 21, 4], conn: 'micro-USB + 2.54 castellated', mount: 'castellated edges',
+    sku: 'Raspberry Pi Pico 2W RP2350', src: 'amzn',
     note: 'No radio. PIO blocks are excellent for encoders and LED timing.',
   },
 
@@ -74,55 +86,90 @@ const PARTS = {
     name: 'SG90 micro servo',
     cat: 'servo', price: 3.5, mass: 9, volts: 5, torque: 0.18,
     curr: { idle: 0.008, typ: 0.15, peak: 0.75 }, angle: 180, speed: 0.1,
+    dims: [22.6, 12.2, 29.5], shaft: '21T spline Ø4.8mm', mount: '2×M2 on 27.5mm ears',
+    conn: 'JR 3-pin, 180mm lead', sku: 'SG90 9g micro servo', src: 'ali',
     note: 'Plastic gears. Fine for a head pan, not for a load-bearing joint.',
   },
   mg90s: {
     name: 'MG90S metal-gear micro',
     cat: 'servo', price: 5, mass: 13.4, volts: 5, torque: 0.22,
     curr: { idle: 0.008, typ: 0.18, peak: 0.9 }, angle: 180, speed: 0.1,
+    dims: [22.8, 12.2, 28.5], shaft: '21T spline Ø4.8mm', mount: '2×M2 on 28mm ears',
+    conn: 'JR 3-pin, 180mm lead', sku: 'MG90S metal gear servo', src: 'ali',
     note: 'Metal gears, same footprint as SG90 — the default small joint.',
+  },
+  scs0009: {
+    name: 'Feetech SCS0009 serial micro',
+    cat: 'servo', price: 16, mass: 12, volts: 5, torque: 0.23,
+    curr: { idle: 0.01, typ: 0.2, peak: 0.8 }, angle: 300, speed: 0.11,
+    bus: 'ttl-half-duplex',
+    dims: [23.5, 12, 24.7], shaft: '20T spline Ø4.8mm', mount: '2×M2 on 30mm ears',
+    conn: '3-wire TTL bus, daisy-chain', sku: 'Feetech SCS0009 serial servo', src: 'ali',
+    note: '9g-class servo with position/temp/load feedback over TTL bus. Chainable.',
   },
   mg996r: {
     name: 'MG996R standard servo',
     cat: 'servo', price: 12, mass: 55, volts: 6, torque: 1.08,
     curr: { idle: 0.01, typ: 0.4, peak: 2.5 }, angle: 180, speed: 0.17,
+    dims: [40.7, 19.7, 42.9], shaft: '25T spline Ø5.9mm', mount: '4×M3 on 10.5×49mm ears',
+    conn: 'JR 3-pin, 300mm lead', sku: 'MG996R servo', src: 'ali',
     note: '11 kg·cm at 6V. Never power from the MCU 5V pin — brownout city.',
   },
   ds3218: {
     name: 'DS3218 20kg servo',
     cat: 'servo', price: 18, mass: 60, volts: 6.8, torque: 1.96,
     curr: { idle: 0.012, typ: 0.6, peak: 3.0 }, angle: 270, speed: 0.16,
+    dims: [40, 20, 40.5], shaft: '25T spline Ø5.9mm', mount: '4×M3 on 10.5×49mm ears',
+    conn: 'JR 3-pin, 300mm lead', sku: 'DS3218 20kg digital servo', src: 'ali',
     note: '20 kg·cm, metal case. Wants a dedicated 6–7.4V rail.',
+  },
+  ds3225: {
+    name: 'DS3225 25kg servo',
+    cat: 'servo', price: 22, mass: 67, volts: 6.8, torque: 2.45,
+    curr: { idle: 0.012, typ: 0.7, peak: 3.4 }, angle: 270, speed: 0.15,
+    dims: [40, 20, 40.5], shaft: '25T spline Ø5.9mm', mount: '4×M3 on 10.5×49mm ears',
+    conn: 'JR 3-pin, 300mm lead', sku: 'DS3225MG 25kg servo', src: 'ali',
+    note: 'The biggest hobby-case servo before you go serial-bus or stepper.',
   },
   sts3215: {
     name: 'Feetech STS3215 serial bus servo',
     cat: 'servo', price: 28, mass: 62, volts: 7.4, torque: 2.94,
     curr: { idle: 0.01, typ: 0.45, peak: 2.0 }, angle: 360, speed: 0.22,
     bus: 'ttl-half-duplex',
+    dims: [40, 20, 40.5], shaft: '25T spline Ø5.9mm', mount: '4×M3 on 10.5×49mm ears',
+    conn: '3-wire TTL bus, daisy-chain', sku: 'Feetech STS3215 30kg serial servo', src: 'ali',
     note: 'Daisy-chained TTL bus + magnetic encoder: 6 wires for 12 joints.',
   },
   n20_100: {
     name: 'N20 gearmotor 6V 100rpm',
     cat: 'motor', price: 6, mass: 10, volts: 6, torque: 0.05,
     curr: { idle: 0.01, typ: 0.15, peak: 1.2 }, speed: 100, encoder: false,
+    dims: [24, 10, 12], shaft: '3mm D-shaft ×10mm', mount: 'face-mount bracket or clamp',
+    conn: '2× bare tabs, solder', sku: 'N20 6V 100RPM gearmotor', src: 'ali',
     note: 'Tiny. Good for a light rover, not for a hill.',
   },
   n20_enc: {
     name: 'N20 gearmotor 6V 150rpm + encoder',
     cat: 'motor', price: 14, mass: 12, volts: 6, torque: 0.06,
     curr: { idle: 0.01, typ: 0.18, peak: 1.3 }, speed: 150, encoder: true,
+    dims: [30, 10, 12], shaft: '3mm D-shaft ×10mm', mount: 'face-mount bracket or clamp',
+    conn: '6-pin JST-PH (motor+enc)', sku: 'N20 150RPM encoder gearmotor', src: 'pololu',
     note: '7 PPR magnetic encoder — closed-loop odometry on a budget.',
   },
   jgb37: {
     name: 'JGB37-520 12V 178rpm + encoder',
     cat: 'motor', price: 22, mass: 108, volts: 12, torque: 1.18,
     curr: { idle: 0.05, typ: 0.5, peak: 2.6 }, speed: 178, encoder: true,
+    dims: [70, 37, 37], shaft: '6mm D-shaft ×15.5mm', mount: '2×M3 face or 37mm bracket',
+    conn: '6-pin JST-PH (motor+enc)', sku: 'JGB37-520 12V 178RPM encoder', src: 'ali',
     note: 'The realistic rover motor: 12 kg·cm and a real 11 PPR encoder.',
   },
   nema17: {
     name: 'NEMA17 42-40 stepper',
     cat: 'motor', price: 14, mass: 280, volts: 12, torque: 0.4,
     curr: { idle: 0.2, typ: 0.8, peak: 1.5 }, speed: 200, encoder: false,
+    dims: [42.3, 42.3, 40], shaft: '5mm D-shaft ×24mm', mount: '4×M3 on 31mm square',
+    conn: '4-pin JST-XH', sku: 'NEMA17 42×40 stepper 1.5A', src: 'ali',
     note: 'Open-loop but repeatable — the right choice for a positioner axis.',
   },
 
@@ -131,68 +178,95 @@ const PARTS = {
     name: 'PCA9685 16-ch PWM driver',
     cat: 'driver', price: 6, mass: 6, volts: 5,
     curr: { idle: 0.006, typ: 0.01, peak: 0.02 },
+    dims: [62, 26, 4], conn: 'screw terminals + 0.1" servo headers', mount: '4×M2.5',
+    sku: 'PCA9685 16 channel servo driver', src: 'ali',
     note: 'I2C 0x40. One board drives 16 servos off its own screw terminal.',
   },
   tb6612: {
     name: 'TB6612FNG dual motor driver',
     cat: 'driver', price: 4, mass: 3, volts: 5,
     curr: { idle: 0.002, typ: 0.005, peak: 0.02 }, ampacity: 1.2,
+    dims: [20, 20, 3], conn: '0.1" headers', mount: '2×M2.5 or headers',
+    sku: 'TB6612FNG breakout board', src: 'pololu',
     note: 'Two channels, 1.2A continuous. Silent PWM, unlike the L298N.',
   },
   bts7960: {
     name: 'BTS7960 43A motor driver',
     cat: 'driver', price: 9, mass: 22, volts: 5,
     curr: { idle: 0.01, typ: 0.02, peak: 0.05 }, ampacity: 43,
+    dims: [50, 43, 20], conn: 'screw terminals + pin header', mount: '4×M3',
+    sku: 'BTS7960B 43A H-bridge module', src: 'ali',
     note: 'For gearmotors whose stall current would cook a TB6612.',
   },
   drv8825: {
     name: 'DRV8825 stepper driver',
     cat: 'driver', price: 5, mass: 4, volts: 5,
     curr: { idle: 0.01, typ: 0.02, peak: 0.03 }, ampacity: 1.5,
+    dims: [20, 15, 8], conn: '0.1" headers', mount: 'breadboard / carrier socket',
+    sku: 'DRV8825 stepper driver carrier', src: 'pololu',
     note: 'Set Vref before you connect the motor. Always.',
   },
   bus_adapter: {
     name: 'Feetech UART bus adapter (TTL half-duplex)', cat: 'driver', price: 8, mass: 6, volts: 5,
     curr: { idle: 0.005, typ: 0.01, peak: 0.02 },
+    dims: [40, 22, 6], conn: 'USB-C in + 3-pin servo bus out', mount: '4×M2',
+    sku: 'Feetech TTLinker-mini / URT-1', src: 'ali',
     note: 'One UART, up to 253 addressable servos. This is how 23 joints fit on an ESP32.',
   },
   buck5a: {
     name: 'UBEC 5V 5A (buck)',
     cat: 'power', price: 7, mass: 18, volts: 12,
     curr: { idle: 0.005, typ: 0.01, peak: 0.02 },
+    dims: [45, 18, 12], conn: 'bare leads in, JR out', mount: 'heatshrink, no holes',
+    sku: 'Hobbywing UBEC 5V 5A', src: 'amzn',
     note: 'Servo rail from a 2S/3S pack. Gives the MCU a clean 5V too.',
   },
   lm2596: {
     name: 'LM2596 buck module',
     cat: 'power', price: 3, mass: 12, volts: 12,
     curr: { idle: 0.005, typ: 0.01, peak: 0.015 },
+    dims: [43, 21, 14], conn: 'screw terminals', mount: '4×M3',
+    sku: 'LM2596S buck converter module', src: 'ali',
     note: '3A max in theory, ~2A before it gets hot. Fine for logic.',
+  },
+  ina219: {
+    name: 'INA219 I2C power monitor',
+    cat: 'sensor', price: 5, mass: 3, volts: 3.3,
+    curr: { idle: 0.001, typ: 0.001, peak: 0.002 }, bus: 'i2c',
+    dims: [25, 22, 4], conn: '0.1" header + screw terminals', mount: '4×M2.5',
+    sku: 'INA219 current sensor breakout', src: 'ali',
+    note: 'High-side shunt to 26V/3.2A. The difference between "it works" and telemetry.',
   },
 
   // ── energy ────────────────────────────────────────────────────────────────
   pack2s: {
     name: '2S 18650 pack 3000mAh (7.4V)',
     cat: 'battery', price: 18, mass: 100, volts: 7.4, mah: 3000, maxA: 6,
+    dims: [70, 38, 20], conn: 'XT60 + JST-XH balance', sku: '2S 18650 battery box BMS XT60', src: 'amzn',
     note: 'With a protection board and an XT60. The default small-robot pack.',
   },
   pack3s: {
     name: '3S 18650 pack 2500mAh (11.1V)',
     cat: 'battery', price: 22, mass: 140, volts: 11.1, mah: 2500, maxA: 8,
+    dims: [78, 56, 22], conn: 'XT60 + JST-XH balance', sku: '3S 18650 battery pack BMS XT60', src: 'amzn',
     note: 'Pair with a 5V UBEC; the 12V motors will thank you.',
   },
   lipo2s: {
     name: 'LiPo 2S 1000mAh 30C',
     cat: 'battery', price: 14, mass: 60, volts: 7.4, mah: 1000, maxA: 30,
+    dims: [70, 35, 14], conn: 'XT30 + JST-XH balance', sku: '2S 1000mAh 30C LiPo XT30', src: 'amzn',
     note: 'Light and punchy. Needs a proper balance charger and a LiPo bag.',
   },
   lipo3s: {
     name: 'LiPo 3S 2200mAh 30C',
     cat: 'battery', price: 25, mass: 180, volts: 11.1, mah: 2200, maxA: 40,
+    dims: [105, 35, 25], conn: 'XT60 + JST-XH balance', sku: '3S 2200mAh 30C LiPo XT60', src: 'amzn',
     note: 'Enough burst for 12 servos. Do not leave it charged in a drawer.',
   },
   pd5v: {
     name: 'USB-C PD trigger 5V/3A',
     cat: 'battery', price: 8, mass: 20, volts: 5, mah: 0, maxA: 3,
+    dims: [30, 18, 8], conn: 'USB-C in, screw terminals out', sku: 'USB-C PD trigger 5V module', src: 'ali',
     note: 'Tethered desk builds: infinite runtime, no charging rituals.',
   },
 
@@ -200,135 +274,298 @@ const PARTS = {
   mpu6050: {
     name: 'MPU-6050 IMU', cat: 'sensor', price: 4, mass: 2, volts: 3.3,
     curr: { idle: 0.004, typ: 0.005, peak: 0.006 }, bus: 'i2c',
+    dims: [21, 16, 3], conn: '0.1" headers', mount: '2×M2.5',
+    sku: 'GY-521 MPU6050 breakout', src: 'ali',
     note: '6-axis accel+gyro. Drifts; fine for tilt, not for yaw headings.',
   },
   bno085: {
     name: 'BNO085 9-DoF IMU', cat: 'sensor', price: 22, mass: 3, volts: 3.3,
     curr: { idle: 0.012, typ: 0.015, peak: 0.02 }, bus: 'i2c',
+    dims: [25, 20, 4], conn: 'STEMMA-QT / 0.1" headers', mount: '4×M2.5',
+    sku: 'Adafruit BNO085 IMU STEMMA', src: 'amzn',
     note: 'On-chip fusion — gives you a usable heading out of the box.',
   },
   vl53l0x: {
     name: 'VL53L0X ToF rangefinder', cat: 'sensor', price: 6, mass: 2, volts: 3.3,
     curr: { idle: 0.005, typ: 0.02, peak: 0.04 }, bus: 'i2c',
+    dims: [25, 17, 3], conn: '0.1" headers', mount: '4×M2',
+    sku: 'GY-530 VL53L0X ToF sensor', src: 'ali',
     note: '2m, millimetre-ish, no acoustic ring. Address is re-programmable.',
   },
   hcsr04: {
     name: 'HC-SR04 ultrasonic', cat: 'sensor', price: 2, mass: 9, volts: 5,
     curr: { idle: 0.002, typ: 0.015, peak: 0.03 },
+    dims: [45, 20, 15], conn: '4-pin 0.1" header', mount: '4×M2',
+    sku: 'HC-SR04 ultrasonic module', src: 'ali',
     note: '5V echo — needs a divider into a 3.3V MCU.',
   },
   as5600: {
     name: 'AS5600 magnetic encoder', cat: 'sensor', price: 5, mass: 2, volts: 3.3,
     curr: { idle: 0.006, typ: 0.01, peak: 0.015 }, bus: 'i2c',
+    dims: [22, 20, 4], conn: '0.1" headers + Ø6 magnet', mount: '4×M2.5',
+    sku: 'AS5600 magnetic encoder module', src: 'ali',
     note: 'Absolute joint angle over 12 bits — how you close the loop on an arm.',
   },
   bme280: {
     name: 'BME280 temp/humidity/pressure', cat: 'sensor', price: 6, mass: 2, volts: 3.3,
     curr: { idle: 0.001, typ: 0.002, peak: 0.003 }, bus: 'i2c',
+    dims: [19, 18, 3], conn: '0.1" headers', mount: '2×M2',
+    sku: 'GY-BME280 breakout', src: 'ali',
     note: 'Forget the "feels like" number, the pressure trend is the fun part.',
   },
   inmp441: {
     name: 'INMP441 I2S mic', cat: 'sensor', price: 6, mass: 2, volts: 3.3,
     curr: { idle: 0.002, typ: 0.004, peak: 0.006 }, bus: 'i2s',
+    dims: [18, 15, 3], conn: '0.1" headers', mount: 'adhesive / clip',
+    sku: 'INMP441 omnidirectional I2S mic', src: 'ali',
     note: 'Digital mic — no ADC noise, straight into I2S DMA.',
   },
   ov2640: {
     name: 'OV2640 camera (ESP32-CAM style)', cat: 'sensor', price: 9, mass: 5, volts: 3.3,
     curr: { idle: 0.03, typ: 0.08, peak: 0.2 }, bus: 'dvp',
+    dims: [25, 24, 25], conn: 'board-to-board DVP', mount: '2×M2',
+    sku: 'OV2640 2MP camera module ESP32', src: 'ali',
     note: 'Wants PSRAM and a stable 3.3V rail; JPEG at 1600x1200 is achievable.',
   },
   gps: {
     name: 'u-blox NEO-6M GPS', cat: 'sensor', price: 12, mass: 12, volts: 3.3,
     curr: { idle: 0.03, typ: 0.045, peak: 0.06 }, bus: 'uart',
+    dims: [36, 24, 6], conn: '4-pin 0.1" header + antenna', mount: '4×M3',
+    sku: 'GY-NEO6MV2 GPS module antenna', src: 'ali',
     note: 'Needs sky view. Cold fix is 30s+; expect a UART and a 1Hz NMEA stream.',
   },
   pir: {
     name: 'HC-SR501 PIR', cat: 'sensor', price: 3, mass: 10, volts: 5,
     curr: { idle: 0.05, typ: 0.06, peak: 0.07 },
+    dims: [33, 25, 24], conn: '3-pin 0.1" header', mount: '2×M2',
+    sku: 'HC-SR501 PIR motion sensor', src: 'ali',
     note: '5V output, 3.3V-safe enough in practice. 3.3V rails make it flaky.',
   },
   hx711: {
     name: 'HX711 + 5kg load cell', cat: 'sensor', price: 9, mass: 30, volts: 5,
     curr: { idle: 0.002, typ: 0.003, peak: 0.005 },
+    dims: [80, 13, 10], conn: '0.1" headers + 4-wire cell', mount: '2×M4 through cell',
+    sku: 'HX711 5kg load cell kit', src: 'ali',
     note: '24-bit bridge amp, ~10Hz. The classic scale front-end.',
   },
   soil: {
     name: 'Capacitive soil moisture probe', cat: 'sensor', price: 4, mass: 8, volts: 3.3,
     curr: { idle: 0.005, typ: 0.006, peak: 0.008 },
+    dims: [98, 23, 4], conn: '3-pin JST-PH', mount: 'sticks in the pot',
+    sku: 'capacitive soil moisture sensor v1.2', src: 'ali',
     note: 'Capacitive, so it does not corrode in a week like the resistive ones.',
+  },
+  limit_sw: {
+    name: 'KW12 limit switch (lever)', cat: 'sensor', price: 1.5, mass: 3, volts: 3.3,
+    curr: { idle: 0, typ: 0, peak: 0.001 }, bus: 'switch',
+    dims: [20, 10, 7], conn: '3× solder tabs', mount: '2×M2.5 on 9.5mm',
+    sku: 'KW12-3 micro limit switch lever', src: 'hw',
+    note: 'Homing and end-stops. Wire it NC — a broken wire then fails SAFE.',
   },
 
   // ── human interface ───────────────────────────────────────────────────────
   ssd1306: {
     name: 'SSD1306 128x64 OLED', cat: 'display', price: 5, mass: 5, volts: 3.3,
     curr: { idle: 0.01, typ: 0.015, peak: 0.03 }, bus: 'i2c',
+    dims: [27, 27, 4], conn: '4-pin 0.1" header', mount: '4×M2',
+    sku: '0.96 SSD1306 I2C OLED white', src: 'ali',
     note: 'I2C 0x3C. Two wires, instant readable UI.',
   },
   ili9341: {
     name: '2.8" ILI9341 SPI touch TFT', cat: 'display', price: 15, mass: 25, volts: 3.3,
     curr: { idle: 0.02, typ: 0.04, peak: 0.08 }, bus: 'spi',
+    dims: [85, 55, 6], conn: '14-pin 0.1" header', mount: '4×M3 bezel',
+    sku: '2.8 inch ILI9341 SPI TFT touch', src: 'ali',
     note: '320x240 + XPT2046 touch. Backlight is the real power draw.',
   },
   gc9a01: {
     name: 'GC9A01 1.28" round LCD', cat: 'display', price: 9, mass: 8, volts: 3.3,
     curr: { idle: 0.02, typ: 0.035, peak: 0.06 }, bus: 'spi',
+    dims: [40, 36, 4], conn: '7-pin 0.1" header', mount: 'press bezel',
+    sku: 'GC9A01 1.28 round TFT 240x240', src: 'ali',
     note: 'Round 240x240 — the "robot face" display.',
   },
   max98357: {
     name: 'MAX98357A I2S amp + 3W speaker', cat: 'display', price: 9, mass: 40, volts: 5,
     curr: { idle: 0.004, typ: 0.05, peak: 0.6 }, bus: 'i2s',
+    dims: [30, 26, 12], conn: '0.1" headers + speaker pads', mount: '2×M2.5',
+    sku: 'MAX98357A I2S amplifier breakout', src: 'amzn',
     note: '2.5W into 4Ω. Shares the I2S bus with a mic if you tri-state right.',
   },
 
   // ── structure & consumables ───────────────────────────────────────────────
   wheel130: {
     name: '130mm off-road wheel + 6mm hub', cat: 'mech', price: 9, mass: 120, volts: 0,
+    dims: [130, 130, 48], shaft: '6mm hex bore', mount: 'hub screws to shaft',
+    sku: '130mm robot wheel 6mm hex hub', src: 'ali',
     note: 'Buy the wheel, print only the adapter. Printed tyres on a 3kg robot last a week.',
+  },
+  wheel65: {
+    name: '65mm rubber wheel + 3mm hub', cat: 'mech', price: 4, mass: 35, volts: 0,
+    dims: [65, 65, 26], shaft: '3mm D bore', mount: 'set screw to D-shaft',
+    sku: '65mm robot car wheel TT motor', src: 'ali',
+    note: 'The yellow-gearbox wheel, sized for N20 motors too.',
   },
   bearing608: {
     name: '608ZZ bearing', cat: 'mech', price: 1.2, mass: 12, volts: 0,
+    dims: [22, 22, 7], shaft: 'Ø8mm bore', mount: 'press fit into Ø22 pocket',
+    sku: '608ZZ skate bearing 8x22x7', src: 'hw',
     note: '8x22x7mm. The bearing every printed hub is secretly designed around.',
+  },
+  bearing6900: {
+    name: '6900ZZ thin bearing', cat: 'mech', price: 1.5, mass: 9, volts: 0,
+    dims: [22, 22, 6], shaft: 'Ø10mm bore', mount: 'press fit into Ø22 pocket',
+    sku: '6900ZZ 10x22x6 thin section bearing', src: 'hw',
+    note: 'Same OD as a 608 with a 10mm bore — for bigger printed shafts.',
+  },
+  bearingf625: {
+    name: 'F625ZZ flanged bearing', cat: 'mech', price: 1, mass: 5, volts: 0,
+    dims: [18, 18, 5], shaft: 'Ø5mm bore, Ø18 flange', mount: 'flange stops pull-through',
+    sku: 'F625ZZ flanged bearing 5x16x5', src: 'hw',
+    note: 'Belt idlers and small wheels — the flange does the axial locating for you.',
+  },
+  thrust51103: {
+    name: '51103 thrust bearing', cat: 'mech', price: 3, mass: 12, volts: 0,
+    dims: [30, 30, 9], shaft: 'Ø17mm bore', mount: 'sits in a pocket, carries axial load',
+    sku: '51103 thrust ball bearing 17x30x9', src: 'hw',
+    note: 'A yaw axis that carries weight wants this, not a radial bearing.',
   },
   hw_m3: {
     name: 'M3 hardware kit (screws/nuts/inserts)', cat: 'mech', price: 12, mass: 80, volts: 0,
+    sku: 'M3 screw nut assortment box', src: 'hw',
     note: 'Button-head screws + heat-set inserts. Buy the kit, not the bag.',
+  },
+  m3_screws: {
+    name: 'M3 socket-head screws (per 10)', cat: 'mech', price: 2.5, mass: 25, volts: 0,
+    dims: [3, 3, 10], sku: 'M3x8/10/12/16 SHCS class 12.9', src: 'hw',
+    note: 'Sold in 10s here so the BOM shows the real count. Socket heads, not Phillips.',
+  },
+  m2_screws: {
+    name: 'M2/M2.5 micro screw kit', cat: 'mech', price: 9, mass: 60, volts: 0,
+    sku: 'M2 M2.5 screw assortment kit', src: 'hw',
+    note: 'Micro servos, cameras and tiny boards live on M2. Separate kit, separate drawer.',
+  },
+  insert_m3: {
+    name: 'M3 heat-set inserts (per 10)', cat: 'mech', price: 1.5, mass: 4, volts: 0,
+    dims: [4.6, 4.6, 5.7], mount: 'press into Ø4.2 hole at ~200°C',
+    sku: 'M3x5.7 heat set threaded inserts', src: 'hw',
+    note: 'The only thread a printed part should ever take a load on.',
+  },
+  standoff_m3: {
+    name: 'M3 standoff kit (brass/nylon)', cat: 'mech', price: 8, mass: 80, volts: 0,
+    dims: [5, 5, 10], sku: 'M3 standoff spacer assortment', src: 'hw',
+    note: 'Boards go on standoffs, not flat against a printed face with solder spikes.',
   },
   gt2_kit: {
     name: 'GT2 belt + 20T pulleys', cat: 'mech', price: 9, mass: 40, volts: 0,
+    dims: [16, 16, 11], shaft: '5mm bore pulleys', sku: 'GT2 6mm belt pulley 20T kit', src: 'ali',
     note: 'Cheap reduction or a linear axis.',
   },
-  pla_kg: {
-    name: 'PLA+ filament (1kg)', cat: 'mech', price: 18, mass: 1000, volts: 0, print: true,
-    note: 'Stiff, easy, brittle. Fine for brackets, poor for hot cars.',
+  mgn12: {
+    name: 'MGN12H rail 150mm + 2 carriages', cat: 'mech', price: 14, mass: 95, volts: 0,
+    dims: [150, 12, 8], mount: 'M3 every 40mm', shaft: '12mm rail, 4-ball carriage',
+    sku: 'MGN12H linear rail 150mm carriage', src: 'ali',
+    note: 'Real linear motion. A jaw or axis on this does not wobble, period.',
   },
-  petg_kg: {
-    name: 'PETG filament (1kg)', cat: 'mech', price: 21, mass: 1000, volts: 0, print: true,
-    note: 'Tougher and slightly flexible — the right call for load-bearing prints.',
+  leadscrew_t8: {
+    name: 'T8 leadscrew 200mm + POM nut', cat: 'mech', price: 9, mass: 85, volts: 0,
+    dims: [200, 8, 8], shaft: 'Ø8 Tr8x8 4-start', mount: 'KP08 bearing blocks',
+    sku: 'T8 lead screw 200mm brass nut', src: 'ali',
+    note: '2mm per rev, self-locking. Slow, strong, quiet — the clamp axis.',
+  },
+  springkit: {
+    name: 'Extension spring assortment', cat: 'mech', price: 8, mass: 90, volts: 0,
+    sku: 'extension spring assortment box', src: 'hw',
+    note: 'Counterbalance springs for arms and lids — cheap torque that never browns out.',
   },
   jst_kit: {
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
+    conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
   wire22: {
     name: '22AWG silicone wire (6 colours)', cat: 'mech', price: 9, mass: 60, volts: 0,
+    conn: 'signal/servo runs to ~1.5A', sku: '22AWG silicone wire kit 6 colors', src: 'amzn',
     note: 'Stranded silicone survives joints that move.',
+  },
+  wire18: {
+    name: '18AWG silicone pair (2m)', cat: 'mech', price: 8, mass: 70, volts: 0,
+    conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
+    note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
   },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
+    conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
     note: 'The pack interface. Solder the battery side first, one lead at a time.',
+  },
+  xt30: {
+    name: 'XT30 connector pair', cat: 'mech', price: 2.5, mass: 5, volts: 0,
+    conn: '15A continuous', sku: 'XT30 connector pair', src: 'amzn',
+    note: 'Half the size of an XT60 — the right plug for 2S/3A-class machines.',
+  },
+  fuse: {
+    name: 'Inline fuse holder + blade fuse', cat: 'mech', price: 3, mass: 10, volts: 0,
+    conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
+    note: 'A $3 part that stands between a shorted rail and a lithium fire.',
+  },
+  cap1000: {
+    name: '1000µF 16V low-ESR capacitor', cat: 'mech', price: 0.8, mass: 4, volts: 0,
+    dims: [10, 10, 16], sku: '1000uF 16V low ESR electrolytic', src: 'hw',
+    note: 'Across the servo rail at the driver — eats the dip when a servo kicks.',
+  },
+  rocker: {
+    name: 'KCD1 rocker switch 6A', cat: 'mech', price: 1.5, mass: 5, volts: 0,
+    dims: [21, 15, 18], conn: 'solder tabs', mount: 'snap-in 19×13mm cutout',
+    sku: 'KCD1-101 rocker switch SPST', src: 'hw',
+    note: 'A real power switch. Yanking a connector is not a power switch.',
+  },
+  pla_kg: {
+    name: 'PLA+ filament (1kg)', cat: 'mech', price: 18, mass: 1000, volts: 0, print: true,
+    sku: 'PLA+ filament 1.75 1kg', src: 'amzn',
+    note: 'Stiff, easy, brittle. Fine for brackets, poor for hot cars.',
+  },
+  petg_kg: {
+    name: 'PETG filament (1kg)', cat: 'mech', price: 21, mass: 1000, volts: 0, print: true,
+    sku: 'PETG filament 1.75 1kg', src: 'amzn',
+    note: 'Tougher and slightly flexible — the right call for load-bearing prints.',
+  },
+  asa_kg: {
+    name: 'ASA filament (1kg)', cat: 'mech', price: 26, mass: 1000, volts: 0, print: true,
+    sku: 'ASA filament 1.75 1kg', src: 'amzn',
+    note: 'UV-stable and heat-tough — the outdoor/car material. Needs an enclosure.',
+  },
+  petgcf_kg: {
+    name: 'PETG-CF filament (1kg)', cat: 'mech', price: 38, mass: 1000, volts: 0, print: true,
+    sku: 'PETG carbon fiber filament 1kg', src: 'amzn',
+    note: 'Stiffest thing your printer will eat without a hardened nozzle fight.',
   },
 }
 
 /** Parts the planner is allowed to pick per joint/motor, smallest first. */
-const SERVO_LADDER = ['sg90', 'mg90s', 'mg996r', 'ds3218', 'sts3215']
+const SERVO_LADDER = ['sg90', 'mg90s', 'mg996r', 'ds3218', 'ds3225', 'sts3215']
 const MOTOR_LADDER = ['n20_100', 'n20_enc', 'jgb37']
 
 const MCU_KEYS = ['esp32s3', 'esp32c6', 'pico']
 
 const MATERIALS = {
-  pla: { name: 'PLA+', density: 1.24, priceId: 'pla_kg', strength: 1 },
-  petg: { name: 'PETG', density: 1.27, priceId: 'petg_kg', strength: 1.35 },
+  pla: { name: 'PLA+', density: 1.24, priceId: 'pla_kg', strength: 1, elastic: 3.3, yield: 55 },
+  petg: { name: 'PETG', density: 1.27, priceId: 'petg_kg', strength: 1.35, elastic: 2.0, yield: 50 },
+  asa: { name: 'ASA', density: 1.07, priceId: 'asa_kg', strength: 1.25, elastic: 2.2, yield: 45 },
+  petgcf: { name: 'PETG-CF', density: 1.30, priceId: 'petgcf_kg', strength: 1.8, elastic: 5.5, yield: 60 },
 }
+
+// Wire sizing, chassis-wiring conservative ampacity (A) for short runs in a
+// moving machine — these are deliberately below insulation-melt numbers.
+const WIRE_GAUGES = [
+  { awg: 28, a: 0.4 }, { awg: 26, a: 0.8 }, { awg: 24, a: 1.4 }, { awg: 22, a: 2.4 },
+  { awg: 20, a: 4 }, { awg: 18, a: 7 }, { awg: 16, a: 12 }, { awg: 14, a: 18 },
+]
+const wireFor = (amps) => (WIRE_GAUGES.find((w) => w.a >= amps) || WIRE_GAUGES[WIRE_GAUGES.length - 1]).awg
+
+// Standard automotive blade fuse values — pick the smallest that clears 1.4×
+// typical rail draw. The fuse protects the WIRE, not the board.
+const FUSE_STEPS = [1, 2, 3, 5, 7.5, 10, 15, 20, 25, 30]
+const fuseFor = (typAmps) => FUSE_STEPS.find((f) => f >= Math.max(1, typAmps * 1.4)) || 30
 
 // ESP32-S3 safe GPIOs for a peripheral bus project. Excluded on purpose:
 // 0/3/45/46 strapping, 19/20 USB-JTAG, 26-32 SPI flash/PSRAM, 33-37 octal PSRAM.
@@ -355,8 +592,13 @@ const money = (n) => '$' + (n >= 100 ? Math.round(n) : Number(n).toFixed(2))
 // Every archetype builds the same shape, so analysis, meshing, rendering and
 // export never branch on archetype:
 //
-//   nodes[]  — geometry (boxes / cylinders) in mm, rest pose, tagged by joint
-//   joints[] — serial chain: pivot (rest world), axis, limits, label
+//   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
+//              box, rbox (chamfered), cyl (segs/radius2 → hex, cone, taper),
+//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
+//              gear (module+teeth), rack (toothed bar), bend (tube elbow).
+//              `rot:[rx,ry,rz]` orients any of them around their centre.
+//   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
+//              driven through node.slide) so mechanisms like grippers pose right
 //   parts[]  — { key, qty, role } against PARTS
 //   notes[]  — design decisions worth showing the user
 
@@ -389,30 +631,98 @@ function addPart(d, key, qty, role) {
   d.parts.push({ key, qty, role: role || '', roles: role ? [role] : [] })
 }
 
-/** Box node. `pos` is the CENTRE. */
+/** Box node. `pos` is the CENTRE. `r` rounds it into a chamfered `rbox`. */
 function box(d, id, size, pos, mat, extra) {
   d.nodes.push({ id, kind: 'box', size, pos, mat, ...extra })
 }
 
-/** Cylinder node, axis is 'x' | 'y' | 'z', `pos` is the CENTRE. */
+/** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
+function rbox(d, id, size, pos, r, mat, extra) {
+  d.nodes.push({ id, kind: 'rbox', size, pos, r: r || 1.5, mat, ...extra })
+}
+
+/** Cylinder node. axis 'x'|'y'|'z', `pos` is the CENTRE.
+ *  extra.segs (default 18 → 6 = hex bolt/nut), extra.radius2 (≠radius → cone/taper). */
 function cyl(d, id, radius, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'cyl', radius, height, pos, axis, mat, ...extra })
 }
 
+/** Hollow cylinder — bearing races, washers, tubes. */
+function ring(d, id, outer, inner, height, pos, axis, mat, extra) {
+  d.nodes.push({ id, kind: 'ring', outer, inner, height, pos, axis, mat, ...extra })
+}
+
+/** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
+function torus(d, id, R, r, pos, axis, mat, extra) {
+  d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
+}
+
+/** Triangular prism (gusset, ramp, jaw chamfer). dir: px|nx|py|ny — the slope
+ *  rises toward that side; cross-section in the x/z or y/z plane, extruded the
+ *  remaining axis. size is the full bounding box. */
+function wedge(d, id, size, pos, dir, mat, extra) {
+  d.nodes.push({ id, kind: 'wedge', size, pos, dir: dir || 'px', mat, ...extra })
+}
+
+/** UV sphere — ball joints, domed caps, rounded feet. */
+function ball(d, id, radius, pos, mat, extra) {
+  d.nodes.push({ id, kind: 'sphere', radius, pos, mat, ...extra })
+}
+
+/** Spur gear: real tooth count, pitch radius r = m·z/2. */
+function gear(d, id, m, teeth, width, pos, axis, mat, extra) {
+  d.nodes.push({ id, kind: 'gear', module: m, teeth, width, pos, axis, mat, ...extra })
+}
+
+/** Toothed rack bar of `size`, `teeth` boxes on the +z face. */
+function rack(d, id, size, teeth, pos, mat, extra) {
+  d.nodes.push({ id, kind: 'rack', size, teeth, pos, mat, ...extra })
+}
+
+/** Bent tube, a `deg`-arc elbow of tube radius r at bend radius R. `rot` aims it. */
+function bend(d, id, R, r, deg, pos, rot, mat, extra) {
+  d.nodes.push({ id, kind: 'bend', R, r, arc: deg, pos, rot, mat, ...extra })
+}
+
 /**
- * A joint. `parent` defaults to the previously declared joint (a serial chain,
- * which is what every limb is); a branching machine — a humanoid — passes it
- * explicitly so the left leg does not inherit the right leg's rotation.
+ * A revolute joint. `parent` defaults to the previously declared joint (a
+ * serial chain); a branching machine passes it explicitly.
  */
 function joint(d, id, label, axis, pivot, min, max, parent) {
   const fallback = d.joints.length ? d.joints[d.joints.length - 1].id : null
   d.joints.push({ id, label, axis, pivot, angle: 0, min, max, parent: parent === undefined ? fallback : parent })
 }
 
+/**
+ * A linear slide, in mm. Nodes ride it via slide:{joint, sign} — a gripper puts
+ * jaw A on sign -1 and jaw B on sign +1 so one slider opens and closes the pair.
+ */
+function slideJoint(d, id, label, axis, travelMm) {
+  d.joints.push({ id, label, axis, slide: true, pivot: [0, 0, 0], angle: 0, min: 0, max: travelMm, parent: null })
+}
+
 /** mm³ of a node, for mass + print estimates. */
 function nodeVolume(node) {
-  if (node.kind === 'box') return node.size[0] * node.size[1] * node.size[2]
-  return Math.PI * node.radius * node.radius * node.height
+  const s = node.size
+  switch (node.kind) {
+    case 'box': case 'rbox': return s[0] * s[1] * s[2] * (node.kind === 'rbox' ? 0.93 : 1)
+    case 'wedge': return s[0] * s[1] * s[2] * 0.5
+    case 'rack': return s[0] * s[1] * s[2] * 1.12
+    case 'cyl': {
+      const r2 = node.radius2 != null ? node.radius2 : node.radius
+      return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
+    }
+    case 'ring': return Math.PI * (node.outer ** 2 - node.inner ** 2) * node.height
+    case 'torus': return 2 * Math.PI * Math.PI * node.R * node.r ** 2
+    case 'sphere': return (4 / 3) * Math.PI * node.radius ** 3
+    case 'gear': {
+      const root = (node.module * node.teeth) / 2 - 1.25 * node.module
+      const tip = (node.module * node.teeth) / 2 + node.module
+      return Math.PI * (root ** 2 + (tip ** 2 - root ** 2) * 0.45) * node.width
+    }
+    case 'bend': return (node.arc / 360) * 2 * Math.PI * Math.PI * node.R * node.r ** 2
+    default: return 0
+  }
 }
 
 /**
@@ -427,18 +737,22 @@ const WALL = 2.4
 const LIGHTENING = 0.72
 
 function shellVolume(n) {
+  // Rings are already the shell — wall thickness IS the part.
+  if (n.kind === 'ring' || n.kind === 'bend' || n.kind === 'torus') return nodeVolume(n)
   const solid = nodeVolume(n)
-  if (n.kind === 'box') {
-    const [x, y, z] = n.size
-    if (Math.min(x, y, z) <= WALL * 2.2) return solid * LIGHTENING
-    const surface = 2 * (x * y + y * z + x * z)
-    return Math.min(solid * LIGHTENING, surface * WALL)
+  if (n.kind === 'cyl' || n.kind === 'sphere' || n.kind === 'gear') {
+    const r = n.radius || n.outer || ((n.module * n.teeth) / 4)
+    if (r <= WALL * 1.6) return solid
+    const h = n.height || n.width || r * 2
+    const tube = Math.PI * (r * r - (r - WALL) * (r - WALL)) * h
+    const caps = 2 * Math.PI * r * r * WALL * LIGHTENING
+    return Math.min(solid * LIGHTENING, tube + caps)
   }
-  const r = n.radius
-  if (r <= WALL * 1.6) return solid
-  const tube = Math.PI * (r * r - (r - WALL) * (r - WALL)) * n.height
-  const caps = 2 * Math.PI * r * r * WALL * LIGHTENING
-  return Math.min(solid * LIGHTENING, tube + caps)
+  // box, rbox, wedge, rack — shell of the bounding shape
+  const [x, y, z] = n.size
+  if (Math.min(x, y, z) <= WALL * 2.2) return solid * LIGHTENING
+  const surface = 2 * (x * y + y * z + x * z)
+  return Math.min(solid * LIGHTENING, surface * WALL)
 }
 
 function printedVolume(nodes) {
@@ -447,10 +761,114 @@ function printedVolume(nodes) {
   return v
 }
 
+// ── composite part builders ─────────────────────────────────────────────────
+// Real assemblies are made of these, not of naked boxes. Each emits the nodes
+// a renderer can shade AND the parts a BOM can count.
+
+/**
+ * M3 bolt: shank + hex head + washer. `pos` is the surface the head sits on;
+ * the shank runs along -axis into the part (flip → +axis). `len` = shank.
+ */
+function bolt(d, id, pos, axis, len, extra) {
+  const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[axis || 'z']
+  const f = extra && extra.flip ? 1 : -1
+  const at = (dist) => [pos[0] + dir[0] * f * dist, pos[1] + dir[1] * f * dist, pos[2] + dir[2] * f * dist]
+  cyl(d, `${id}-hd`, 2.85, 3, at(-2.1), axis, 'steel', { segs: 6, ...extra })
+  ring(d, `${id}-wa`, 3.4, 1.7, 0.8, at(-0.4), axis, 'steel', extra)
+  cyl(d, `${id}-sh`, 1.5, len, at(len / 2), axis, 'steel', extra)
+}
+
+/** M3 hex nut. */
+function nut(d, id, pos, axis, extra) {
+  cyl(d, id, 3.0, 2.4, pos, axis, 'steel', { segs: 6, ...extra })
+}
+
+/** A press-fit bearing drawn honestly: outer race, inner race, gap between. */
+function bearing(d, id, pos, axis, od, bore, w, extra) {
+  ring(d, `${id}-o`, od / 2, od / 2 - 1.4, w, pos, axis, 'steel', extra)
+  ring(d, `${id}-i`, bore / 2 + 1.4, bore / 2, w + 0.3, pos, axis, 'steel', extra)
+  cyl(d, `${id}-b`, (od / 2 + bore / 2) / 2 - 0.6, w - 1.2, pos, axis, 'metal', { segs: 10, ...extra })
+}
+
+/**
+ * A servo drawn as a servo: case with chamfered sides, mounting ears, output
+ * spline and horn disc. `pos` is where the shaft FACE sits; the case hangs
+ * behind it along -axis (or +axis with opts.flip).
+ * `joint` carries the case (the side it bolts to); `hornJoint` carries the
+ * spline+horn — the side it DRIVES. Pass the same joint when both rotate.
+ */
+function servoBody(d, prefix, pos, axis, partKey, joint, hornJoint, opts) {
+  const p = PARTS[partKey]
+  const [L, W, H] = (p && p.dims) || [40, 20, 40]
+  const caseH = H * 0.62
+  const o = { joint, ...(opts || {}) }
+  const ho = { ...(opts || {}), joint: hornJoint === undefined ? joint : hornJoint }
+  const a = axis || 'z'
+  const f = o.flip ? -1 : 1
+  const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[a]
+  const at = (dist) => [pos[0] + dir[0] * f * dist, pos[1] + dir[1] * f * dist, pos[2] + dir[2] * f * dist]
+  const sizeFor = (along) => (a === 'z' ? [along, W, caseH] : a === 'y' ? [along, caseH, W] : [caseH, along, W])
+  const earSize = a === 'z' ? [L + 8, W, 2.6] : a === 'y' ? [L + 8, 2.6, W] : [2.6, L + 8, W]
+
+  rbox(d, `${prefix}-case`, sizeFor(L), at(-(caseH / 2 + 4)), 2.2, 'servo', o)
+  box(d, `${prefix}-ear-a`, earSize, at(-3), 'servo', o)
+  box(d, `${prefix}-ear-b`, earSize, at(-(caseH + 5)), 'servo', o)
+  cyl(d, `${prefix}-spline`, 3, 4, at(1), a, 'steel', ho)
+  cyl(d, `${prefix}-horn`, 11, 2.5, at(4), a, 'accent', ho)
+}
+
+/** Wheel drawn as a wheel: torus tyre + rim ring + hub boss. */
+function wheelAssy(d, id, pos, axis, dia, width, joint, side) {
+  const o = { joint }
+  const out = side || 1 // which face carries the lug heads (outboard)
+  const R = dia / 2 - width * 0.30
+  torus(d, `${id}-tire`, R, width * 0.30, pos, axis, 'rubber', o)
+  ring(d, `${id}-rim`, R, R * 0.32, width * 0.42, pos, axis, 'accent', { print: true, joint })
+  cyl(d, `${id}-hub`, R * 0.3, width * 0.55, pos, axis, 'accent', { print: true, joint })
+  // lug bolts, because detail lives in the fastener heads
+  for (let i = 0; i < 4; i += 1) {
+    const a = (i / 4) * Math.PI * 2
+    const rr = R * 0.62
+    const bp = axis === 'y'
+      ? [pos[0] + Math.cos(a) * rr, pos[1] + out * width * 0.22, pos[2] + Math.sin(a) * rr]
+      : [pos[0] + Math.cos(a) * rr, pos[1] + Math.sin(a) * rr, pos[2] + out * width * 0.22]
+    cyl(d, `${id}-lug${i}`, 1.6, 2.5, bp, axis, 'steel', { segs: 6, joint })
+  }
+}
+
+/** U-bracket: base + two cheeks, sized for a servo case width `gap`. */
+function bracketU(d, id, pos, size, t, mat, joint) {
+  const [w, h, len] = size
+  const o = { print: true, joint }
+  box(d, `${id}-base`, [len, w, t], [pos[0], pos[1], pos[2] - h / 2 + t / 2], mat || 'shell', o)
+  box(d, `${id}-chk-l`, [len, t, h], [pos[0], pos[1] - w / 2 + t / 2, pos[2]], mat || 'shell', o)
+  box(d, `${id}-chk-r`, [len, t, h], [pos[0], pos[1] + w / 2 - t / 2, pos[2]], mat || 'shell', o)
+}
+
+/** Corner gusset pair (thin wedges) between two faces meeting at `pos`. */
+function gusset(d, id, pos, size, dir, mat, joint) {
+  wedge(d, id, size, pos, dir, mat || 'shell', { print: true, joint })
+}
+
+/** Stiffening rib row on a plate: n thin vertical fins. */
+function ribs(d, id, n, size, gap, pos, mat, joint) {
+  for (let i = 0; i < n; i += 1) {
+    box(d, `${id}-${i}`, size, [pos[0] + (i - (n - 1) / 2) * gap, pos[1], pos[2]], mat || 'accent', { print: true, joint })
+  }
+}
+
+/** Heatsink/fin block. */
+function fins(d, id, n, size, gap, pos, mat, extra) {
+  for (let i = 0; i < n; i += 1) {
+    box(d, `${id}-${i}`, size, [pos[0] + (i - (n - 1) / 2) * gap, pos[1], pos[2]], mat || 'metal', extra)
+  }
+}
+
 // ── arm: the canonical robot ────────────────────────────────────────────────
 // A serial revolute chain with real proportions and a real torque cascade. The
 // servo at each joint is PICKED from the ladder by the load it actually
 // carries at full extension — the honesty of the whole app lives in this file.
+// Sizing runs BEFORE geometry so every joint gets the servo body it earned.
 
 const ARM_SEG = { w: 46, h: 40 }
 
@@ -469,58 +887,6 @@ function buildArm(brief) {
 
   d.title = `${dof}-DoF arm · ${Math.round(reach)}mm reach`
   d.subtitle = `${payload}kg payload · ${mat.name} links`
-
-  // ── base ────────────────────────────────────────────────────────────────
-  box(d, 'base-plate', [150, 150, 14], [0, 0, 7], 'accent', { print: true, part: 'plate' })
-  cyl(d, 'base-tower', 46, 54, [0, 0, 41], 'z', 'shell', { print: true })
-  cyl(d, 'base-bearing', 24, 12, [0, 0, 68], 'z', 'metal', { part: 'bearing608' })
-
-  joint(d, 'yaw', 'Base yaw', 'z', [0, 0, baseH], -170, 170)
-
-  // ── shoulder bracket + upper arm ────────────────────────────────────────
-  box(d, 'shoulder-block', [58, ARM_SEG.w, 54], [10, 0, baseH + 20], 'shell', { joint: 'yaw', print: true })
-  cyl(d, 'shoulder-hub', 22, ARM_SEG.w + 10, [0, 0, baseH], 'y', 'metal', { joint: 'yaw', part: 'bearing608' })
-
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85)
-
-  box(d, 'upper-arm', [L1, ARM_SEG.w, ARM_SEG.h], [L1 / 2, 0, baseH], 'shell', { joint: 'shoulder', print: true })
-  cyl(d, 'elbow-hub', 18, ARM_SEG.w + 8, [L1, 0, baseH], 'y', 'metal', { joint: 'shoulder' })
-
-  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140)
-
-  box(d, 'forearm', [L2, ARM_SEG.w - 6, ARM_SEG.h - 4], [L1 + L2 / 2, 0, baseH], 'shell', { joint: 'elbow', print: true })
-
-  // ── wrist stack (only the DOF the brief asks for) ───────────────────────
-  let tipX = L1 + L2
-  let chain = 'elbow'
-  const wristX = L1 + L2
-
-  if (dof >= 4) {
-    cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
-    joint(d, 'wrist-pitch', 'Wrist pitch', 'y', [wristX, 0, baseH], -110, 110)
-    chain = 'wrist-pitch'
-    box(d, 'wrist-link', [L3, 36, 32], [wristX + L3 / 2, 0, baseH], 'shell', { joint: chain, print: true })
-    tipX = wristX + L3
-  }
-  if (dof >= 5) {
-    joint(d, 'wrist-roll', 'Wrist roll', 'x', [tipX, 0, baseH], -180, 180)
-    chain = 'wrist-roll'
-    cyl(d, 'collar', 17, 26, [tipX + 13, 0, baseH], 'x', 'accent', { joint: chain, print: true })
-    tipX += 26
-  }
-  if (dof >= 6) {
-    joint(d, 'wrist-yaw', 'Tool yaw', 'z', [tipX, 0, baseH], -90, 90)
-    chain = 'wrist-yaw'
-    box(d, 'tool-flange', [22, 38, 38], [tipX + 11, 0, baseH], 'metal', { joint: chain })
-    tipX += 22
-  }
-
-  // ── tool: parallel gripper ──────────────────────────────────────────────
-  const jawOpen = 18 + payload * 6
-  box(d, 'gripper-body', [34, 54, 40], [tipX + 17, 0, baseH], 'accent', { joint: chain, print: true })
-  box(d, 'jaw-a', [26, 8, 34], [tipX + 44, -(jawOpen / 2 + 4), baseH], 'metal', { joint: chain })
-  box(d, 'jaw-b', [26, 8, 34], [tipX + 44, jawOpen / 2 + 4, baseH], 'metal', { joint: chain })
-  tipX += 60
 
   // ── mass + torque cascade ───────────────────────────────────────────────
   const linkMass = (len) => (len * ARM_SEG.w * ARM_SEG.h * 0.34 * density) // shelled, ~34% solid
@@ -556,7 +922,7 @@ function buildArm(brief) {
   }
 
   const picks = {}
-  const pickServo = (need, key, label, reduction) => {
+  const pickServo = (need, key, label) => {
     const top = SERVO_LADDER[SERVO_LADDER.length - 1]
     let servo = SERVO_LADDER.find((k) => PARTS[k].torque >= need)
     let ratio = 1
@@ -596,14 +962,122 @@ function buildArm(brief) {
   if (dof >= 6) sized('Tool yaw', Math.max(0.3, req.wrist * 0.4), 'tool')
   sized('Gripper', Math.max(0.15, payload * 0.6), 'grip')
 
+  const svc = (key, fallback) => picks[key] || fallback
+
+  // ── base: flange plate, tower, thrust race, yaw servo inside ────────────
+  rbox(d, 'base-plate', [150, 150, 12], [0, 0, 6], 2.5, 'accent', { print: true })
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
+  }
+  ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
+  // yaw carries the arm's overhung moment — that is a thrust bearing's job
+  servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
+  bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
+
+  joint(d, 'yaw', 'Base yaw', 'z', [0, 0, baseH], -170, 170)
+
+  // ── shoulder bracket + upper arm ────────────────────────────────────────
+  rbox(d, 'shoulder-block', [58, ARM_SEG.w, 54], [10, 0, baseH + 20], 2, 'shell', { joint: 'yaw', print: true })
+  wedge(d, 'gusset-l', [30, 6, 30], [16, -ARM_SEG.w / 2 + 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
+  wedge(d, 'gusset-r', [30, 6, 30], [16, ARM_SEG.w / 2 - 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
+  cyl(d, 'shoulder-hub', 22, ARM_SEG.w + 10, [0, 0, baseH], 'y', 'metal', { joint: 'yaw' })
+  servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
+  bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
+  bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
+
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85)
+
+  box(d, 'upper-arm', [L1, ARM_SEG.w, ARM_SEG.h], [L1 / 2, 0, baseH], 'shell', { joint: 'shoulder', print: true })
+  for (const sy of [-1, 1]) {
+    box(d, `upper-rib-${sy}`, [L1 * 0.86, 4, ARM_SEG.h * 0.42], [L1 / 2, sy * (ARM_SEG.w / 2 + 2), baseH + 2], 'accent', { joint: 'shoulder', print: true })
+  }
+  cyl(d, 'elbow-hub', 18, ARM_SEG.w + 8, [L1, 0, baseH], 'y', 'metal', { joint: 'shoulder' })
+  servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
+  bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
+  bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
+
+  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140)
+
+  box(d, 'forearm', [L2, ARM_SEG.w - 6, ARM_SEG.h - 4], [L1 + L2 / 2, 0, baseH], 'shell', { joint: 'elbow', print: true })
+  for (const sy of [-1, 1]) {
+    box(d, `fore-rib-${sy}`, [L2 * 0.84, 4, (ARM_SEG.h - 4) * 0.4], [L1 + L2 / 2, sy * (ARM_SEG.w / 2 - 1), baseH + 1], 'accent', { joint: 'elbow', print: true })
+  }
+
+  // ── wrist stack (only the DOF the brief asks for) ───────────────────────
+  let tipX = L1 + L2
+  let chain = 'elbow'
+  const wristX = L1 + L2
+
+  if (dof >= 4) {
+    cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
+    servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
+    joint(d, 'wrist-pitch', 'Wrist pitch', 'y', [wristX, 0, baseH], -110, 110)
+    chain = 'wrist-pitch'
+    box(d, 'wrist-link', [L3, 36, 32], [wristX + L3 / 2, 0, baseH], 'shell', { joint: chain, print: true })
+    tipX = wristX + L3
+  }
+  if (dof >= 5) {
+    joint(d, 'wrist-roll', 'Wrist roll', 'x', [tipX, 0, baseH], -180, 180)
+    chain = 'wrist-roll'
+    cyl(d, 'collar', 17, 26, [tipX + 13, 0, baseH], 'x', 'accent', { joint: chain, print: true })
+    ring(d, 'roll-race', 11, 4, 5, [tipX + 4, 0, baseH], 'x', 'steel', { joint: chain })
+    tipX += 26
+  }
+  if (dof >= 6) {
+    joint(d, 'wrist-yaw', 'Tool yaw', 'z', [tipX, 0, baseH], -90, 90)
+    chain = 'wrist-yaw'
+    rbox(d, 'tool-flange', [22, 38, 38], [tipX + 11, 0, baseH], 2, 'metal', { joint: chain })
+    for (const sy of [-1, 1]) bolt(d, `flange-bolt${sy}`, [tipX + 11, sy * 14, baseH + 19], 'z', 6, { joint: chain })
+    tipX += 22
+  }
+
+  // ── tool: parallel jaw pair on a micro servo ────────────────────────────
+  const jawOpen = 18 + payload * 6
+  rbox(d, 'gripper-body', [34, 54, 40], [tipX + 17, 0, baseH], 2.5, 'accent', { joint: chain, print: true })
+  servoBody(d, 'tool-servo', [tipX + 17, 0, baseH + 22], 'z', 'mg90s', chain, chain)
+  gear(d, 'tool-pinion', 1, 12, 8, [tipX + 44, 0, baseH], 'z', 'steel', { joint: chain })
+  for (const s of [-1, 1]) {
+    rbox(d, `jaw-${s < 0 ? 'a' : 'b'}`, [26, 7, 34], [tipX + 44, s * (jawOpen / 2 + 4), baseH], 1.5, 'steel', { joint: chain })
+    box(d, `pad-${s < 0 ? 'a' : 'b'}`, [22, 3, 26], [tipX + 44, s * (jawOpen / 2 + 1), baseH], 'rubber', { joint: chain })
+  }
+  tipX += 60
+
+  // ── structure check: the numbers a reviewer asks for ────────────────────
+  // Worst link = forearm box-beam as a cantilever under the shoulder moment.
+  const t = WALL
+  const bSec = ARM_SEG.w - 6
+  const hSec = ARM_SEG.h - 4
+  const I2 = (bSec * hSec ** 3 - (bSec - 2 * t) * (hSec - 2 * t) ** 3) / 12 // mm⁴
+  const I1 = (ARM_SEG.w * ARM_SEG.h ** 3 - (ARM_SEG.w - 2 * t) * (ARM_SEG.h - 2 * t) ** 3) / 12
+  const EMpa = mat.elastic * 1000 // GPa → MPa = N/mm²
+  const Msh = req.shoulder / SAFETY * 1000 // N·mm actual (no safety factor for stress)
+  const sigma = (Msh * (hSec / 2)) / I2 // MPa on the forearm section
+  const allow = mat.yield * 0.24 // inter-layer derate — printed parts are not isotropic
+  const tipDefl = (Msh * (L1 + L2) ** 2) / (3 * EMpa * I2) + (Msh * L1 * L2) / (2 * EMpa * I1)
+  d.mech = [
+    { label: 'Link bending stress', value: `${fmt(sigma, 1)} MPa`, limit: `${fmt(allow, 0)} MPa (${mat.name}, layer-derated)`, ok: sigma < allow },
+    { label: 'Tip deflection @ payload', value: `${fmt(tipDefl, 1)} mm`, limit: '±2 mm repeatable', ok: tipDefl < 4 },
+    { label: 'Shoulder margin', value: `${fmt(((PARTS[picks.shoulder]?.torque || 0) * (d.actuators[1]?.ratio || 1)) / Math.max(req.shoulder, 0.01), 2)}× stall`, limit: `${SAFETY}× design`, ok: null },
+  ]
+  if (sigma > allow) {
+    d.checks.push({ level: 'fail', msg: `Forearm bending stress ${fmt(sigma, 1)} MPa exceeds the printed-layer limit (~${fmt(allow, 0)} MPa ${mat.name}) — stiffer material (PETG-CF), a taller section, or a shorter reach.` })
+  } else if (sigma > allow * 0.7) {
+    d.checks.push({ level: 'warn', msg: `Links run at ${Math.round((sigma / allow) * 100)}% of printed bending limit — tip deflection ~${fmt(tipDefl, 1)}mm under full payload. Stiffer material buys accuracy here, not torque.` })
+  }
+
   const servoCount = d.joints.length + 1
   addPart(d, 'pca9685', 1, `${servoCount} servo channels`)
   addPart(d, brief.mcu && brief.mcu !== 'esp32s3' ? brief.mcu : 'esp32s3', 1, 'controller')
   addPart(d, 'buck5a', 1, '6V servo rail')
   addPart(d, brief.battery && brief.battery !== 'pd5v' ? brief.battery : 'pack3s', 1, 'energy')
-  addPart(d, 'hw_m3', 1, 'frame fasteners')
+  addPart(d, 'fuse', 1, 'pack protection')
+  addPart(d, 'cap1000', 1, 'servo rail smoothing')
+  addPart(d, 'thrust51103', 1, 'yaw axial load')
+  addPart(d, 'as5600', 2, 'shoulder + elbow feedback')
+  addPart(d, 'hw_m3', 1, 'nuts + washers')
   addPart(d, 'bearing608', 4, 'joint bearings')
-  addPart(d, 'wire22', 1, 'harness')
+  addPart(d, 'wire22', 1, 'signal harness')
+  addPart(d, 'wire18', 1, 'servo rail run')
   addPart(d, 'jst_kit', 1, 'connectors')
   addPart(d, MAT_PART(brief.material), 1, 'printed links')
 
@@ -647,17 +1121,21 @@ function buildRover(brief) {
   const chassisH = 34
   const z0 = wheelD / 2
 
-  box(d, 'chassis-deck', [wheelbase, track, 4], [0, 0, z0 + chassisH - 2], 'shell', { print: true })
+  rbox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', { print: true })
   for (const sx of [-1, 1]) {
     box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 'shell', { print: true })
+    wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}`, [16, track * 0.9, 22], [sx * (wheelbase / 2 + 6), 0, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 6, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 'accent', { print: true })
+    rbox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', { print: true })
+    for (const fx of [-1, 1]) {
+      bolt(d, `rail-bolt-${sx}${fx}`, [fx * (wheelbase / 2 - 8), sx * (track / 2 + 6.5), z0 + chassisH + 4], 'y', 8, { flip: sx < 0 })
+    }
   }
   // battery well, electronics shelf, payload plate
-  box(d, 'battery-well', [wheelbase * 0.42, track * 0.5, 18], [-wheelbase * 0.2, 0, z0 + 12], 'pcb')
+  rbox(d, 'battery-well', [wheelbase * 0.42, track * 0.5, 18], [-wheelbase * 0.2, 0, z0 + 12], 2, 'pcb')
 
-  // wheels + motors
+  // wheels + motors: torus tire, printed rim, lug hardware — a wheel, not a disc
   const wheels = [
     [wheelbase / 2 - 6, track / 2],
     [wheelbase / 2 - 6, -track / 2],
@@ -666,14 +1144,16 @@ function buildRover(brief) {
   ]
   wheels.forEach(([x, y], i) => {
     const side = y > 0 ? 1 : -1
-    cyl(d, `wheel-${i}`, wheelD / 2, 26, [x, y + side * 14, z0], 'y', 'rubber', { print: true })
-    cyl(d, `hub-${i}`, wheelD * 0.22, 30, [x, y + side * 16, z0], 'y', 'accent', { print: true })
-    cyl(d, `motor-${i}`, 18, 52, [x, y - side * 6, z0], 'y', 'metal')
+    wheelAssy(d, `wheel-${i}`, [x, y + side * 14, z0], 'y', wheelD, 26, null, side)
+    cyl(d, `motor-${i}`, 18.5, 52, [x, y - side * 6, z0], 'y', 'metal')
+    cyl(d, `shaft-${i}`, 3, 22, [x, y + side * 4, z0], 'y', 'steel')
+    box(d, `motor-brkt-${i}`, [30, 5, 30], [x, y - side * 30, z0], 'metal')
+    bearing(d, `wheel-race-${i}`, [x, y + side * 2, z0], 'y', 22, 8, 7)
   })
 
   // sensor mast + head
-  box(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 'shell', { print: true })
-  box(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 160], 'accent', { print: true })
+  rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 160], 3, 'accent', { print: true })
   cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 160], 'x', 'glass')
   cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 166], 'x', 'glass')
 
@@ -702,7 +1182,13 @@ function buildRover(brief) {
   const bat = PARTS[battery]
   addPart(d, battery === 'pack2s' && v >= 11 ? 'pack3s' : battery === 'pd5v' ? 'pd5v' : battery, 1, `${v}V motor rail`)
   addPart(d, 'buck5a', 1, '5V logic rail')
-  addPart(d, motorPart.ampacity > 3 || v >= 11 ? 'bts7960' : 'tb6612', 1, 'motor driver')
+  // TB6612 tops out at 1.2A/channel — a bigger motor or a 3S pack wants the
+  // BTS7960, and a BTS7960 is a single channel so it takes two for L/R drive.
+  const driverKey = motorPart.curr.peak > 1.1 || v >= 11 ? 'bts7960' : 'tb6612'
+  addPart(d, driverKey, driverKey === 'bts7960' ? 2 : 1, `motor driver${driverKey === 'bts7960' ? ' (one per side)' : ''}`)
+  addPart(d, 'fuse', 1, 'pack protection')
+  addPart(d, 'rocker', 1, 'power switch')
+  addPart(d, 'cap1000', 1, 'motor rail smoothing')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
@@ -756,36 +1242,51 @@ function buildQuadruped(brief) {
   d.subtitle = `${Math.round(bodyLen)}mm body · ${payload}kg carried`
 
   const z0 = legLen * 1.35
-  box(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 'shell', { print: true })
+  rbox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', { print: true })
   box(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 'accent', { print: true })
-  box(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 'pcb')
-  cyl(d, 'head', 30, 40, [bodyLen / 2 + 18, 0, z0 + 6], 'x', 'accent', { print: true })
-  cyl(d, 'eye', 10, 6, [bodyLen / 2 + 40, 0, z0 + 12], 'x', 'glass')
+  rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
+  cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
+  cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
   const femur = legLen * 0.62
   const tibia = legLen * 0.78
+  // Servo sizing first: the worst gait phase is a leg levering the body up on
+  // one foot — torque at the femur, 1.8× on top. One servo everywhere.
+  const mat = MATERIALS[brief.material] || MATERIALS.petg
+  const legMassKg = ((22 * 24 * femur * 0.62 + 16 * 18 * tibia * 0.72) * 0.34 * mat.density) / 1e6 + 0.09
+  const reqFoot = G * ((legMassKg * 0.5 + payload / 4) * (legLen / 1000)) * 1.8
+  const servoKey = SERVO_LADDER.find((k) => PARTS[k].torque >= reqFoot) || 'ds3218'
+  const servo = PARTS[servoKey]
+
   const corners = [
     ['fl', 1, 1], ['fr', 1, -1], ['rl', -1, 1], ['rr', -1, -1],
   ]
-  const jointIds = []
+  // 3 DOF per leg, the way the firmware already walks it: coxa yaw (z),
+  // femur pitch (y), tibia pitch (y) — each with its own servo body.
   corners.forEach(([name, sx, sy]) => {
     const ax = (sx * bodyLen) / 2 - sx * 14
     const ay = (sy * hipW) / 2 + sy * 10
-    cyl(d, `coxa-${name}`, 16, 26, [ax, ay, z0], 'z', 'metal')
-    box(d, `femur-${name}`, [24, 26, femur], [ax, ay + sy * 10, z0 - femur / 2], 'shell', { print: true })
-    box(d, `tibia-${name}`, [20, 22, tibia], [ax, ay + sy * 10, z0 - femur - tibia / 2], 'accent', { print: true })
-    cyl(d, `foot-${name}`, 12, 8, [ax, ay + sy * 10, z0 - femur - tibia], 'z', 'rubber')
-    jointIds.push(`hip-${name}`)
-    joint(d, `hip-${name}`, `Hip ${name.toUpperCase()}`, 'y', [ax, ay, z0], -60, 60)
+    const hipZ = z0 - 4
+
+    joint(d, `coxa-${name}`, `Coxa ${name.toUpperCase()}`, 'z', [ax, ay, hipZ], -30, 30, null)
+    // coxa servo: case bolted under the deck, horn swings the whole leg
+    servoBody(d, `coxasv-${name}`, [ax, ay, hipZ + 4], 'z', servoKey, null, `coxa-${name}`, { flip: true })
+    bracketU(d, `coxa-br-${name}`, [ax, ay, hipZ - 2], [30, 20, 34], 4, 'accent', `coxa-${name}`)
+
+    const fy = ay + sy * 12
+    joint(d, `femur-${name}`, `Femur ${name.toUpperCase()}`, 'y', [ax, fy, hipZ - 8], -60, 60, `coxa-${name}`)
+    servoBody(d, `femursv-${name}`, [ax, fy - sy * 6, hipZ - 8], 'y', servoKey, `coxa-${name}`, `femur-${name}`)
+    box(d, `femur-${name}`, [22, 24, femur * 0.62], [ax, fy, hipZ - 8 - femur * 0.31], 'shell', { print: true, joint: `femur-${name}` })
+    // tibia servo rides the femur link, shaft at the knee
+    const kneeZ = hipZ - 8 - femur * 0.66
+    joint(d, `tibia-${name}`, `Tibia ${name.toUpperCase()}`, 'y', [ax, fy, kneeZ], -80, 80, `femur-${name}`)
+    servoBody(d, `tibiasv-${name}`, [ax, fy - sy * 5, kneeZ], 'y', servoKey, `femur-${name}`, `tibia-${name}`)
+    rbox(d, `tibia-${name}`, [16, 18, tibia * 0.72], [ax, fy, kneeZ - tibia * 0.36], 1.5, 'accent', { print: true, joint: `tibia-${name}` })
+    cyl(d, `foot-${name}`, 11, 9, [ax, fy, kneeZ - tibia * 0.78], 'z', 'rubber', { joint: `tibia-${name}` })
   })
 
-  // ── servo sizing at the worst leg phase ─────────────────────────────────
-  const mat = MATERIALS[brief.material] || MATERIALS.petg
-  const legMassKg = (printedVolume(d.nodes) / 4 / 1000) * mat.density / 1000
-  const reqFoot = G * ((legMassKg * 0.5 + payload / 4) * (legLen / 1000)) * 1.8
-  const key = SERVO_LADDER.find((k) => PARTS[k].torque >= reqFoot) || 'ds3218'
-  const servo = PARTS[key]
-  addPart(d, key, 12, '12 joints (3 per leg)')
+  // ── parts: the electrical problem is the BOM ────────────────────────────
+  addPart(d, servoKey, 12, '12 joints (3 per leg)')
   addPart(d, 'pca9685', 2, '24 channels of PWM')
   addPart(d, 'buck5a', 2, 'split servo rails')
   addPart(d, 'pack3s', 1, 'servo pack')
@@ -811,54 +1312,150 @@ function buildQuadruped(brief) {
     legMm: Math.round(legLen),
     massKg: (printedVolume(d.nodes) / 1000) * mat.density / 1000 + (servo.mass * 12) / 1000 + 0.3,
     peakAmps: peakGait,
-    servo: key,
+    servo: servoKey,
   })
   return d
 }
 
 // ── gripper: a tool, but a machine you can build ────────────────────────────
-// Grip force is a real calculation: servo torque over the lever arm, then the
-// friction cone decides whether the object actually stays in the jaws.
+// A real rack-and-pinion parallel gripper: servo under the deck drives a pinion,
+// two opposing racks slide on a linear rail, L-fingers do the gripping. Force is
+// torque over the pinion pitch radius; hold is the friction cone at the pads.
 
 function buildGripper(brief) {
   const d = newDesign('gripper', brief)
   const span = clamp(brief.reachMm || 80, 30, 240) // jaw opening, mm
   const payload = clamp(brief.payloadKg || 1, 0.1, 6)
+  const mat = MATERIALS[brief.material] || MATERIALS.petg
 
   d.title = `${Math.round(span)}mm parallel gripper`
-  d.subtitle = `${payload}kg class · servo actuated`
+  d.subtitle = `${payload}kg class · rack & pinion · servo actuated`
 
-  box(d, 'body', [span * 0.9, 62, 46], [0, 0, 0], 'shell', { print: true })
-  box(d, 'servo-mount', [30, 56, 50], [-span * 0.55, 0, 0], 'accent', { print: true })
-  cyl(d, 'pinion', 14, 30, [0, 0, 24], 'z', 'metal')
-  box(d, 'rack-a', [span * 0.8, 10, 12], [0, -14, 10], 'metal')
-  box(d, 'rack-b', [span * 0.8, 10, 12], [0, 14, 10], 'metal')
-  box(d, 'jaw-a', [span * 0.7, 8, 40], [span * 0.1, -(span / 2), 0], 'accent', { print: true })
-  box(d, 'jaw-b', [span * 0.7, 8, 40], [span * 0.1, span / 2, 0], 'accent', { print: true })
-  box(d, 'pad-a', [span * 0.6, 4, 30], [span * 0.14, -(span / 2) + 6, 0], 'rubber')
-  box(d, 'pad-b', [span * 0.6, 4, 30], [span * 0.14, span / 2 - 6, 0], 'rubber')
+  // ── mechanism numbers first: the gear decides the force ──────────────────
+  const mod = 1.25 // gear module, mm
+  const zTeeth = 14
+  const pitchR = (mod * zTeeth) / 2 / 1000 // m
+  // PWM servos only — the firmware drives a plain 50Hz channel, not a TTL bus
+  const servo = SERVO_LADDER.filter((k) => k !== 'sts3215')
+    .find((k) => (PARTS[k].torque * 0.35) / pitchR >= payload * G / 0.6 / 2) || 'ds3225'
+  const T = PARTS[servo].torque
+  const jawF = Math.min((T * 0.35) / pitchR, 150) // N per jaw, continuous — 35% stall is the honest hold
+  const gripMass = (0.6 * 2 * jawF) / G // µ_eff 0.6 rubber pads, two contact faces
 
-  joint(d, 'jaw-slide', 'Jaw travel', 'y', [0, 0, 0], -span / 2, span / 2)
+  const sd = PARTS[servo].dims || [40, 20, 40]
+  const deckW = Math.max(92, sd[0] + 52)
+  const deckL = span * 0.72 + 86
+  const deckZ = 52 // top of deck
+  const railY = 26
 
-  // torque → force → what it can hold
-  const lever = 0.014 // m, pinion radius
-  const key = SERVO_LADDER.find((k) => PARTS[k].torque / lever >= payload * G * 6) || 'ds3218'
-  const force = PARTS[key].torque / lever
-  const gripMass = (force * 0.4) / G // rubber-on-rubber µ≈0.8, derated
-  addPart(d, key, 1, 'jaw actuator')
-  addPart(d, 'bearing608', 2, 'jaw guides')
-  addPart(d, 'hw_m3', 1, 'frame fasteners')
-  addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
-  addPart(d, 'pca9685', 1, 'PWM channel')
-  addPart(d, 'as5600', 1, 'jaw position feedback')
-  addPart(d, MATERIALS[brief.material] ? MATERIALS[brief.material].priceId : 'petg_kg', 1, 'printed jaws')
+  // ── frame: mounting flange + pillars + deck ──────────────────────────────
+  rbox(d, 'flange', [deckL, deckW, 7], [0, 0, 3.5], 2, 'accent', { print: true })
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    rbox(d, `pillar-${sx}${sy}`, [14, 14, 40], [sx * (deckL / 2 - 12), sy * (deckW / 2 - 12), 27], 1.5, 'shell', { print: true })
+    bolt(d, `flange-bolt-${sx}${sy}`, [sx * (deckL / 2 - 12), sy * (deckW / 2 - 12), 7], 'z', 10)
+    bolt(d, `deck-bolt-${sx}${sy}`, [sx * (deckL / 2 - 12), sy * (deckW / 2 - 12), deckZ], 'z', 10)
+  }
+  rbox(d, 'deck', [deckL, deckW, 7], [0, 0, deckZ - 3.5], 2, 'shell', { print: true })
+  // servo bay cheeks keep it rigid + give the ears somewhere to bolt
+  for (const sy of [-1, 1]) box(d, `cheek-${sy}`, [deckL - 26, 5, 38], [0, sy * (deckW / 2 - 12), 27], 'shell', { print: true })
 
-  d.notes.push(`${PARTS[key].name} → ${fmt(force, 0)}N at the jaw face, ~${fmt(gripMass, 1)}kg held with rubber pads.`)
-  if (gripMass < payload) {
-    d.checks.push({ level: 'fail', msg: `Grip force supports ${fmt(gripMass, 1)}kg but the brief asks ${payload}kg — add a 2:1 rack reduction or a stronger servo.` })
+  // ── servo, shaft up through the deck ─────────────────────────────────────
+  servoBody(d, 'servo', [0, 0, deckZ + 5], 'z', servo, null)
+  bolt(d, 'servo-ear-a', [-sd[0] / 2 - 2, -8, deckZ - 12], 'y', 8, { flip: true })
+  bolt(d, 'servo-ear-b', [sd[0] / 2 + 2, -8, deckZ - 12], 'y', 8, { flip: true })
+  // cable sneaks out the back
+  bend(d, 'servo-lead', 16, 2.2, 80, [-deckL / 2 + 16, -6, 30], [0, Math.PI / 2, Math.PI], 'belt')
+
+  // ── pinion + opposing racks on the deck ──────────────────────────────────
+  gear(d, 'pinion', mod, zTeeth, 9, [0, 0, deckZ + 9], 'z', 'steel')
+  // racks must still engage the pinion AND reach their jaw at full close
+  const rackLen = span * 0.75 + 80
+  const rackH = 6
+  const travel = span / 2 - 8
+  slideJoint(d, 'jaw', 'Jaw travel', 'x', Math.max(8, travel))
+  const rackY = pitchR * 1000 + rackH / 2 + 0.6 // pitch line kisses the pinion
+  // rack A: teeth face -y (down toward pinion), jaw on the -x end
+  rack(d, 'rack-a', [rackLen, 8, rackH], Math.round(rackLen / (Math.PI * mod)), [-span * 0.05, rackY, deckZ + 6], 'brass',
+    { rot: [Math.PI / 2, 0, 0], print: true, slide: { joint: 'jaw', sign: 1 } })
+  rack(d, 'rack-b', [rackLen, 8, rackH], Math.round(rackLen / (Math.PI * mod)), [span * 0.05, -rackY, deckZ + 6], 'brass',
+    { rot: [-Math.PI / 2, 0, 0], print: true, slide: { joint: 'jaw', sign: -1 } })
+
+  // ── linear rail + carriages carry the jaw load, racks only drive ─────────
+  cyl(d, 'rail', 3, Math.min(deckL * 0.86, span * 0.9 + 60), [0, 0, deckZ + 3], 'x', 'steel', { segs: 10 })
+  for (const sy of [-1, 1]) {
+    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 7, 8], [0, sy * railY, deckZ + 4], 'shell', { print: true })
   }
 
-  d.metrics = { gripForceN: force, gripMassKg: gripMass, spanMm: span, joints: 1 }
+  // ── jaw assemblies: carriage pair + riser + L-finger + replaceable pad ────
+  // At rest the PAD FACES sit ±span/2 — that is the rated opening. Closing
+  // slides each jaw toward centre; pads meet at ~16mm residual gap.
+  for (const s of [-1, 1]) {
+    const sign = -s // jaw A (-x) rides slide +1 (toward centre = close)
+    const tag = s < 0 ? 'a' : 'b'
+    const slideOpt = { joint: 'jaw', sign }
+    // carriage blocks on the keeper rails
+    const jx = s * (span / 2 + 3)
+    for (const sy of [-1, 1]) {
+      rbox(d, `carriage-${tag}${sy}`, [26, 13, 8], [jx - s * 6, sy * railY, deckZ + 4], 1.2, 'metal', { slide: slideOpt })
+    }
+    // riser ties the carriages to the rack ends
+    rbox(d, `riser-${tag}`, [10, railY * 2 + 13, 5], [jx - s * 6, 0, deckZ + 6.5], 1, 'accent', { print: true, slide: slideOpt })
+    // L-finger: horizontal ear over the riser, vertical blade out at span/2
+    const bladeX = s * (span / 2 + 7)
+    const earX = s * (span / 2 - 10)
+    rbox(d, `finger-ear-${tag}`, [36, 26, 5], [earX, 0, deckZ + 12], 1, 'accent', { print: true, slide: slideOpt })
+    rbox(d, `blade-${tag}`, [6, 30, 46], [bladeX, 0, deckZ + 35], 1.5, 'shell', { print: true, slide: slideOpt })
+    wedge(d, `gusset-${tag}`, [10, 26, 12], [earX - s * 8, 0, deckZ + 20], s < 0 ? 'nx' : 'px', 'accent', { print: true, slide: slideOpt })
+    // replaceable fingertip pad on the blade's inboard face — inner face = span/2
+    rbox(d, `pad-${tag}`, [4, 26, 30], [s * (span / 2 + 2), 0, deckZ + 30], 0.8, 'rubber', { slide: slideOpt })
+    bolt(d, `blade-bolt-${tag}`, [s * (span / 2), 0, deckZ + 44], 'x', 8, { flip: s > 0, slide: slideOpt })
+    bolt(d, `ear-bolt-${tag}`, [earX + s * 8, 0, deckZ + 14.5], 'z', 8, { slide: slideOpt })
+  }
+
+  // ── homing switch + jaw-position encoder ─────────────────────────────────
+  box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
+  rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
+  box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
+  box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
+  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
+
+  // ── parts: counted like a real kit list ──────────────────────────────────
+  addPart(d, servo, 1, 'rack & pinion actuator')
+  addPart(d, 'mgn12', 2, 'jaw linear guides')
+  addPart(d, 'limit_sw', 1, 'homing end-stop')
+  addPart(d, 'as5600', 1, 'jaw position feedback')
+  addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  addPart(d, 'buck5a', 1, '6V servo rail')
+  addPart(d, brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : brief.battery, 1, 'energy')
+  addPart(d, 'fuse', 1, 'rail protection')
+  addPart(d, 'cap1000', 1, 'servo rail smoothing')
+  addPart(d, 'insert_m3', 2, 'heat-set threads (~16 pcs)')
+  addPart(d, 'm3_screws', 2, 'frame + jaw bolts (~20 pcs)')
+  addPart(d, 'm2_screws', 1, 'switch + encoder mounting')
+  addPart(d, 'wire22', 1, 'signal harness')
+  addPart(d, 'jst_kit', 1, 'connectors')
+  addPart(d, 'rocker', 1, 'power switch')
+  addPart(d, mat.priceId, 1, 'printed structure')
+
+  // ── the honest numbers ────────────────────────────────────────────────────
+  d.notes.push(`${PARTS[servo].name} on a Ø${fmt(pitchR * 2000, 1)}mm pinion → ${fmt(jawF, 0)}N continuous per jaw, ~${fmt(gripMass, 1)}kg held on rubber pads (µ 0.6).`)
+  d.notes.push(`Two MGN12 rails carry the jaw side-load; the printed racks only see drive force. Jaw pads are the only wear part — print spares.`)
+  if (gripMass < payload) {
+    d.checks.push({ level: 'fail', msg: `Continuous grip holds ~${fmt(gripMass, 1)}kg but the brief asks ${payload}kg — step to a ${PARTS.ds3225.name}, shrink the pinion to 10T, or add a 2:1 gear stage.` })
+  }
+  if (jawF >= 150) {
+    d.checks.push({ level: 'warn', msg: `${fmt(jawF, 0)}N per jaw is the printed-rack shear limit — go module 1.5 → 2.0 or machine the racks in acetal if this lives at full grip.` })
+  }
+  const opening = span
+  if (opening < 40) d.checks.push({ level: 'warn', msg: `Jaw opening ${Math.round(opening)}mm — check the object fits with 6mm clearance past the pads.` })
+
+  d.metrics = { gripForceN: jawF, gripMassKg: gripMass, spanMm: span, pinionMm: pitchR * 1000, joints: 1, servo }
+  d.mech = [
+    { label: 'Jaw force (continuous)', value: `${fmt(jawF, 0)} N`, limit: 'rack shear ~150 N', ok: jawF < 150 },
+    { label: 'Pinion pitch radius', value: `${fmt(pitchR * 1000, 1)} mm`, limit: `m${mod} × ${zTeeth}T`, ok: null },
+    { label: 'Hold capacity', value: `${fmt(gripMass, 1)} kg`, limit: `${payload} kg brief`, ok: gripMass >= payload },
+    { label: 'Jaw travel', value: `${fmt(Math.max(8, travel), 0)} mm/side`, limit: 'stroke > obj/2', ok: null },
+  ]
   return d
 }
 
@@ -972,7 +1569,7 @@ function buildFullRobot(brief) {
   d.subtitle = `${payload}kg payload · ${Math.round(track)}×${Math.round(wheelbase)}mm footprint · ${mat.name}`
 
   // ── drive base ───────────────────────────────────────────────────────────
-  box(d, 'deck', [wheelbase, track, 3], [0, 0, deckZ - 2], 'shell', { print: true })
+  rbox(d, 'deck', [wheelbase, track, 5], [0, 0, deckZ - 2], 2, 'shell', { print: true })
   for (const sx of [-0.28, 0.12]) {
     box(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 'shell', { print: true })
   }
@@ -993,24 +1590,27 @@ function buildFullRobot(brief) {
   wheels.forEach(([x, y], i) => {
     const side = y > 0 ? 1 : -1
     // wheel is BOUGHT (see BOM); only the adapter is printed
-    cyl(d, `wheel-${i}`, wheelD / 2, 30, [x, y + side * 16, z0], 'y', 'rubber')
-    cyl(d, `hub-${i}`, wheelD * 0.24, 34, [x, y + side * 18, z0], 'y', 'accent', { print: true })
+    wheelAssy(d, `wheel-${i}`, [x, y + side * 16, z0], 'y', wheelD, 30, null, side)
     // motor block sits inboard of the wheel so it is visible in the model
     cyl(d, `motor-${i}`, 19, 46, [x, y - side * 26, z0], 'y', 'metal')
   })
 
   // ── arm ─────────────────────────────────────────────────────────────────
-  cyl(d, 'turret', 46, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
-  cyl(d, 'turret-bearing', 26, 10, [armX, 0, shoulderZ], 'z', 'metal', { part: 'bearing608' })
+  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
+  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
+  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
   joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
 
-  box(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 'shell', { joint: 'yaw', print: true })
+  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
   cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
+  servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', 'ds3225', 'yaw', 'shoulder')
   joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
 
   box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
   box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
   cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
+  servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', 'ds3218', 'shoulder', 'elbow')
+  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
   joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
 
   box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
@@ -1033,7 +1633,7 @@ function buildFullRobot(brief) {
   box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
   cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
   cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
-  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90)
+  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
   // ── arm sizing (same cascade as the arm archetype) ──────────────────────
   const linkMass = (len) => len * 44 * 40 * 0.34 * density
@@ -1161,7 +1761,7 @@ function buildFullRobot(brief) {
 /** Combined firmware: one loop that arbitrates drive and arm. */
 function fullRobotFirmware(design, a, pin) {
   const m = design.metrics
-  const driver = design.parts.find((p) => p.key === 'tb6612' || p.key === 'bts7960')?.key || 'bts6612'
+  const driver = design.parts.find((p) => p.key === 'tb6612' || p.key === 'bts7960')?.key || 'bts7960'
   return `/* ${design.title} — ${a.mcu.name}
  * Generated by Rigforge: mobile manipulator, ${design.joints.length} arm servos on a
  * PCA9685 + 4 driven wheels. One pack, one loop, one arbiter.
@@ -1308,9 +1908,9 @@ function buildHumanoid(brief) {
   d.subtitle = `${handPayload}kg per hand · ${mat.name} skeleton · serial-bus servos`
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
-  box(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 'shell', { print: true })
-  box(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 'shell', { print: true })
-  box(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 'accent', { print: true })
+  rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
   box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
@@ -1327,7 +1927,7 @@ function buildHumanoid(brief) {
     const x = sx * legX
     const label = side === 'l' ? 'Left' : 'Right'
     const hipPivot = [x, 0, zHip]
-    joint(d, `${side}-hip-yaw`, `${label} hip yaw`, 'z', hipPivot, -45, 45, 'waist')
+    joint(d, `${side}-hip-yaw`, `${label} hip yaw`, 'z', hipPivot, -45, 45, null)
     joint(d, `${side}-hip-roll`, `${label} hip roll`, 'x', hipPivot, -25, 25, `${side}-hip-yaw`)
     joint(d, `${side}-hip-pitch`, `${label} hip pitch`, 'y', hipPivot, -100, 45, `${side}-hip-roll`)
     cyl(d, `hip-hub-${side}`, 18, limbW + 10, [x, 0, zHip], 'x', 'metal', { joint: `${side}-hip-pitch` })
@@ -1337,6 +1937,8 @@ function buildHumanoid(brief) {
     const kneePivot = [x, 0, zKnee]
     joint(d, `${side}-knee`, `${label} knee`, 'y', kneePivot, -5, 135, `${side}-hip-pitch`)
     cyl(d, `knee-hub-${side}`, 15, limbW + 6, [x, 0, zKnee], 'x', 'metal', { joint: `${side}-knee` })
+    bearing(d, `knee-race-${side}`, [x, (limbW + 6) / 2 + 4, zKnee], 'y', 22, 8, 7, { joint: `${side}-knee` })
+    bolt(d, `knee-bolt-${side}`, [x, (limbW + 6) / 2 + 10, zKnee], 'y', 8, { joint: `${side}-knee` })
     box(d, `shin-${side}`, [limbW * 0.86, limbD * 0.9, shin - 14], [x, 0, zKnee - shin / 2 - 7], 'shell', { joint: `${side}-knee`, print: true })
     box(d, `shin-rib-${side}`, [limbW * 0.5, 8, shin * 0.7], [x, limbD * 0.45, zKnee - shin / 2], 'accent', { joint: `${side}-knee`, print: true })
 
@@ -1353,7 +1955,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
@@ -1554,13 +2156,20 @@ const I2S = { bclk: 5, lrclk: 6, din: 7, dout: 4 }
 function pinMap(design) {
   const rows = []
   const used = new Set([...Object.values(I2C), ...Object.values(SPI), ...Object.values(I2S), 43, 44]) // 43/44 = UART0 console
-  const take = (n) => {
+  // UART hard pairs must be reserved up front or take() hands them to a servo.
+  const busCount = design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0)
+  const hasGpsUart = design.parts.some((p) => PARTS[p.key]?.bus === 'uart')
+  if (busCount > 0 || hasGpsUart) for (const p of [17, 18, 47, 48]) used.add(p)
+  let taken = 0 // pins actually allocated — the pin-budget number, not the reservation
+  const take = () => {
     const free = SAFE_PINS.find((p) => !used.has(p))
     if (free == null) return null
     used.add(free)
+    taken += 1
     return free
   }
-  const mcuKey = design.parts.find((p) => PARTS[p.key].cat === 'mcu')?.key || 'esp32s3'
+  const takePin = () => String(take() ?? '—')
+  const mcuKey = design.parts.find((p) => PARTS[p.key]?.cat === 'mcu')?.key || 'esp32s3'
   const mcu = PARTS[mcuKey]
   const buses = new Set()
 
@@ -1578,20 +2187,25 @@ function pinMap(design) {
         if (part.bus === 'spi') buses.add('spi-display')
         if (part.bus === 'uart') buses.add('uart1')
         if (part.bus === 'i2s') buses.add(part.name.includes('amp') ? 'i2s-out' : 'i2s-in')
+        if (part.bus === 'switch') {
+          for (let i = 0; i < qty; i += 1) {
+            rows.push({ pin: takePin(), signal: `LIMIT ${i + 1}`, dir: 'in', note: 'INPUT_PULLUP, wire NC — open wire reads as a hit' })
+          }
+        }
         break
       case 'driver':
         if (key === 'pca9685') buses.add('i2c')
         break
       case 'motor':
         for (let i = 0; i < qty; i += 1) {
-          const pwm = take()
-          const in1 = take()
-          const in2 = take()
+          const pwm = takePin()
+          const in1 = takePin()
+          const in2 = takePin()
           rows.push({ pin: String(pwm), signal: `M${i + 1} PWM`, dir: 'out', note: 'LEDC 20kHz' })
           rows.push({ pin: String(in1), signal: `M${i + 1} IN1`, dir: 'out', note: 'direction' })
           rows.push({ pin: String(in2), signal: `M${i + 1} IN2`, dir: 'out', note: 'direction' })
           if (part.encoder) {
-            rows.push({ pin: String(take()), signal: `M${i + 1} ENC A`, dir: 'in', note: 'interrupt, pull-up' })
+            rows.push({ pin: takePin(), signal: `M${i + 1} ENC A`, dir: 'in', note: 'interrupt, pull-up' })
           }
         }
         break
@@ -1599,7 +2213,7 @@ function pinMap(design) {
         // Servos on a PCA9685 are addressed by CHANNEL, and on a serial bus by
         // ADDRESS — either way one block for the whole design, never per part.
         if (!design.parts.some((p) => p.key === 'pca9685') && !design.parts.some((p) => p.key === 'bus_adapter')) {
-          for (let i = 0; i < qty; i += 1) rows.push({ pin: String(take()), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
+          for (let i = 0; i < qty; i += 1) rows.push({ pin: takePin(), signal: `SERVO ${i + 1}`, dir: 'out', note: '50Hz, 500–2500µs' })
         }
         break
       default:
@@ -1607,15 +2221,14 @@ function pinMap(design) {
     }
   }
 
-  const busServos = design.parts.some((p) => p.key === 'bus_adapter')
-  if (busServos) {
+  if (busCount > 0) {
     // ESP32-S3 has three UARTs; UART0 is the console, so buses land on 1 and 2.
     const pairs = [[17, 18], [47, 48]]
-    const buses = Math.max(1, design.parts.filter((p) => p.key === 'bus_adapter').reduce((s, p) => s + p.qty, 0))
-    for (let b = 0; b < Math.min(buses, pairs.length); b += 1) {
+    for (let b = 0; b < Math.min(busCount, pairs.length); b += 1) {
       rows.push({ pin: `${pairs[b][0]}`, signal: `BUS${b} TX`, dir: 'out', part: 'uart', note: '1Mbps half-duplex, 330Ω series' })
       rows.push({ pin: `${pairs[b][1]}`, signal: `BUS${b} RX`, dir: 'in', part: '', note: '3.3V logic, no divider needed' })
     }
+    if (busCount > pairs.length) rows.push({ pin: '—', signal: `${busCount - pairs.length} more bus(es)`, dir: 'err', part: '', note: 'ESP32-S3 has only two free UARTs' })
     rows.push({ pin: 'PWR', signal: 'servo rails', dir: 'pwr', part: '', note: '2 rails, 1000µF each at the first servo' })
   }
 
@@ -1640,12 +2253,17 @@ function pinMap(design) {
   if (buses.has('spi-display')) {
     rows.push({ pin: String(SPI.sck), signal: 'TFT SCK', dir: 'out', note: 'SPI2 40MHz' })
     rows.push({ pin: String(SPI.mosi), signal: 'TFT MOSI', dir: 'out', note: '' })
-    rows.push({ pin: String(take()), signal: 'TFT CS', dir: 'out', note: '' })
-    rows.push({ pin: String(take()), signal: 'TFT DC', dir: 'out', note: '' })
+    rows.push({ pin: takePin(), signal: 'TFT CS', dir: 'out', note: '' })
+    rows.push({ pin: takePin(), signal: 'TFT DC', dir: 'out', note: '' })
   }
   if (buses.has('uart1')) {
-    rows.push({ pin: '17', signal: 'GPS TX→RX', dir: 'in', note: '9600 baud NMEA' })
-    rows.push({ pin: '18', signal: 'GPS RX→TX', dir: 'out', note: '' })
+    // GPS takes the UART pair the servo buses did not claim.
+    const gpsPair = busCount > 0 ? [47, 48] : [17, 18]
+    if (busCount > 1) rows.push({ pin: '—', signal: 'GPS UART', dir: 'err', note: 'no free UART — both are servo buses' })
+    else {
+      rows.push({ pin: String(gpsPair[0]), signal: 'GPS TX→RX', dir: 'in', note: '9600 baud NMEA' })
+      rows.push({ pin: String(gpsPair[1]), signal: 'GPS RX→TX', dir: 'out', note: '' })
+    }
   }
   if (buses.has('i2s-in') || buses.has('i2s-out')) {
     rows.push({ pin: String(I2S.bclk), signal: 'I2S BCLK', dir: 'out', note: '' })
@@ -1654,11 +2272,19 @@ function pinMap(design) {
     if (buses.has('i2s-out')) rows.push({ pin: String(I2S.dout), signal: 'I2S DOUT', dir: 'out', note: 'amp data' })
   }
   if (design.archetype === 'gadget') {
-    rows.push({ pin: String(take()), signal: 'KNOB', dir: 'in', note: 'ADC1, 12-bit' })
-    rows.push({ pin: String(take()), signal: 'BUTTON', dir: 'in', note: 'INPUT_PULLUP' })
+    rows.push({ pin: takePin(), signal: 'KNOB', dir: 'in', note: 'ADC1, 12-bit' })
+    rows.push({ pin: takePin(), signal: 'BUTTON', dir: 'in', note: 'INPUT_PULLUP' })
   }
 
-  return { rows, mcu, mcuKey, safePins: SAFE_PINS.length, used: used.size }
+  // Budget count = allocated pins + bus pins actually in use — the seeded
+  // reservation is a floor, not a draw.
+  let usedCount = taken
+  if (buses.has('i2c')) usedCount += 2
+  if (buses.has('spi-display')) usedCount += 3
+  if (buses.has('uart1')) usedCount += 2
+  if (buses.has('i2s-in') || buses.has('i2s-out')) usedCount += 3
+  usedCount += Math.min(busCount, 2) * 2
+  return { rows, mcu, mcuKey, safePins: SAFE_PINS.length, used: usedCount }
 }
 
 /** Power budget: rails, peak, typical, and what the pack can actually do. */
@@ -1666,22 +2292,77 @@ function powerBudget(design) {
   const rails = { '3V3': { typ: 0, peak: 0, items: [] }, '5V': { typ: 0, peak: 0, items: [] }, motor: { typ: 0, peak: 0, items: [] } }
   for (const { key, qty, role } of design.parts) {
     const p = PARTS[key]
-    if (!p || !p.curr) continue
+    if (!p || !p.curr) {
+      // an agent can hand us a key we do not stock — flag it, don't crash
+      if (!p) design.checks?.push({ level: 'warn', msg: `Unknown part key '${key}' in the parts list — check the brief or directive spelling.` })
+      continue
+    }
     const rail = p.cat === 'motor' || p.cat === 'servo' ? (p.volts >= 7 ? 'motor' : '5V') : '3V3'
     rails[rail].typ += p.curr.typ * qty
     rails[rail].peak += p.curr.peak * qty
     rails[rail].items.push({ key, qty, role, typ: p.curr.typ * qty, peak: p.curr.peak * qty })
   }
-  const battery = design.parts.find((p) => PARTS[p.key].cat === 'battery')
+  const battery = design.parts.find((p) => PARTS[p.key]?.cat === 'battery')
   const bat = battery ? PARTS[battery.key] : null
   const typ = rails['3V3'].typ + rails['5V'].typ + rails.motor.typ
   const peak = rails['3V3'].peak + rails['5V'].peak + rails.motor.peak
-  const runtime = bat && bat.mah > 0 ? ((bat.mah / 1000) * 0.8 * 60) / typ : null
-  return { rails, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
+  const runtime = bat && bat.mah > 0 && typ > 0.01 ? ((bat.mah / 1000) * 0.8 * 60) / typ : null
+
+  // Wiring: the power rails are sized for the stall case, the logic rail for
+  // what it actually draws. Fuse between them — it protects the WIRE.
+  const railLabel = { '3V3': '3V3 logic', '5V': '6V servo', motor: 'motor' }
+  const wiring = Object.entries(rails)
+    .filter(([, v]) => v.peak > 0.01)
+    .map(([name, v]) => ({
+      rail: railLabel[name] || name,
+      amps: Math.max(v.typ, 0.05),
+      peak: v.peak,
+      awg: wireFor(name === '3V3' ? Math.max(v.typ, 0.1) : v.peak * 0.8),
+      fuse: name === '3V3' ? null : fuseFor(Math.max(v.typ, 0.1)),
+      conn: name === '3V3' ? 'JST-PH / Dupont' : v.peak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH',
+    }))
+
+  return { rails, wiring, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
+}
+
+/**
+ * Screws and inserts nobody wants to count by hand. Called from analyze so the
+ * BOM, cost and CSV all agree — run once, guarded, because analyze() can run
+ * again on a rebuilt design that already carries the lines.
+ */
+function autoFasteners(design) {
+  if (design._fastened) return
+  design._fastened = true
+  let m3 = 0
+  let m2 = 0
+  let boards = 0
+  for (const { key, qty } of design.parts) {
+    const cat = PARTS[key]?.cat
+    if (cat === 'servo') m3 += qty * 4 // ear bolts per servo
+    else if (cat === 'motor') m3 += qty * 4 // face-mount pattern
+    else if (cat === 'mcu' || cat === 'driver' || cat === 'display') boards += qty
+    else if (cat === 'sensor' && PARTS[key].bus === 'switch') m2 += qty * 2
+  }
+  const screws10 = Math.ceil((m3 + boards * 4) / 10)
+  const inserts10 = Math.ceil(m3 / 10)
+  // A design that already carries the assortment kit does not also need the
+  // counted lines — one or the other, never both.
+  const hasKit = design.parts.some((p) => p.key === 'hw_m3' || p.key === 'm3_screws')
+  if (screws10 > 0 && !hasKit) {
+    addPart(design, 'm3_screws', screws10, `${m3 + boards * 4} counted M3 (servos, motors, boards)`)
+    addPart(design, 'insert_m3', Math.max(1, inserts10), `${m3} heat-set threads at loaded joints`)
+  }
+  if (m2 > 0 && !design.parts.some((p) => p.key === 'm2_screws')) {
+    addPart(design, 'm2_screws', 1, `${m2} micro screws`)
+  }
+  if (boards > 0 && !design.parts.some((p) => p.key === 'standoff_m3')) {
+    addPart(design, 'standoff_m3', 1, `${boards} boards off the deck`)
+  }
 }
 
 /** Everything the UI and every export reads. Pure: design in, numbers out. */
 function analyze(design) {
+  autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
@@ -1742,22 +2423,34 @@ function analyze(design) {
   }
 }
 
-function boundsOf(nodes) {
-  const min = [Infinity, Infinity, Infinity]
-  const max = [-Infinity, -Infinity, -Infinity]
-  for (const n of nodes) {
-    const half = n.kind === 'box'
-      ? [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
-      : n.axis === 'x' ? [n.height / 2, n.radius, n.radius]
-        : n.axis === 'y' ? [n.radius, n.height / 2, n.radius]
-          : [n.radius, n.radius, n.height / 2]
-    for (let i = 0; i < 3; i += 1) {
-      min[i] = Math.min(min[i], n.pos[i] - half[i])
-      max[i] = Math.max(max[i], n.pos[i] + half[i])
-    }
+/** Axis-aligned half extents for every node kind the engine emits. */
+function nodeHalf(n) {
+  if (n.size) return [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2] // box/rbox/wedge/rack
+  if (n.kind === 'sphere') return [n.radius, n.radius, n.radius]
+  if (n.kind === 'ring') {
+    return n.axis === 'x' ? [n.height / 2, n.outer, n.outer]
+      : n.axis === 'y' ? [n.outer, n.height / 2, n.outer] : [n.outer, n.outer, n.height / 2]
   }
-  return { min, max }
+  if (n.kind === 'torus') {
+    const R = n.R + n.r
+    return n.axis === 'x' ? [n.r, R, R] : n.axis === 'y' ? [R, n.r, R] : [R, R, n.r]
+  }
+  if (n.kind === 'bend') {
+    const e = n.R + n.r // conservative: the arc sweeps a square footprint
+    return [e, e, Math.max(n.r, e * 0.6)]
+  }
+  if (n.kind === 'gear') {
+    const tip = (n.module * n.teeth) / 2 + n.module
+    const half = n.width / 2
+    return n.axis === 'x' ? [half, tip, tip] : n.axis === 'y' ? [tip, half, tip] : [tip, tip, half]
+  }
+  const r = n.radius || 0
+  const h = n.height || r * 2
+  return n.axis === 'x' ? [h / 2, r, r] : n.axis === 'y' ? [r, h / 2, r] : [r, r, h / 2]
 }
+
+// boundsOf() lives in 40-geometry.js — the one that knows rot'd parts need
+// radial bounds. nodeHalf() above is for the print table's per-part dims.
 
 // ── firmware: generated against the pin map, not copied from a tutorial ─────
 // The #defines come from the analysis pass, so the code and the wiring table
@@ -1773,7 +2466,100 @@ function firmwareFor(design, a) {
   if (design.archetype === 'robot') return fullRobotFirmware(design, a, pin)
   if (design.archetype === 'rover') return roverFirmware(design, a, pin, mcus)
   if (design.archetype === 'gadget') return gadgetFirmware(design, a, pin, mcus)
+  if (design.archetype === 'gripper') return gripperFirmware(design, a, pin, mcus)
   return armFirmware(design, a, servoCount, mcus)
+}
+
+/**
+ * Parallel gripper: one positional servo on a pinion, two opposing racks on an
+ * MGN12 rail. Homes against the limit switch, closes until jaw force stalls
+ * the servo (or the encoder says we reached the object). The AS5600 on the
+ * pinion shaft makes "closed to N mm" a measurement, not a guess.
+ */
+function gripperFirmware(design, a, pin, mcus) {
+  const m = design.metrics || {}
+  const travel = Math.round(m.spanMm || 60)
+  return `/* ${design.title} — ${mcus}
+ * Generated by Rigforge. Rack-and-pinion parallel jaw, one servo, homed.
+ *
+ * Mechanism: servo pinion drives two opposing racks on an MGN12 rail. Jaw force
+ * comes from stall torque at the ${fmt(m.pinionMm || 8.75, 1)}mm pitch radius —
+ * ~${Math.round(m.gripForceN || 0)}N holds ~${fmt(m.gripMassKg || 0, 1)}kg on rubber pads.
+ *
+ * Wiring: servo signal on a GPIO (direct — no PWM board needed for one servo),
+ * 6V rail fused, AS5600 encoder on I2C (0x36), homing switch wired NC.
+ */
+#include <Wire.h>
+#include <ESP32Servo.h>
+#include <AS5600.h>
+
+Servo jawServo;
+AS5600 encoder;
+
+const uint8_t SERVO_PIN = ${pin('SERVO 1', 4)};
+const uint8_t LIMIT_PIN = ${pin('LIMIT 1', 16)};
+const uint8_t SDA_PIN   = ${I2C.sda}, SCL_PIN = ${I2C.scl};
+
+// rack geometry: servo degrees at the pinion == mm at the jaw
+const float PINION_PITCH_MM = ${fmt((m.pinionMm || 8.75) * 2 * Math.PI / 360 * 60, 2)}; // mm of jaw travel per 60°
+const float SPAN_MM = ${travel}.0f;
+const uint8_t US_OPEN = 1200, US_CLOSED = 1800;   // calibrate against the real racks
+
+enum JawState { HOMING, OPEN, GRIPPING, FAULT };
+JawState state = HOMING;
+
+float jawSpanMm() {
+  // AS5600 raw angle -> pinion turns -> jaw separation. BOTH racks move, so
+  // separation changes at 2x the single-rack rate per pinion degree.
+  float deg = encoder.readAngle() * (360.0f / 4096.0f);
+  return SPAN_MM - deg * (PINION_PITCH_MM * 2.0f / 60.0f);
+}
+
+void home() {
+  // Drive closed slowly until the limit switch opens — that face is jaw zero.
+  pinMode(LIMIT_PIN, INPUT_PULLUP);
+  jawServo.writeMicroseconds(US_CLOSED - 150);
+  uint32_t t0 = millis();
+  while (digitalRead(LIMIT_PIN) == LOW && millis() - t0 < 6000) delay(10);
+  jawServo.writeMicroseconds(US_OPEN);
+  state = digitalRead(LIMIT_PIN) == HIGH ? OPEN : FAULT;
+}
+
+void gripTo(float targetMm, uint8_t force) {
+  targetMm = constrain(targetMm, 0.0f, SPAN_MM);
+  // Force is servo travel PAST contact — the racks preload the pinion.
+  float us = US_OPEN + (US_CLOSED - US_OPEN) * (1.0f - targetMm / SPAN_MM);
+  us += (force / 255.0f) * 120.0f;              // push past contact, 0..~7°
+  jawServo.writeMicroseconds((uint16_t)us);
+  state = GRIPPING;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  encoder.begin();
+  jawServo.setPeriodHertz(50);
+  jawServo.attach(SERVO_PIN, 500, 2500);
+  home();
+  Serial.println("${design.title} ready — 'G <mm> <force>' to grip, 'O' open, 'R' read span");
+}
+
+void loop() {
+  if (state == FAULT) return;  // homing failed: stop before the racks chew the pinion
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'G' || c == 'g') {
+      float mm = Serial.parseFloat();
+      uint8_t f = (uint8_t)Serial.parseInt();
+      gripTo(mm, f);
+    } else if (c == 'O' || c == 'o') {
+      jawServo.writeMicroseconds(US_OPEN);
+      state = OPEN;
+    } else if (c == 'R' || c == 'r') {
+      Serial.print("span "); Serial.println(jawSpanMm(), 1);
+    }
+  }
+}`
 }
 
 function armFirmware(design, a, servoCount, mcus) {
@@ -1892,6 +2678,7 @@ const float   WHEEL = ${(((design.metrics.wheelD || 60) / 1000) * Math.PI).toFix
 
 // ── sensing ─────────────────────────────────────────────────────────────────
 const uint8_t SDA_PIN = ${I2C.sda}, SCL_PIN = ${I2C.scl};
+${design.joints.length ? `const uint8_t PAN_PIN = ${pin('SERVO 1', 21)};   // head-pan servo, 500–2500us` : ''}
 
 void setMotor(uint8_t ch, uint8_t in1, uint8_t in2, float cmd) {
   cmd = constrain(cmd, -1.0f, 1.0f);
@@ -1916,6 +2703,7 @@ void setup() {
   ledcAttach(PWM_R, 20000, 8);
   pinMode(IN1_L, OUTPUT); pinMode(IN2_L, OUTPUT);
   pinMode(IN1_R, OUTPUT); pinMode(IN2_R, OUTPUT);
+${design.joints.length ? '  ledcAttach(PAN_PIN, 50, 12); ledcWrite(PAN_PIN, 307);  // pan centre (~1500us)' : ''}
   stop();
   Serial.println("${design.title} ready — send 'v w' in m/s and rad/s");
 }
@@ -2032,6 +2820,11 @@ function stepsFor(design, a) {
     push('Bolt the arm to the deck', 'Four bolts through the turret flange into heat-set inserts, threadlocker on all four, then check the arm can sweep its full yaw range without the head or the pack in the way.', ['threadlocker'], 20)
     push('Power and harness', `Split the servo rail from the drive rail: two UBECs, one per side of the deck. Route the arm bundle down through the turret centre so yaw never pulls a wire.`, ['soldering iron', 'cable ties'], 45)
     push('Ballast and stability test', `With the arm at full extension, ${a.checks.some((c) => /stabilit/i.test(c.msg)) ? 'this machine is on the stability edge per the SPEC tab — add pack weight over the rear axle before the first drive' : 'lift one wheel at a time and confirm the other three stay planted'}.`, [], 15)
+  } else if (design.archetype === 'gripper') {
+    push('Set the linear rail', 'Bolt the MGN12 rail to the deck FIRST — it is the reference everything else aligns to. Degrease it, then check both carriages glide end to end with finger pressure and no click.', ['M3 hex key', 'degreaser'], 20)
+    push('Mesh the racks', 'Loose-fit both racks against the pinion, slide a jaw carriage to mid-travel, then nip the rack screws while rolling the jaw — the racks seat themselves at the right mesh depth.', ['M2.5 hex key'], 25)
+    push('Home against the switch', 'Adjust the homing flag until the limit switch clicks exactly at jaw-zero — the generated firmware drives against it for 6s max; if it never trips it faults, which is what you want.', ['M2.5 hex key', 'multimeter'], 15)
+    push('Fit the jaws last', 'Jaw plates, risers, pads. Check the pads meet flush — a 1mm skew at the pad is a rotated part at the robot.', ['M3 hex key'], 15)
   } else if (design.archetype === 'gadget') {
     push('Fit the electronics', 'Display to the lid window, MCU on standoffs, sensor aligned with the vent. Test-fit before glue — you will need to get back in there.', ['M3 hex key'], 20)
     push('Wire the bus', `I2C: SDA→GPIO${I2C.sda}, SCL→GPIO${I2C.scl}, 3V3 and GND to every device. Check the addresses with an I2C scan before closing the case.`, ['soldering iron', 'multimeter'], 25)
@@ -2045,17 +2838,26 @@ function stepsFor(design, a) {
   return steps
 }
 
-// ── geometry: joints → world triangles ──────────────────────────────────────
-// A forward-kinematics pass over the serial chain. The renderer and the STL
-// exporter read the SAME triangle list, so what you orbit is what you print.
+// ── geometry: nodes → world triangles ───────────────────────────────────────
+// A forward-kinematics pass over the joint tree plus a slide pass for linear
+// axes. The renderer and the STL exporter read the SAME triangle list, so what
+// you orbit is what you print.
+//
+// Node local verts are generated centred at origin, oriented by `axis` and
+// optionally `rot` (Euler, radians), translated to `pos`, slid by any linear
+// joint, then rotated through the revolute chain.
 
 const MAT_RGB = {
   shell: [198, 206, 214],
   accent: [255, 107, 26],
   metal: [140, 150, 162],
+  steel: [96, 108, 122],
+  brass: [188, 152, 74],
   pcb: [32, 96, 70],
   rubber: [38, 42, 48],
   glass: [112, 214, 232],
+  servo: [30, 34, 42],
+  belt: [34, 36, 40],
 }
 
 function rotAxis(p, pivot, axis, angle) {
@@ -2068,6 +2870,17 @@ function rotAxis(p, pivot, axis, angle) {
   if (axis === 'z') return [pivot[0] + x * c - y * s, pivot[1] + x * s + y * c, p[2]]
   if (axis === 'y') return [pivot[0] + x * c + z * s, p[1], pivot[2] - x * s + z * c]
   return [p[0], pivot[1] + y * c - z * s, pivot[2] + y * s + z * c]
+}
+
+/** Euler XYZ about the node's own centre — how wedges, bends and gears aim. */
+function rotEuler(p, rot) {
+  if (!rot || (!rot[0] && !rot[1] && !rot[2])) return p
+  let [x, y, z] = p
+  const [rx, ry, rz] = rot
+  if (rx) { const c = Math.cos(rx), s = Math.sin(rx); const y2 = y * c - z * s, z2 = y * s + z * c; y = y2; z = z2 }
+  if (ry) { const c = Math.cos(ry), s = Math.sin(ry); const x2 = x * c + z * s, z2 = -x * s + z * c; x = x2; z = z2 }
+  if (rz) { const c = Math.cos(rz), s = Math.sin(rz); const x2 = x * c - y * s, y2 = x * s + y * c; x = x2; y = y2 }
+  return [x, y, z]
 }
 
 /** Every joint's ancestor list, root first. One pass per mesh build. */
@@ -2093,6 +2906,7 @@ function applyChain(chain, point) {
   let p = point
   if (!chain) return p
   for (const j of chain) {
+    if (j.slide) continue
     // Pitch joints read positive = UP: a slider that raises the arm should not
     // drive it into the table. (Servo direction is flipped in the firmware.)
     const sign = j.axis === 'y' ? -1 : 1
@@ -2101,63 +2915,318 @@ function applyChain(chain, point) {
   return p
 }
 
-const CYL_SEGS = 18
+/** Linear-joint displacement for a node that rides a slide. */
+function slideDisp(design, node) {
+  if (!node.slide) return [0, 0, 0]
+  const j = design.joints.find((jj) => jj.id === node.slide.joint)
+  if (!j || !j.slide) return [0, 0, 0]
+  const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+  const t = j.angle * (node.slide.sign || 1)
+  return [dir[0] * t, dir[1] * t, dir[2] * t]
+}
 
-/** One node → triangles in world space. */
-function nodeTriangles(design, node, chain) {
+// ── local vertex generators (centred at origin) ─────────────────────────────
+
+/** Axis-aligned box corners → 12 tris. */
+function boxTris(sx, sy, sz) {
+  const corner = (i) => [(i & 1 ? sx : -sx), (i & 2 ? sy : -sy), (i & 4 ? sz : -sz)]
+  const faces = [
+    [0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4],
+    [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5],
+  ]
   const tris = []
-  const push = (a, b, c) => tris.push({ pts: [applyChain(chain, a), applyChain(chain, b), applyChain(chain, c)], mat: node.mat })
-
-  if (node.kind === 'box') {
-    const [sx, sy, sz] = node.size.map((v) => v / 2)
-    const [cx, cy, cz] = node.pos
-    const corner = (i) => [cx + (i & 1 ? sx : -sx), cy + (i & 2 ? sy : -sy), cz + (i & 4 ? sz : -sz)]
-    const faces = [
-      [0, 2, 3, 1], // bottom
-      [4, 5, 7, 6], // top
-      [0, 1, 5, 4], // front
-      [2, 6, 7, 3], // back
-      [0, 4, 6, 2], // left
-      [1, 3, 7, 5], // right
-    ]
-    for (const f of faces) {
-      push(corner(f[0]), corner(f[1]), corner(f[2]))
-      push(corner(f[0]), corner(f[2]), corner(f[3]))
-    }
-    return tris
-  }
-
-  // cylinder
-  const [cx, cy, cz] = node.pos
-  const r = node.radius
-  const h = node.height / 2
-  const axis = node.axis || 'z'
-  const ring = (t, side) => {
-    const a = (t / CYL_SEGS) * Math.PI * 2
-    const u = Math.cos(a) * r
-    const v = Math.sin(a) * r
-    if (axis === 'z') return [cx + u, cy + v, cz + (side ? h : -h)]
-    if (axis === 'y') return [cx + u, cy + (side ? h : -h), cz + v]
-    return [cx + (side ? h : -h), cy + u, cz + v]
-  }
-  for (let i = 0; i < CYL_SEGS; i += 1) {
-    const t0 = i
-    const t1 = i + 1
-    push(ring(t0, 1), ring(t1, 1), ring(t1, 0))
-    push(ring(t0, 1), ring(t1, 0), ring(t0, 0))
-    push(ring(t0, 0), ring(t1, 0), [cx, cy, cz])
-    push(ring(t0, 1), [cx, cy, cz], ring(t1, 1))
+  for (const f of faces) {
+    tris.push([corner(f[0]), corner(f[1]), corner(f[2])])
+    tris.push([corner(f[0]), corner(f[2]), corner(f[3])])
   }
   return tris
 }
 
+/**
+ * Chamfered box: each corner cut at distance r along its three edges.
+ * 6 octagonal faces + 12 edge chamfers + 8 corner triangles — the machined look.
+ */
+function rboxTris(sx, sy, sz, r) {
+  const rr = Math.min(r, Math.min(sx, sy, sz) * 0.45)
+  const P = (sxn, syn, szn, ex, ey, ez) => [
+    sxn * (sx - ex * rr), syn * (sy - ey * rr), szn * (sz - ez * rr),
+  ]
+  const C = []
+  for (const szn of [-1, 1]) for (const syn of [-1, 1]) for (const sxn of [-1, 1]) {
+    C.push({ s: [sxn, syn, szn], x: P(sxn, syn, szn, 1, 0, 0), y: P(sxn, syn, szn, 0, 1, 0), z: P(sxn, syn, szn, 0, 0, 1) })
+  }
+  const at = (sxn, syn, szn) => C.find((c) => c.s[0] === sxn && c.s[1] === syn && c.s[2] === szn)
+  const tris = []
+  const fan = (verts) => { for (let i = 1; i < verts.length - 1; i += 1) tris.push([verts[0], verts[i], verts[i + 1]]) }
+
+  // face octagons
+  const faces = [
+    { axis: 'z', sign: 1, pts: (c) => [c.x, c.y], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+    { axis: 'z', sign: -1, pts: (c) => [c.x, c.y], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+    { axis: 'y', sign: 1, pts: (c) => [c.x, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+    { axis: 'y', sign: -1, pts: (c) => [c.x, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+    { axis: 'x', sign: 1, pts: (c) => [c.y, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+    { axis: 'x', sign: -1, pts: (c) => [c.y, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
+  ]
+  for (const f of faces) {
+    const verts = []
+    for (const [u, v] of f.order) {
+      const s = f.axis === 'z' ? [u, v, f.sign] : f.axis === 'y' ? [u, f.sign, v] : [f.sign, u, v]
+      const c = at(s[0], s[1], s[2])
+      const [p0, p1] = f.pts(c)
+      verts.push(p0)
+      verts.push(p1 === p0 ? p0 : p1)
+    }
+    // order the 8 pts correctly: each corner contributes two edge points;
+    // walking the perimeter: [c0.p0, c1.p0, c1.p1, c2.p0? ...]
+    const oct = [
+      f.pts(at(...(f.axis === 'z' ? [-1, -1, f.sign] : f.axis === 'y' ? [-1, f.sign, -1] : [f.sign, -1, -1])))[0],
+      f.pts(at(...(f.axis === 'z' ? [1, -1, f.sign] : f.axis === 'y' ? [1, f.sign, -1] : [f.sign, 1, -1])))[0],
+      f.pts(at(...(f.axis === 'z' ? [1, -1, f.sign] : f.axis === 'y' ? [1, f.sign, -1] : [f.sign, 1, -1])))[1],
+      f.pts(at(...(f.axis === 'z' ? [1, 1, f.sign] : f.axis === 'y' ? [1, f.sign, 1] : [f.sign, 1, 1])))[1],
+      f.pts(at(...(f.axis === 'z' ? [1, 1, f.sign] : f.axis === 'y' ? [1, f.sign, 1] : [f.sign, 1, 1])))[0],
+      f.pts(at(...(f.axis === 'z' ? [-1, 1, f.sign] : f.axis === 'y' ? [-1, f.sign, 1] : [f.sign, -1, 1])))[0],
+      f.pts(at(...(f.axis === 'z' ? [-1, 1, f.sign] : f.axis === 'y' ? [-1, f.sign, 1] : [f.sign, -1, 1])))[1],
+      f.pts(at(...(f.axis === 'z' ? [-1, -1, f.sign] : f.axis === 'y' ? [-1, f.sign, -1] : [f.sign, -1, -1])))[1],
+    ]
+    fan(oct)
+  }
+
+  // 12 edge chamfers
+  for (const syn of [-1, 1]) for (const szn of [-1, 1]) {
+    const c0 = at(-1, syn, szn); const c1 = at(1, syn, szn)
+    tris.push([c0.y, c1.y, c1.z]); tris.push([c0.y, c1.z, c0.z])
+  }
+  for (const sxn of [-1, 1]) for (const szn of [-1, 1]) {
+    const c0 = at(sxn, -1, szn); const c1 = at(sxn, 1, szn)
+    tris.push([c0.x, c0.z, c1.z]); tris.push([c0.x, c1.z, c1.x])
+  }
+  for (const sxn of [-1, 1]) for (const syn of [-1, 1]) {
+    const c0 = at(sxn, syn, -1); const c1 = at(sxn, syn, 1)
+    tris.push([c0.x, c1.x, c1.y]); tris.push([c0.x, c1.y, c0.y])
+  }
+  // 8 corner triangles
+  for (const c of C) tris.push([c.x, c.z, c.y])
+  return tris
+}
+
+/** Triangular prism: tall face on the dir side, hypotenuse falling away. */
+function wedgeTris(sx, sy, sz, dir) {
+  const A = [-sx, -sy, -sz]; const B = [-sx, -sy, sz]
+  const C = [-sx, sy, -sz]; const D = [-sx, sy, sz]
+  const E = [sx, -sy, -sz]; const F = [sx, sy, -sz]
+  const tris = [
+    [A, B, D], [A, D, C],   // tall face at -x
+    [A, E, F], [A, F, C],   // bottom face at -z
+    [B, E, F], [B, F, D],   // hypotenuse
+    [A, B, E],              // -y triangle
+    [C, D, F],              // +y triangle
+  ]
+  // base has the tall face at -x; spin about z until dir is where it rises
+  const rot = dir === 'px' ? [0, 0, Math.PI]
+    : dir === 'py' ? [0, 0, -Math.PI / 2]
+      : dir === 'ny' ? [0, 0, Math.PI / 2]
+        : [0, 0, 0]
+  return tris.map((t) => t.map((p) => rotEuler(p, rot)))
+}
+
+function cylTris(r, h, axis, segs, r2) {
+  const tris = []
+  const rt = r2 == null ? r : r2
+  const pt = (t, side) => {
+    const a = (t / segs) * Math.PI * 2
+    const u = Math.cos(a); const v = Math.sin(a)
+    const rr = side ? rt : r
+    if (axis === 'z') return [u * rr, v * rr, (side ? h : -h)]
+    if (axis === 'y') return [u * rr, (side ? h : -h), v * rr]
+    return [(side ? h : -h), u * rr, v * rr]
+  }
+  for (let i = 0; i < segs; i += 1) {
+    const t0 = i; const t1 = i + 1
+    tris.push([pt(t0, 1), pt(t1, 1), pt(t1, 0)])
+    tris.push([pt(t0, 1), pt(t1, 0), pt(t0, 0)])
+    // caps
+    const c0 = axis === 'z' ? [0, 0, -h] : axis === 'y' ? [0, -h, 0] : [-h, 0, 0]
+    const c1 = axis === 'z' ? [0, 0, h] : axis === 'y' ? [0, h, 0] : [h, 0, 0]
+    if (r > 0.01) { tris.push([pt(t0, 0), pt(t1, 0), c0]) }
+    if (rt > 0.01) { tris.push([pt(t0, 1), c1, pt(t1, 1)]) }
+  }
+  return tris
+}
+
+function ringTris(outer, inner, h, axis, segs) {
+  const tris = []
+  const pt = (r, t, side) => {
+    const a = (t / segs) * Math.PI * 2
+    const u = Math.cos(a) * r; const v = Math.sin(a) * r
+    if (axis === 'z') return [u, v, side ? h : -h]
+    if (axis === 'y') return [u, side ? h : -h, v]
+    return [side ? h : -h, u, v]
+  }
+  for (let i = 0; i < segs; i += 1) {
+    const t0 = i; const t1 = i + 1
+    tris.push([pt(outer, t0, 1), pt(outer, t1, 1), pt(outer, t1, 0)])
+    tris.push([pt(outer, t0, 1), pt(outer, t1, 0), pt(outer, t0, 0)])
+    tris.push([pt(inner, t0, 0), pt(inner, t1, 0), pt(inner, t1, 1)])
+    tris.push([pt(inner, t0, 0), pt(inner, t1, 1), pt(inner, t0, 1)])
+    tris.push([pt(outer, t0, 1), pt(inner, t0, 1), pt(inner, t1, 1)])
+    tris.push([pt(outer, t0, 1), pt(inner, t1, 1), pt(outer, t1, 1)])
+    tris.push([pt(outer, t1, 0), pt(inner, t0, 0), pt(inner, t1, 0)])
+    tris.push([pt(outer, t0, 0), pt(inner, t0, 0), pt(outer, t1, 0)])
+  }
+  return tris
+}
+
+function torusTris(R, r, axis, arcDeg) {
+  const tris = []
+  const M = Math.max(8, Math.round(24 * (arcDeg || 360) / 360))
+  const N = 10
+  const pt = (i, j) => {
+    const u = (i / M) * Math.PI * 2 * ((arcDeg || 360) / 360)
+    const v = (j / N) * Math.PI * 2
+    const rr = R + r * Math.cos(v)
+    const x = Math.cos(u) * rr; const y = Math.sin(u) * rr; const z = r * Math.sin(v)
+    if (axis === 'z') return [x, y, z]
+    if (axis === 'y') return [x, z, y]
+    return [z, y, x]
+  }
+  for (let i = 0; i < M; i += 1) for (let j = 0; j < N; j += 1) {
+    tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
+    tris.push([pt(i, j), pt(i + 1, j + 1), pt(i, j + 1)])
+  }
+  // cap the arc ends if it's a partial bend — centre of each end ring
+  if (arcDeg && arcDeg < 360) {
+    const uM = Math.PI * 2 * (arcDeg / 360)
+    const centre = (u) => {
+      const x = Math.cos(u) * R; const y = Math.sin(u) * R
+      return axis === 'z' ? [x, y, 0] : axis === 'y' ? [x, 0, y] : [0, y, x]
+    }
+    const c0 = centre(0); const cM = centre(uM)
+    for (let j = 0; j < N; j += 1) {
+      tris.push([c0, pt(0, j + 1), pt(0, j)])
+      tris.push([cM, pt(M, j), pt(M, j + 1)])
+    }
+  }
+  return tris
+}
+
+function sphereTris(r) {
+  const tris = []
+  const M = 14; const N = 10
+  const pt = (i, j) => {
+    const u = (i / M) * Math.PI * 2
+    const v = (j / N) * Math.PI
+    return [r * Math.sin(v) * Math.cos(u), r * Math.sin(v) * Math.sin(u), r * Math.cos(v)]
+  }
+  for (let i = 0; i < M; i += 1) for (let j = 0; j < N - 1; j += 1) {
+    tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
+    tris.push([pt(i, j), pt(i + 1, j + 1), pt(i, j + 1)])
+  }
+  return tris
+}
+
+/** Spur gear: root disc + tooth boxes around it. */
+function gearTris(m, teeth, width, axis) {
+  const tris = []
+  const pitchR = (m * teeth) / 2
+  const rootR = Math.max(1, pitchR - 1.1 * m)
+  const tipR = pitchR + 0.85 * m
+  const hh = width / 2
+  tris.push(...cylTris(rootR, hh, axis, Math.max(teeth * 2, 16)))
+  // hub bore suggestion: darker inner disc is skipped — a bore ring costs tris
+  const tw = Math.max(0.7, m * 0.85) // tooth thickness (tangential)
+  const th = tipR - rootR + m * 0.4  // tooth radial depth
+  for (let i = 0; i < teeth; i += 1) {
+    const a = (i / teeth) * Math.PI * 2
+    const cx = Math.cos(a) * (rootR + th / 2 - m * 0.2)
+    const cy = Math.sin(a) * (rootR + th / 2 - m * 0.2)
+    const tooth = boxTris(th / 2, tw / 2, hh * 0.92)
+    for (const t of tooth) {
+      tris.push(t.map((p) => {
+        // local tooth box points radially along +x before spin to angle a
+        const x = p[0]; const y = p[1]; const z = p[2]
+        const rx = x * Math.cos(a) - y * Math.sin(a) + cx
+        const ry = x * Math.sin(a) + y * Math.cos(a) + cy
+        if (axis === 'z') return [rx, ry, z]
+        if (axis === 'y') return [rx, z, ry]
+        return [z, ry, rx]
+      }))
+    }
+  }
+  return tris
+}
+
+/** Rack: bar + tooth wedges along the +z face. */
+function rackTris(sx, sy, sz, teeth) {
+  const tris = [...boxTris(sx, sy, sz)]
+  const n = Math.max(2, teeth | 0)
+  const pitch = (sx * 2) / n
+  const tw = pitch * 0.42
+  const th = pitch * 0.5
+  for (let i = 0; i < n; i += 1) {
+    const cx = -sx + pitch * (i + 0.5)
+    for (const t of boxTris(tw / 2, sy * 0.96, th / 2)) {
+      tris.push(t.map((p) => [p[0] + cx, p[1], p[2] + sz + th / 2]))
+    }
+  }
+  return tris
+}
+
+const CYL_SEGS = 18
+
+/** One node → triangles in world space. `shift` is the explode offset. */
+function nodeTriangles(design, node, chain, shift) {
+  const tris = []
+  const slide = slideDisp(design, node)
+  const world = (p) => {
+    const q = rotEuler(p, node.rot)
+    let w = [q[0] + node.pos[0] + slide[0], q[1] + node.pos[1] + slide[1], q[2] + node.pos[2] + slide[2]]
+    w = applyChain(chain, w)
+    return shift ? [w[0] + shift[0], w[1] + shift[1], w[2] + shift[2]] : w
+  }
+  const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat })
+
+  let local = []
+  switch (node.kind) {
+    case 'box': local = boxTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2); break
+    case 'rbox': local = rboxTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.r || 1.5); break
+    case 'wedge': local = wedgeTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.dir); break
+    case 'rack': local = rackTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.teeth); break
+    case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
+    case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
+    case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
+    case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
+    case 'sphere': local = sphereTris(node.radius); break
+    case 'gear': local = gearTris(node.module, node.teeth, node.width, node.axis || 'z'); break
+    default: local = []
+  }
+  for (const t of local) push(t[0], t[1], t[2])
+  return tris
+}
+
+/** Explode vectors: radially out of the model's rest bounding box. */
+function explodeShifts(design, f) {
+  if (!f) return null
+  const b = boundsOf(design.nodes)
+  const c = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2]
+  const out = new Map()
+  for (const n of design.nodes) {
+    const v = [n.pos[0] - c[0], n.pos[1] - c[1], (n.pos[2] - c[2]) * 1.35]
+    const len = Math.hypot(v[0], v[1], v[2])
+    if (len < 3) { out.set(n.id, [0, 0, f * 20]); continue }
+    out.set(n.id, [(v[0] / len) * f * 55, (v[1] / len) * f * 55, (v[2] / len) * f * 55])
+  }
+  return out
+}
+
 /** Full mesh for the current pose. */
-function buildMesh(design) {
+function buildMesh(design, explode) {
   const tris = []
   const chains = chainsFor(design)
+  const shifts = explodeShifts(design, explode || 0)
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
-    const add = nodeTriangles(design, node, chain)
+    const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
     for (const t of add) tris.push(t)
   }
   return tris
@@ -2166,11 +3235,11 @@ function buildMesh(design) {
 // ── exporters ───────────────────────────────────────────────────────────────
 
 /** Binary STL — the file a slicer actually opens. */
-function toSTL(tris) {
+function toSTL(tris, headerText) {
   const buf = new ArrayBuffer(84 + tris.length * 50)
   const view = new DataView(buf)
   const header = new Uint8Array(buf, 0, 80)
-  const text = 'Rigforge export - mm - generated, not modelled'.padEnd(80, ' ')
+  const text = (headerText || 'Rigforge export - mm - generated, not modelled').padEnd(80, ' ').slice(0, 80)
   for (let i = 0; i < 80; i += 1) header[i] = text.charCodeAt(i) & 0x7f
   view.setUint32(80, tris.length, true)
   let o = 84
@@ -2189,6 +3258,74 @@ function toSTL(tris) {
   return buf
 }
 
+/** One STL per printed node — the print pack, in rest pose as it leaves the bed. */
+function printedPartSTLs(design) {
+  const out = []
+  for (const node of design.nodes) {
+    if (!node.print) continue
+    const tris = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    out.push({ name: `${slug(node.id)}.stl`, buf: toSTL(tris, `rigforge printed part ${node.id}`) })
+  }
+  return out
+}
+
+// Minimal ZIP (store-only): what a slicer folder wants, no compression library.
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256)
+  for (let i = 0; i < 256; i += 1) {
+    let c = i
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    t[i] = c >>> 0
+  }
+  return t
+})()
+function crc32(bytes) {
+  let c = 0xffffffff
+  for (let i = 0; i < bytes.length; i += 1) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+function zipStore(entries) {
+  const enc = new TextEncoder()
+  const parts = []
+  const central = []
+  let offset = 0
+  for (const { name, buf } of entries) {
+    const data = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf instanceof Uint8Array ? buf : enc.encode(buf)
+    const nameB = enc.encode(name)
+    const crc = crc32(data)
+    const head = new DataView(new ArrayBuffer(30))
+    head.setUint32(0, 0x04034b50, true); head.setUint16(4, 20, true)
+    head.setUint16(6, 0, true); head.setUint16(8, 0, true)
+    head.setUint16(10, 0, true); head.setUint16(12, 0, true)
+    head.setUint32(14, crc, true)
+    head.setUint32(18, data.length, true); head.setUint32(22, data.length, true)
+    head.setUint16(26, nameB.length, true); head.setUint16(28, 0, true)
+    parts.push(new Uint8Array(head.buffer), nameB, data)
+
+    const cen = new DataView(new ArrayBuffer(46))
+    cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true)
+    cen.setUint16(12, 0, true); cen.setUint16(14, 0, true)
+    cen.setUint32(16, crc, true)
+    cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true)
+    cen.setUint16(28, nameB.length, true)
+    cen.setUint32(42, offset, true)
+    central.push(new Uint8Array(cen.buffer), nameB)
+    offset += 30 + nameB.length + data.length
+  }
+  const cdSize = central.reduce((s, c) => s + c.length, 0)
+  const end = new DataView(new ArrayBuffer(22))
+  end.setUint32(0, 0x06054b50, true)
+  end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true)
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true)
+  const total = offset + cdSize + 22
+  const out = new Uint8Array(total)
+  let p = 0
+  for (const chunk of parts) { out.set(chunk, p); p += chunk.length }
+  for (const chunk of central) { out.set(chunk, p); p += chunk.length }
+  out.set(new Uint8Array(end.buffer), p)
+  return out.buffer
+}
+
 /** Parametric source, not a baked mesh: the user can edit dimensions. */
 function toOpenSCAD(design) {
   const lines = [
@@ -2198,23 +3335,42 @@ function toOpenSCAD(design) {
     '',
   ]
   for (const n of design.nodes) {
-    if (n.kind === 'box') {
-      lines.push(`translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}]) cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); // ${n.id}`)
+    const pos = `translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}])`
+    const c = ` // ${n.id}`
+    // translate outermost, then local Euler, then axis flip — matches nodeEuler
+    const euler = n.rot ? `rotate([${n.rot.map((r) => (r * 180 / Math.PI).toFixed(0)).join(', ')}]) ` : ''
+    const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([90, 0, 0]) ' : ''
+    const wrap = `${pos} ${euler}${axRot}`
+    if (n.kind === 'box' || n.kind === 'rbox') {
+      lines.push(`${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);${c}`)
+    } else if (n.kind === 'wedge' || n.kind === 'rack') {
+      lines.push(`${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);${c} (simplified)`)
+    } else if (n.kind === 'gear') {
+      lines.push(`${wrap}cylinder(h=${n.width.toFixed(1)}, r=${(((n.module * n.teeth) / 2) - n.module).toFixed(1)}, center=true);${c} ${n.teeth}T m${n.module}`)
+    } else if (n.kind === 'ring') {
+      lines.push(`${wrap}difference() { cylinder(h=${n.height.toFixed(1)}, r=${n.outer.toFixed(1)}, center=true); cylinder(h=${(n.height + 1).toFixed(1)}, r=${n.inner.toFixed(1)}, center=true); }${c}`)
+    } else if (n.kind === 'torus' || n.kind === 'bend') {
+      lines.push(`${wrap}rotate_extrude() translate([${n.R.toFixed(1)},0,0]) circle(r=${n.r.toFixed(1)});${c}`)
+    } else if (n.kind === 'sphere') {
+      lines.push(`${wrap}sphere(r=${n.radius.toFixed(1)});${c}`)
     } else {
-      const rot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([90, 0, 0]) ' : ''
-      lines.push(`${rot}translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}]) cylinder(h=${n.height.toFixed(1)}, r=${n.radius.toFixed(1)}, center=true); // ${n.id}`)
+      const r2 = n.radius2 != null ? `, r2=${n.radius2.toFixed(1)}` : ''
+      lines.push(`${wrap}cylinder(h=${n.height.toFixed(1)}, r=${n.radius.toFixed(1)}${r2}, center=true);${c}`)
     }
   }
   return lines.join('\n')
 }
 
 function toBOMCsv(design) {
-  const rows = [['part', 'category', 'qty', 'unit_usd', 'line_usd', 'role']]
+  const rows = [['part', 'category', 'qty', 'unit_usd', 'line_usd', 'dims_mm', 'connector', 'mount', 'sku_search', 'role']]
   for (const { key, qty, role } of design.parts) {
     const p = PARTS[key]
-    rows.push([p.name, p.cat, String(qty), p.price.toFixed(2), (p.price * qty).toFixed(2), role])
+    rows.push([
+      p.name, p.cat, String(qty), p.price.toFixed(2), (p.price * qty).toFixed(2),
+      p.dims ? p.dims.join('x') : '', p.conn || '', p.mount || '', p.sku || '', role,
+    ])
   }
-  return rows.map((r) => r.map((c) => (/[",]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(',')).join('\n')
+  return rows.map((r) => r.map((c) => (/[",]/.test(c) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(',')).join('\n')
 }
 
 /** The build pack: everything a person needs, in one document. */
@@ -2238,10 +3394,17 @@ function toSpecMarkdown(design, a) {
   for (const c of a.checks) L.push(`- ${c.level === 'ok' ? 'PASS' : c.level.toUpperCase()} — ${c.msg}`)
   L.push('')
 
-  L.push('## Bill of materials', '', '| Part | Qty | Unit | Line | Role |', '|---|---|---|---|---|')
+  if (design.mech && design.mech.length) {
+    L.push('## Mechanics', '', '| Check | Value | Limit | Status |', '|---|---|---|---|')
+    for (const r of design.mech) L.push(`| ${r.label} | ${r.value} | ${r.limit} | ${r.ok == null ? '—' : r.ok ? 'ok' : 'LOW'} |`)
+    L.push('')
+  }
+
+  L.push('## Bill of materials', '', '| Part | Qty | Unit | Line | Details | Role |', '|---|---|---|---|---|---|')
   for (const { key, qty, role } of design.parts) {
     const p = PARTS[key]
-    L.push(`| ${p.name} | ${qty} | ${money(p.price)} | ${money(p.price * qty)} | ${role} |`)
+    const det = [p.dims ? p.dims.join('×') + 'mm' : '', p.conn || '', p.mount || ''].filter(Boolean).join(' · ')
+    L.push(`| ${p.name} | ${qty} | ${money(p.price)} | ${money(p.price * qty)} | ${det} | ${role} |`)
   }
   L.push('', `**Total: ${money(a.cost)}**`, '')
 
@@ -2249,8 +3412,8 @@ function toSpecMarkdown(design, a) {
   for (const r of a.pins.rows) L.push(`| ${r.pin} | ${r.signal} | ${r.dir} | ${r.note} |`)
   L.push('')
 
-  L.push('## Power budget', '', '| Rail | Typical | Peak |', '|---|---|---|')
-  for (const [rail, v] of Object.entries(a.power.rails)) L.push(`| ${rail} | ${fmt(v.typ, 2)} A | ${fmt(v.peak, 2)} A |`)
+  L.push('## Power budget', '', '| Rail | Typical | Peak | Wire | Fuse |', '|---|---|---|---|---|')
+  for (const w of (a.power.wiring || [])) L.push(`| ${w.rail} | ${fmt(w.amps, 2)} A | ${fmt(w.peak, 2)} A | AWG ${w.awg} | ${w.fuse ? `${w.fuse} A` : '—'} |`)
   L.push('', `Typical ${fmt(a.power.typ, 2)}A, peak ${fmt(a.power.peak, 2)}A${a.power.runtimeMin ? `, ~${Math.round(a.power.runtimeMin)} min on ${a.power.bat.name}` : ''}.`, '')
 
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
@@ -2263,6 +3426,50 @@ function toSpecMarkdown(design, a) {
   }
   L.push('', '---', '_Generated by Rigforge — deterministic spec, no model in the loop._')
   return L.join('\n')
+}
+
+function boundRadius(n) {
+  switch (n.kind) {
+    case 'cyl': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'ring': return Math.max(n.outer, n.height / 2)
+    case 'torus': case 'bend': return n.R + n.r
+    case 'sphere': return n.radius
+    case 'gear': return Math.max((n.module * n.teeth) / 2 + n.module, n.width / 2)
+    default: return Math.hypot(n.size[0], n.size[1], n.size[2]) / 2
+  }
+}
+
+function boundsOf(nodes) {
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const n of nodes) {
+    let half
+    if (n.kind === 'box' || n.kind === 'rbox' || n.kind === 'wedge' || n.kind === 'rack') {
+      half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
+    } else {
+      // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
+      const r = n.kind === 'cyl' ? Math.max(n.radius, n.radius2 || 0)
+        : n.kind === 'ring' ? n.outer
+          : boundRadius(n)
+      const along = n.kind === 'cyl' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
+      half = n.axis === 'x' ? [along, r, r] : n.axis === 'y' ? [r, along, r] : [r, r, along]
+      if (n.kind === 'torus' || n.kind === 'bend' || n.kind === 'sphere') half = [r, r, r]
+    }
+    if (n.rot) {
+      // world AABB of a rotated box: rotate the 8 local corners, take abs max
+      const w = [0, 0, 0]
+      for (let c = 0; c < 8; c += 1) {
+        const p = rotEuler([half[0] * (c & 1 ? 1 : -1), half[1] * (c & 2 ? 1 : -1), half[2] * (c & 4 ? 1 : -1)], n.rot)
+        for (let i = 0; i < 3; i += 1) w[i] = Math.max(w[i], Math.abs(p[i]))
+      }
+      half = w
+    }
+    for (let i = 0; i < 3; i += 1) {
+      min[i] = Math.min(min[i], n.pos[i] - half[i])
+      max[i] = Math.max(max[i], n.pos[i] + half[i])
+    }
+  }
+  return { min, max }
 }
 
 // ── brief → machine ─────────────────────────────────────────────────────────
@@ -3030,6 +4237,20 @@ function TabSpec({ design, analysis }) {
           `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
   }
 
+  if (design.mech && design.mech.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'mechanics'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'CHECK'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'VALUE'),
+        h('th', { style: S.th }, 'LIMIT'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'OK'))),
+      h('tbody', {}, design.mech.map((r) => h('tr', { key: r.label },
+        h('td', { style: S.td }, r.label),
+        h('td', { style: S.tdNum }, r.value),
+        h('td', { style: { ...S.td, color: C.faint } }, r.limit),
+        h('td', { style: { ...S.tdNum, color: r.ok == null ? C.faint : r.ok ? C.green : C.red } },
+          r.ok == null ? '·' : r.ok ? '✓' : '✗'))))))
+  }
+
   if (m.motor) {
     const mp = PARTS[m.motor]
     blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'drivetrain'))
@@ -3076,7 +4297,7 @@ function TabParts({ design, analysis }) {
         h('td', { style: S.td },
           h('div', { style: { color: C.text } }, r.part.name),
           h('div', { style: { color: C.faint, fontSize: '9.5px', marginTop: '2px', lineHeight: 1.4 } },
-            [r.role, r.part.note].filter(Boolean).join(' · '))),
+            [r.role, r.part.dims ? r.part.dims.join('×') + 'mm' : '', r.part.sku ? `⌕ ${r.part.sku}` : '', r.part.note].filter(Boolean).join(' · '))),
         h('td', { style: { ...S.tdNum, color: C.dim } }, `×${r.qty}`),
         h('td', { style: S.tdNum }, money(r.part.price * r.qty)))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${C.line}`, fontFamily: C.mono, fontSize: '11px' } },
@@ -3137,6 +4358,22 @@ function TabPower({ analysis }) {
       h(StatBlock, { label: 'TYPICAL', value: `${fmt(typ, 2)}A` }),
       h(StatBlock, { label: 'PEAK', value: `${fmt(peak, 2)}A`, color: C.accent })),
     ...bars,
+    analysis.power.wiring && analysis.power.wiring.length
+      ? h('div', {},
+        h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'wiring'),
+        h('table', { style: S.table },
+          h('thead', {}, h('tr', {},
+            h('th', { style: S.th }, 'RAIL'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'DRAW'),
+            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
+            h('th', { style: S.th }, 'CONNECTOR'))),
+          h('tbody', {}, analysis.power.wiring.map((w) => h('tr', { key: w.rail },
+            h('td', { style: S.td }, w.rail),
+            h('td', { style: S.tdNum }, `${fmt(w.amps, 2)}A`),
+            h('td', { style: { ...S.tdNum, color: C.cyan } }, `${w.awg} AWG`),
+            h('td', { style: { ...S.tdNum, color: w.fuse ? C.amber : C.faint } }, w.fuse ? `${w.fuse}A` : '—'),
+            h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
+      )
+      : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },
       bat ? h(KV, { k: 'pack', v: bat.name }) : h(KV, { k: 'source', v: 'n/a' }),
@@ -3154,7 +4391,7 @@ function TabPower({ analysis }) {
 function TabPrint({ design, analysis }) {
   const nodes = design.nodes.filter((n) => n.print)
   const rows = nodes
-    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: n.kind === 'box' ? n.size : [n.radius * 2, n.radius * 2, n.height] }))
+    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
   return [
@@ -3287,6 +4524,10 @@ const ARCHETYPES = [
   ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
 
+const MAT_OPTIONS = Object.entries(MATERIALS).map(([k, m]) => ({
+  value: k, label: `${m.name} · E${m.elastic}GPa`,
+}))
+
 function Studio() {
   const [brief, setBrief] = useState(() => (CTX && CTX.storage.get('lastBrief', null)) || DEFAULT_BRIEF)
   const [mission, setMission] = useState(() => brief.mission)
@@ -3301,7 +4542,7 @@ function Studio() {
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -3380,7 +4621,7 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: pose[i] || 0 })),
   }), [design, pose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign), [posedDesign])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -3432,6 +4673,7 @@ function Studio() {
   const fileBase = slug(design.title)
   const exports = [
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
+    ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design), 'text/csv')],
@@ -3515,7 +4757,7 @@ function Studio() {
         brief.archetype === 'gadget'
           ? h(Select, {
             label: 'MATERIAL', value: brief.material,
-            options: [{ value: 'pla', label: 'PLA+ · stiff' }, { value: 'petg', label: 'PETG · tough' }],
+            options: MAT_OPTIONS,
             onChange: (v) => applyBrief({ material: v }),
           })
           : h('div', {},
@@ -3540,7 +4782,7 @@ function Studio() {
               : null,
             h(Select, {
               label: 'MATERIAL', value: brief.material,
-              options: [{ value: 'petg', label: 'PETG · tough' }, { value: 'pla', label: 'PLA+ · stiff' }],
+              options: MAT_OPTIONS,
               onChange: (v) => applyBrief({ material: v }),
             })),
 
@@ -3603,6 +4845,10 @@ function Studio() {
             onClick: () => setOpts((o) => ({ ...o, wire: !o.wire })),
           }, 'WIRE'),
           h('button', {
+            style: opts.explode ? S.toolOn : S.tool,
+            onClick: () => setOpts((o) => ({ ...o, explode: !o.explode })),
+          }, 'EXPLODE'),
+          h('button', {
             style: cam.ortho ? S.toolOn : S.tool,
             onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
           }, 'ORTHO')),
@@ -3636,7 +4882,7 @@ function Studio() {
               .map(([j, i]) => h('div', { key: j.id, style: S.joint },
               h('div', { style: S.jointTop },
                 h('span', {}, j.label.toUpperCase().slice(0, 14)),
-                h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}°`)),
+                h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}${j.slide ? 'mm' : '°'}`)),
               h('input', {
                 type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
                 style: { ...S.range, height: '14px' },
@@ -3651,7 +4897,7 @@ function Studio() {
             h('button', { style: S.tool, onClick: () => setPose(design.joints.map(() => 0)) }, 'HOME'),
             h('button', {
               style: S.tool,
-              onClick: () => setPose(design.joints.map((j, i) => (i === 0 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
+              onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
             }, 'POSE')))),
 
       // right rail: the spec

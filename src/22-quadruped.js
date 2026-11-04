@@ -14,36 +14,51 @@ function buildQuadruped(brief) {
   d.subtitle = `${Math.round(bodyLen)}mm body · ${payload}kg carried`
 
   const z0 = legLen * 1.35
-  box(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 'shell', { print: true })
+  rbox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', { print: true })
   box(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 'accent', { print: true })
-  box(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 'pcb')
-  cyl(d, 'head', 30, 40, [bodyLen / 2 + 18, 0, z0 + 6], 'x', 'accent', { print: true })
-  cyl(d, 'eye', 10, 6, [bodyLen / 2 + 40, 0, z0 + 12], 'x', 'glass')
+  rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
+  cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
+  cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
   const femur = legLen * 0.62
   const tibia = legLen * 0.78
+  // Servo sizing first: the worst gait phase is a leg levering the body up on
+  // one foot — torque at the femur, 1.8× on top. One servo everywhere.
+  const mat = MATERIALS[brief.material] || MATERIALS.petg
+  const legMassKg = ((22 * 24 * femur * 0.62 + 16 * 18 * tibia * 0.72) * 0.34 * mat.density) / 1e6 + 0.09
+  const reqFoot = G * ((legMassKg * 0.5 + payload / 4) * (legLen / 1000)) * 1.8
+  const servoKey = SERVO_LADDER.find((k) => PARTS[k].torque >= reqFoot) || 'ds3218'
+  const servo = PARTS[servoKey]
+
   const corners = [
     ['fl', 1, 1], ['fr', 1, -1], ['rl', -1, 1], ['rr', -1, -1],
   ]
-  const jointIds = []
+  // 3 DOF per leg, the way the firmware already walks it: coxa yaw (z),
+  // femur pitch (y), tibia pitch (y) — each with its own servo body.
   corners.forEach(([name, sx, sy]) => {
     const ax = (sx * bodyLen) / 2 - sx * 14
     const ay = (sy * hipW) / 2 + sy * 10
-    cyl(d, `coxa-${name}`, 16, 26, [ax, ay, z0], 'z', 'metal')
-    box(d, `femur-${name}`, [24, 26, femur], [ax, ay + sy * 10, z0 - femur / 2], 'shell', { print: true })
-    box(d, `tibia-${name}`, [20, 22, tibia], [ax, ay + sy * 10, z0 - femur - tibia / 2], 'accent', { print: true })
-    cyl(d, `foot-${name}`, 12, 8, [ax, ay + sy * 10, z0 - femur - tibia], 'z', 'rubber')
-    jointIds.push(`hip-${name}`)
-    joint(d, `hip-${name}`, `Hip ${name.toUpperCase()}`, 'y', [ax, ay, z0], -60, 60)
+    const hipZ = z0 - 4
+
+    joint(d, `coxa-${name}`, `Coxa ${name.toUpperCase()}`, 'z', [ax, ay, hipZ], -30, 30, null)
+    // coxa servo: case bolted under the deck, horn swings the whole leg
+    servoBody(d, `coxasv-${name}`, [ax, ay, hipZ + 4], 'z', servoKey, null, `coxa-${name}`, { flip: true })
+    bracketU(d, `coxa-br-${name}`, [ax, ay, hipZ - 2], [30, 20, 34], 4, 'accent', `coxa-${name}`)
+
+    const fy = ay + sy * 12
+    joint(d, `femur-${name}`, `Femur ${name.toUpperCase()}`, 'y', [ax, fy, hipZ - 8], -60, 60, `coxa-${name}`)
+    servoBody(d, `femursv-${name}`, [ax, fy - sy * 6, hipZ - 8], 'y', servoKey, `coxa-${name}`, `femur-${name}`)
+    box(d, `femur-${name}`, [22, 24, femur * 0.62], [ax, fy, hipZ - 8 - femur * 0.31], 'shell', { print: true, joint: `femur-${name}` })
+    // tibia servo rides the femur link, shaft at the knee
+    const kneeZ = hipZ - 8 - femur * 0.66
+    joint(d, `tibia-${name}`, `Tibia ${name.toUpperCase()}`, 'y', [ax, fy, kneeZ], -80, 80, `femur-${name}`)
+    servoBody(d, `tibiasv-${name}`, [ax, fy - sy * 5, kneeZ], 'y', servoKey, `femur-${name}`, `tibia-${name}`)
+    rbox(d, `tibia-${name}`, [16, 18, tibia * 0.72], [ax, fy, kneeZ - tibia * 0.36], 1.5, 'accent', { print: true, joint: `tibia-${name}` })
+    cyl(d, `foot-${name}`, 11, 9, [ax, fy, kneeZ - tibia * 0.78], 'z', 'rubber', { joint: `tibia-${name}` })
   })
 
-  // ── servo sizing at the worst leg phase ─────────────────────────────────
-  const mat = MATERIALS[brief.material] || MATERIALS.petg
-  const legMassKg = (printedVolume(d.nodes) / 4 / 1000) * mat.density / 1000
-  const reqFoot = G * ((legMassKg * 0.5 + payload / 4) * (legLen / 1000)) * 1.8
-  const key = SERVO_LADDER.find((k) => PARTS[k].torque >= reqFoot) || 'ds3218'
-  const servo = PARTS[key]
-  addPart(d, key, 12, '12 joints (3 per leg)')
+  // ── parts: the electrical problem is the BOM ────────────────────────────
+  addPart(d, servoKey, 12, '12 joints (3 per leg)')
   addPart(d, 'pca9685', 2, '24 channels of PWM')
   addPart(d, 'buck5a', 2, 'split servo rails')
   addPart(d, 'pack3s', 1, 'servo pack')
@@ -69,7 +84,7 @@ function buildQuadruped(brief) {
     legMm: Math.round(legLen),
     massKg: (printedVolume(d.nodes) / 1000) * mat.density / 1000 + (servo.mass * 12) / 1000 + 0.3,
     peakAmps: peakGait,
-    servo: key,
+    servo: servoKey,
   })
   return d
 }

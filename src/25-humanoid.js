@@ -53,9 +53,9 @@ function buildHumanoid(brief) {
   d.subtitle = `${handPayload}kg per hand · ${mat.name} skeleton · serial-bus servos`
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
-  box(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 'shell', { print: true })
-  box(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 'shell', { print: true })
-  box(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 'accent', { print: true })
+  rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
   box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
@@ -72,7 +72,7 @@ function buildHumanoid(brief) {
     const x = sx * legX
     const label = side === 'l' ? 'Left' : 'Right'
     const hipPivot = [x, 0, zHip]
-    joint(d, `${side}-hip-yaw`, `${label} hip yaw`, 'z', hipPivot, -45, 45, 'waist')
+    joint(d, `${side}-hip-yaw`, `${label} hip yaw`, 'z', hipPivot, -45, 45, null)
     joint(d, `${side}-hip-roll`, `${label} hip roll`, 'x', hipPivot, -25, 25, `${side}-hip-yaw`)
     joint(d, `${side}-hip-pitch`, `${label} hip pitch`, 'y', hipPivot, -100, 45, `${side}-hip-roll`)
     cyl(d, `hip-hub-${side}`, 18, limbW + 10, [x, 0, zHip], 'x', 'metal', { joint: `${side}-hip-pitch` })
@@ -82,6 +82,8 @@ function buildHumanoid(brief) {
     const kneePivot = [x, 0, zKnee]
     joint(d, `${side}-knee`, `${label} knee`, 'y', kneePivot, -5, 135, `${side}-hip-pitch`)
     cyl(d, `knee-hub-${side}`, 15, limbW + 6, [x, 0, zKnee], 'x', 'metal', { joint: `${side}-knee` })
+    bearing(d, `knee-race-${side}`, [x, (limbW + 6) / 2 + 4, zKnee], 'y', 22, 8, 7, { joint: `${side}-knee` })
+    bolt(d, `knee-bolt-${side}`, [x, (limbW + 6) / 2 + 10, zKnee], 'y', 8, { joint: `${side}-knee` })
     box(d, `shin-${side}`, [limbW * 0.86, limbD * 0.9, shin - 14], [x, 0, zKnee - shin / 2 - 7], 'shell', { joint: `${side}-knee`, print: true })
     box(d, `shin-rib-${side}`, [limbW * 0.5, 8, shin * 0.7], [x, limbD * 0.45, zKnee - shin / 2], 'accent', { joint: `${side}-knee`, print: true })
 
@@ -98,7 +100,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })

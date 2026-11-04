@@ -17,17 +17,21 @@ function buildRover(brief) {
   const chassisH = 34
   const z0 = wheelD / 2
 
-  box(d, 'chassis-deck', [wheelbase, track, 4], [0, 0, z0 + chassisH - 2], 'shell', { print: true })
+  rbox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', { print: true })
   for (const sx of [-1, 1]) {
     box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 'shell', { print: true })
+    wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}`, [16, track * 0.9, 22], [sx * (wheelbase / 2 + 6), 0, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 6, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 'accent', { print: true })
+    rbox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', { print: true })
+    for (const fx of [-1, 1]) {
+      bolt(d, `rail-bolt-${sx}${fx}`, [fx * (wheelbase / 2 - 8), sx * (track / 2 + 6.5), z0 + chassisH + 4], 'y', 8, { flip: sx < 0 })
+    }
   }
   // battery well, electronics shelf, payload plate
-  box(d, 'battery-well', [wheelbase * 0.42, track * 0.5, 18], [-wheelbase * 0.2, 0, z0 + 12], 'pcb')
+  rbox(d, 'battery-well', [wheelbase * 0.42, track * 0.5, 18], [-wheelbase * 0.2, 0, z0 + 12], 2, 'pcb')
 
-  // wheels + motors
+  // wheels + motors: torus tire, printed rim, lug hardware — a wheel, not a disc
   const wheels = [
     [wheelbase / 2 - 6, track / 2],
     [wheelbase / 2 - 6, -track / 2],
@@ -36,14 +40,16 @@ function buildRover(brief) {
   ]
   wheels.forEach(([x, y], i) => {
     const side = y > 0 ? 1 : -1
-    cyl(d, `wheel-${i}`, wheelD / 2, 26, [x, y + side * 14, z0], 'y', 'rubber', { print: true })
-    cyl(d, `hub-${i}`, wheelD * 0.22, 30, [x, y + side * 16, z0], 'y', 'accent', { print: true })
-    cyl(d, `motor-${i}`, 18, 52, [x, y - side * 6, z0], 'y', 'metal')
+    wheelAssy(d, `wheel-${i}`, [x, y + side * 14, z0], 'y', wheelD, 26, null, side)
+    cyl(d, `motor-${i}`, 18.5, 52, [x, y - side * 6, z0], 'y', 'metal')
+    cyl(d, `shaft-${i}`, 3, 22, [x, y + side * 4, z0], 'y', 'steel')
+    box(d, `motor-brkt-${i}`, [30, 5, 30], [x, y - side * 30, z0], 'metal')
+    bearing(d, `wheel-race-${i}`, [x, y + side * 2, z0], 'y', 22, 8, 7)
   })
 
   // sensor mast + head
-  box(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 'shell', { print: true })
-  box(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 160], 'accent', { print: true })
+  rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 160], 3, 'accent', { print: true })
   cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 160], 'x', 'glass')
   cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 166], 'x', 'glass')
 
@@ -72,7 +78,13 @@ function buildRover(brief) {
   const bat = PARTS[battery]
   addPart(d, battery === 'pack2s' && v >= 11 ? 'pack3s' : battery === 'pd5v' ? 'pd5v' : battery, 1, `${v}V motor rail`)
   addPart(d, 'buck5a', 1, '5V logic rail')
-  addPart(d, motorPart.ampacity > 3 || v >= 11 ? 'bts7960' : 'tb6612', 1, 'motor driver')
+  // TB6612 tops out at 1.2A/channel — a bigger motor or a 3S pack wants the
+  // BTS7960, and a BTS7960 is a single channel so it takes two for L/R drive.
+  const driverKey = motorPart.curr.peak > 1.1 || v >= 11 ? 'bts7960' : 'tb6612'
+  addPart(d, driverKey, driverKey === 'bts7960' ? 2 : 1, `motor driver${driverKey === 'bts7960' ? ' (one per side)' : ''}`)
+  addPart(d, 'fuse', 1, 'pack protection')
+  addPart(d, 'rocker', 1, 'power switch')
+  addPart(d, 'cap1000', 1, 'motor rail smoothing')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
