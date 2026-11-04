@@ -92,6 +92,20 @@ const S = {
     background: C.accentDim, color: C.accent, fontSize: '11px', cursor: 'pointer',
     fontFamily: C.mono, whiteSpace: 'nowrap',
   },
+  cards: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px' },
+  card: {
+    padding: '8px 9px', borderRadius: '7px', border: `1px solid ${C.line}`,
+    background: C.panel2, cursor: 'pointer', textAlign: 'left',
+    display: 'flex', flexDirection: 'column', gap: '2px',
+  },
+  cardOn: {
+    padding: '8px 9px', borderRadius: '7px', border: `1px solid ${C.accent}`,
+    background: C.accentDim, cursor: 'pointer', textAlign: 'left',
+    display: 'flex', flexDirection: 'column', gap: '2px',
+  },
+  cardTitle: { fontFamily: C.mono, fontSize: '11px', fontWeight: 700, color: C.text, letterSpacing: '0.02em' },
+  cardSub: { fontSize: '10px', color: C.faint, lineHeight: 1.35 },
+  hint: { fontSize: '10px', color: C.faint, marginTop: '-6px', marginBottom: '10px', lineHeight: 1.3 },
   viewWrap: { position: 'relative', flex: '1 1 auto', minHeight: 0, overflow: 'hidden', background: '#080b0e' },
   canvas: { display: 'block', width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' },
   hudTL: {

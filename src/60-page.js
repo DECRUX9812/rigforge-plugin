@@ -33,36 +33,61 @@ const CAM_FOR = (dims) => {
   return { ...CAM0, dist: clamp(diag * 1.06, 300, 5200) }
 }
 
-function StatChip({ k, v, color }) {
-  return h('div', { style: S.statChip },
+function StatChip({ k, v, color, title }) {
+  return h('div', { style: S.statChip, title },
     h('span', { style: S.statKey }, k),
     h('span', { style: { ...S.statVal, color: color || C.text } }, v))
 }
 
-function ParamSlider({ label, value, min, max, step, unit, onChange }) {
+function ParamSlider({ label, value, min, max, step, unit, hint, onChange }) {
   return h('div', { style: S.field },
     h('div', { style: S.label },
       h('span', {}, label),
       h('span', { style: { color: C.text } }, `${value}${unit || ''}`)),
     h('input', {
       type: 'range', min, max, step, value, style: S.range,
+      'aria-label': label,
       onChange: (e) => onChange(Number(e.target.value)),
-    }))
+    }),
+    hint ? h('div', { style: S.hint }, hint) : null)
 }
 
-function Select({ label, value, options, onChange }) {
+function Select({ label, value, options, hint, onChange }) {
   return h('div', { style: S.field },
     h('div', { style: S.label }, h('span', {}, label)),
     h('select', {
       value, style: { ...S.input, padding: '6px 8px', cursor: 'pointer' },
+      'aria-label': label,
       onChange: (e) => onChange(e.target.value),
-    }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))))
+    }, options.map((o) => h('option', { key: o.value, value: o.value }, o.label))),
+    hint ? h('div', { style: S.hint }, hint) : null)
 }
 
 const ARCHETYPES = [
   ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'],
   ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
 ]
+
+// Plain words next to every preset — the cards are how a first-timer builds
+// without ever typing a brief.
+const PRESET_BLURBS = {
+  arm: 'lifts and sorts small parts',
+  rover: 'a rolling robot that explores',
+  quad: 'a robot dog that walks',
+  grip: 'a claw that grabs things',
+  humanoid: 'a walking robot with arms',
+  robot: 'rover + arm in one machine',
+  desk: 'a little electronic desk gadget',
+}
+
+/** One honest sentence anybody can read — the tables below carry the detail. */
+function plainVerdict(checks) {
+  const fails = checks.filter((c) => c.level === 'fail').length
+  const warns = checks.filter((c) => c.level === 'warn').length
+  if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
+  if (warns) return { icon: '!', color: C.amber, text: `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} below first.` }
+  return { icon: '✓', color: C.green, text: 'Ready to build — every engineering check passed.' }
+}
 
 const MAT_OPTIONS = Object.entries(MATERIALS).map(([k, m]) => ({
   value: k, label: `${m.name} · E${m.elastic}GPa`,
@@ -175,8 +200,18 @@ function Studio() {
   }
 
   const onBuild = () => {
-    const parsed = parseBrief(mission)
+    // An empty brief is not an error — it is an invitation. Surprise them.
+    const parsed = mission.trim() ? parseBrief(mission) : { ...PRESETS[Math.floor(Math.random() * PRESETS.length)].brief }
     applyBrief({ ...parsed, material: brief.material, mcu: brief.mcu, battery: brief.battery })
+  }
+
+  const surprise = () => {
+    const p = PRESETS[Math.floor(Math.random() * PRESETS.length)]
+    const jitter = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v * (0.8 + Math.random() * 0.5))))
+    const b = { ...DEFAULT_BRIEF, ...p.brief, payloadKg: Math.round((p.brief.payloadKg || 1) * (0.7 + Math.random() * 0.9) * 10) / 10 }
+    if (p.brief.reachMm) b.reachMm = jitter(p.brief.reachMm, 150, 900)
+    setBrief(b)
+    setMission(b.mission)
   }
 
   const saveToShelf = () => {
@@ -248,12 +283,12 @@ function Studio() {
         h('span', { style: S.wordmark }, 'RIGFORGE'),
         h('span', { style: S.tagline }, 'robots · printed machines · spec out')),
       h('div', { style: S.topStats },
-        h(StatChip, { k: 'COST', v: money(analysis.cost) }),
-        h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g` }),
-        h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
-        h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h` }),
-        h(StatChip, { k: 'CHECKS', v: fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS', color: fails ? C.red : warns ? C.amber : C.green }),
-        h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
+        h(StatChip, { k: 'COST', v: money(analysis.cost), title: 'total parts cost at hobbyist prices' }),
+        h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g`, title: 'how much the finished machine weighs' }),
+        h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, title: 'the most current the motors can ever pull at once', color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
+        h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h`, title: 'estimated 3D-print time for the custom parts' }),
+        h(StatChip, { k: 'CHECKS', v: fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS', title: 'the studio\'s engineering self-checks on this design', color: fails ? C.red : warns ? C.amber : C.green }),
+        h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', title: 'is the Hermes agent backend connected', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
         h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
         h('div', { style: { position: 'relative' } },
           h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
@@ -273,25 +308,45 @@ function Studio() {
     h('div', { style: S.body },
       // left rail: the brief
       h('div', { style: S.rail },
-        h('div', { style: S.sectionLabel }, 'brief'),
+        h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
+        h('div', { style: S.cards },
+          PRESETS.map((p) => h('button', {
+            key: p.id,
+            style: brief.archetype === p.brief.archetype ? S.cardOn : S.card,
+            'aria-label': `Build a ${p.label}`,
+            onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
+          },
+            h('span', { style: S.cardTitle }, p.label.toUpperCase()),
+            h('span', { style: S.cardSub }, PRESET_BLURBS[p.id] || '')))),
+
         h('textarea', {
-          rows: 3, value: mission, style: { ...S.input, marginBottom: '8px' },
-          placeholder: 'Describe the machine — "4WD rover that maps a room, 3kg of gear"',
+          rows: 2, value: mission, style: { ...S.input, marginBottom: '8px' },
+          placeholder: '…or describe the machine you want — "a robot car that maps my room"',
+          'aria-label': 'Describe the machine to build',
           onChange: (e) => setMission(e.target.value),
-          onKeyDown: (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onBuild() },
+          onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onBuild() } },
         }),
-        h('div', { style: S.chips },
+        h('div', { style: { display: 'flex', gap: '6px' } },
+          h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
+          h('button', {
+            style: { ...S.btn, flex: '0 0 auto' },
+            title: 'roll a random machine',
+            'aria-label': 'Build a random machine',
+            onClick: surprise,
+          }, '⚄')),
+
+        h('div', { style: S.chips, marginTop: '10px' },
           ARCHETYPES.map(([id, label]) => h('button', {
             key: id, style: brief.archetype === id ? S.chipOn : S.chip,
+            title: `switch machine type to ${label.toLowerCase()}`,
             onClick: () => pickArchetype(id),
           }, label))),
-        h('div', { style: S.chips, marginBottom: '14px' },
-          PRESETS.map((p) => h('button', {
-            key: p.id, style: S.chip,
-            onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
-          }, p.label))),
 
-        h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD FROM BRIEF'),
+        (() => { const v = plainVerdict(analysis.checks); return h('div', {
+          style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
+        },
+          h('span', { style: { fontFamily: C.mono, fontWeight: 700, color: v.color, flex: '0 0 auto' } }, v.icon),
+          h('span', {}, v.text)) })(),
 
         h('div', { style: { ...S.sectionLabel, marginTop: '16px' } }, 'parameters'),
         brief.archetype === 'gadget'
@@ -303,6 +358,7 @@ function Studio() {
           : h('div', {},
             h(ParamSlider, {
               label: 'PAYLOAD', value: brief.payloadKg, min: 0.1, max: brief.archetype === 'rover' ? 15 : 6, step: 0.1, unit: ' kg',
+              hint: 'how much weight it must carry',
               onChange: (v) => applyBrief({ payloadKg: v }),
             }),
             brief.archetype === 'rover' || brief.archetype === 'robot'
@@ -310,25 +366,32 @@ function Studio() {
                 label: 'WHEEL Ø', value: brief.wheelMm || (brief.archetype === 'robot' ? 130 : 100),
                 min: brief.archetype === 'robot' ? 80 : 60, max: brief.archetype === 'robot' ? 160 : 130,
                 step: 5, unit: ' mm',
+                hint: 'bigger wheels roll over bumps but drive slower',
                 onChange: (v) => applyBrief({ wheelMm: v }),
               })
               : h(ParamSlider, {
                 label: brief.archetype === 'gripper' ? 'JAW OPENING' : brief.archetype === 'quadruped' ? 'LEG SPAN' : brief.archetype === 'humanoid' ? 'HEIGHT' : 'REACH',
                 value: brief.reachMm, min: 120, max: 1200, step: 10, unit: ' mm',
+                hint: brief.archetype === 'gripper' ? 'the widest thing it can grab'
+                  : brief.archetype === 'quadruped' ? 'width across the hips'
+                    : brief.archetype === 'humanoid' ? 'how tall it stands'
+                      : 'how far the arm reaches',
                 onChange: (v) => applyBrief({ reachMm: v }),
               }),
             brief.archetype === 'arm'
-              ? h(ParamSlider, { label: 'AXES', value: brief.dof, min: 3, max: 6, step: 1, onChange: (v) => applyBrief({ dof: v }) })
+              ? h(ParamSlider, { label: 'AXES', value: brief.dof, min: 3, max: 6, step: 1, hint: 'how many joints — more axes, more ways to move', onChange: (v) => applyBrief({ dof: v }) })
               : null,
             h(Select, {
               label: 'MATERIAL', value: brief.material,
               options: MAT_OPTIONS,
+              hint: 'what you print the frame in — PETG survives drops',
               onChange: (v) => applyBrief({ material: v }),
             })),
 
         h(Select, {
           label: 'CONTROLLER', value: brief.mcu,
           options: MCU_KEYS.map((k) => ({ value: k, label: PARTS[k].name })),
+          hint: 'the robot\'s brain',
           onChange: (v) => applyBrief({ mcu: v }),
         }),
         brief.archetype !== 'gadget'
@@ -341,6 +404,7 @@ function Studio() {
               { value: 'lipo3s', label: 'LiPo 3S 2200mAh' },
               { value: 'pd5v', label: 'USB-C tethered' },
             ],
+            hint: 'battery pack, or plug it into the wall',
             onChange: (v) => applyBrief({ battery: v }),
           })
           : null,

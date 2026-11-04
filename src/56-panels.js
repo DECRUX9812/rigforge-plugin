@@ -49,6 +49,23 @@ function TabSpec({ design, analysis }) {
   ]
 
   blocks.push(h('div', { style: S.sectionLabel }, 'readiness'))
+  {
+    const fails = a.checks.filter((c) => c.level === 'fail').length
+    const warns = a.checks.filter((c) => c.level === 'warn').length
+    const plain = fails
+      ? `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.`
+      : warns
+        ? `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} below first.`
+        : 'Ready to build — every engineering check passed.'
+    blocks.push(h('div', {
+      style: {
+        fontSize: '12px', color: C.text, lineHeight: 1.45, marginBottom: '10px',
+        padding: '8px 10px', borderRadius: '6px', border: `1px solid ${C.line}`,
+        borderLeft: `3px solid ${fails ? C.red : warns ? C.amber : C.green}`,
+        background: fails ? 'rgba(255,95,86,0.08)' : warns ? 'rgba(255,194,74,0.07)' : 'rgba(78,208,138,0.07)',
+      },
+    }, plain))
+  }
   for (const c of a.checks) blocks.push(h(CheckRow, { c }))
 
   if (design.actuators && design.actuators.length) {
