@@ -228,6 +228,29 @@ const DEPTH_FS = `#version 300 es
 precision highp float;
 void main() {}`
 
+// Overlay lines: support polygon, CoM plumb, reticles — world-space GL_LINES
+// with per-vertex colour, drawn after the mesh with the same viewProj.
+const LINE_VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aCol;
+uniform mat4 uViewProj;
+out vec3 vCol;
+void main() { vCol = aCol; gl_Position = uViewProj * vec4(aPos, 1.0); }`
+
+const LINE_FS = `#version 300 es
+precision highp float;
+in vec3 vCol;
+out vec4 fragColor;
+vec3 aces(vec3 x) {
+  float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+vec3 toSRGB(vec3 c) {
+  return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
+}
+void main() { fragColor = vec4(toSRGB(aces(vCol * 1.5)), 0.9); }`
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type)
   gl.shaderSource(sh, src)
@@ -323,10 +346,12 @@ function createGLRenderer(canvas) {
   let meshProg
   let floorProg
   let depthProg
+  let lineProg
   try {
     meshProg = program(gl, GL_VS, GL_FS)
     floorProg = program(gl, FLOOR_VS, FLOOR_FS)
     depthProg = program(gl, DEPTH_VS, DEPTH_FS)
+    lineProg = program(gl, LINE_VS, LINE_FS)
   } catch (e) {
     globalThis.__rfGL = e.message
     return { ok: false, draw() {}, dispose() {}, error: e.message }
@@ -339,6 +364,8 @@ function createGLRenderer(canvas) {
   const floorVao = gl.createVertexArray()
   const floorVbo = gl.createBuffer()
   const floorIbo = gl.createBuffer()
+  const lineVao = gl.createVertexArray()
+  const lineVbo = gl.createBuffer()
 
   // shadow map
   const SHADOW = 2048
@@ -424,7 +451,7 @@ function createGLRenderer(canvas) {
 
   return {
     ok: true,
-    draw(mesh, cam, opts, matOf, bounds) {
+    draw(mesh, cam, opts, matOf, bounds, overlay) {
       const w = canvas.width
       const h = canvas.height
       if (!w || !h || !mesh || !mesh.length) return
@@ -580,6 +607,26 @@ function createGLRenderer(canvas) {
       gl.bindVertexArray(vao)
       gl.drawArrays(gl.TRIANGLES, 0, count)
       gl.bindVertexArray(null)
+
+      // bench overlay: support polygon, CoM plumb + reticle — world-space
+      // lines drawn last so they read on top of the machine, depth-tested so
+      // a plumb line behind a link honestly hides
+      if (overlay && overlay.data && overlay.data.length) {
+        gl.useProgram(lineProg)
+        gl.uniformMatrix4fv(uni(lineProg, 'uViewProj'), false, viewProj)
+        gl.bindVertexArray(lineVao)
+        gl.bindBuffer(gl.ARRAY_BUFFER, lineVbo)
+        gl.bufferData(gl.ARRAY_BUFFER, overlay.data, gl.DYNAMIC_DRAW)
+        const stride = 6 * 4
+        gl.enableVertexAttribArray(0)
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0)
+        gl.enableVertexAttribArray(1)
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 12)
+        gl.depthMask(false)
+        gl.drawArrays(gl.LINES, 0, overlay.verts)
+        gl.depthMask(true)
+        gl.bindVertexArray(null)
+      }
       // self-check: read back a horizontal strip so a silently blank frame is
       // detectable from the outside
       const probe = new Uint8Array(4 * 64 * 4)
@@ -601,6 +648,7 @@ function createGLRenderer(canvas) {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)
         gl.deleteFramebuffer(shadowFbo); gl.deleteVertexArray(vao); gl.deleteVertexArray(floorVao)
+        gl.deleteBuffer(lineVbo); gl.deleteVertexArray(lineVao)
       } catch (e) { /* context already gone */ }
     },
   }

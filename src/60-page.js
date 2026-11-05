@@ -557,6 +557,13 @@ function Studio() {
 
   const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
+  // Live bench overlay: support polygon + CoM plumb recomputed with the pose,
+  // so the floor tells the stability story while joints move.
+  const benchOv = useMemo(
+    () => benchOverlay(posedDesign, analysis.print && analysis.print.material),
+    [posedDesign, analysis],
+  )
+
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
   }, [])
@@ -1094,7 +1101,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
+        h(Viewport, { mesh, cam, setCam, opts, design, analysis, overlay: benchOv }),
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },

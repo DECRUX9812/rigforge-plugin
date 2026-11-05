@@ -4534,6 +4534,45 @@ function solveChainIK(design, chain, target, tipWorld, iters = 6) {
   return { err, iters }
 }
 
+/**
+ * GL overlay: support-polygon hull (dashed), CoM plumb line, CoM reticle.
+ * Returns interleaved [x,y,z,r,g,b] vertices for GL_LINES, or null when the
+ * machine has no ground contacts (shouldn't happen, but be honest).
+ */
+function benchOverlay(design, mat) {
+  const { com } = benchCoM(design, mat)
+  const c3 = benchContacts(design, mat)
+  if (!c3.length) return null
+  const floorZ = Math.min(...c3.map((p) => p[2]))
+  const hull = hull2D(c3.map((p) => [p[0], p[1]]))
+  const margin = benchHullMargin([com[0], com[1]], hull)
+  const col = margin > 15 ? [0.30, 0.95, 0.55] : margin > 0 ? [1.0, 0.72, 0.18] : [1.0, 0.32, 0.28]
+  const cyan = [0.25, 0.85, 1.0]
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const Z = floorZ + 0.8
+  if (hull.length >= 3) {
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i], b = hull[(i + 1) % hull.length]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      const dash = 12, gap = 8, n = Math.max(1, Math.floor(len / (dash + gap)))
+      for (let d = 0; d < n; d++) {
+        const t0 = (d * (dash + gap)) / len, t1 = Math.min(1, (d * (dash + gap) + dash) / len)
+        seg([a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, Z],
+            [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1, Z], cyan)
+      }
+    }
+  }
+  seg(com, [com[0], com[1], Z], col)
+  const s = 14
+  seg([com[0] - s, com[1], com[2]], [com[0] + s, com[1], com[2]], col)
+  seg([com[0], com[1] - s, com[2]], [com[0], com[1] + s, com[2]], col)
+  seg([com[0], com[1], com[2] - s], [com[0], com[1], com[2] + s], col)
+  seg([com[0] - 9, com[1], Z], [com[0] + 9, com[1], Z], col)
+  seg([com[0], com[1] - 9, Z], [com[0], com[1] + 9, Z], col)
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
 // ── simulation export: URDF and MJCF ────────────────────────────────────────
 // The studio poses a kinematic chain; it does not pretend to be a physics
 // engine. What an engineer actually needs is the machine in a format a real
@@ -6107,7 +6146,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const fallback = useRef(false)
@@ -6162,7 +6201,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
               rough: m.rough, metal: m.metal, glow: m.glow, spec: m.spec, shine: m.shine, printed: true,
             }
           }
-          r.draw(mesh, cam, opts, matOf, boundsOfMesh(mesh))
+          r.draw(mesh, cam, opts, matOf, boundsOfMesh(mesh), overlay)
           return
         }
         fallback.current = true
@@ -6476,6 +6515,29 @@ const DEPTH_FS = `#version 300 es
 precision highp float;
 void main() {}`
 
+// Overlay lines: support polygon, CoM plumb, reticles — world-space GL_LINES
+// with per-vertex colour, drawn after the mesh with the same viewProj.
+const LINE_VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aCol;
+uniform mat4 uViewProj;
+out vec3 vCol;
+void main() { vCol = aCol; gl_Position = uViewProj * vec4(aPos, 1.0); }`
+
+const LINE_FS = `#version 300 es
+precision highp float;
+in vec3 vCol;
+out vec4 fragColor;
+vec3 aces(vec3 x) {
+  float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+vec3 toSRGB(vec3 c) {
+  return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
+}
+void main() { fragColor = vec4(toSRGB(aces(vCol * 1.5)), 0.9); }`
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type)
   gl.shaderSource(sh, src)
@@ -6571,10 +6633,12 @@ function createGLRenderer(canvas) {
   let meshProg
   let floorProg
   let depthProg
+  let lineProg
   try {
     meshProg = program(gl, GL_VS, GL_FS)
     floorProg = program(gl, FLOOR_VS, FLOOR_FS)
     depthProg = program(gl, DEPTH_VS, DEPTH_FS)
+    lineProg = program(gl, LINE_VS, LINE_FS)
   } catch (e) {
     globalThis.__rfGL = e.message
     return { ok: false, draw() {}, dispose() {}, error: e.message }
@@ -6587,6 +6651,8 @@ function createGLRenderer(canvas) {
   const floorVao = gl.createVertexArray()
   const floorVbo = gl.createBuffer()
   const floorIbo = gl.createBuffer()
+  const lineVao = gl.createVertexArray()
+  const lineVbo = gl.createBuffer()
 
   // shadow map
   const SHADOW = 2048
@@ -6672,7 +6738,7 @@ function createGLRenderer(canvas) {
 
   return {
     ok: true,
-    draw(mesh, cam, opts, matOf, bounds) {
+    draw(mesh, cam, opts, matOf, bounds, overlay) {
       const w = canvas.width
       const h = canvas.height
       if (!w || !h || !mesh || !mesh.length) return
@@ -6828,6 +6894,26 @@ function createGLRenderer(canvas) {
       gl.bindVertexArray(vao)
       gl.drawArrays(gl.TRIANGLES, 0, count)
       gl.bindVertexArray(null)
+
+      // bench overlay: support polygon, CoM plumb + reticle — world-space
+      // lines drawn last so they read on top of the machine, depth-tested so
+      // a plumb line behind a link honestly hides
+      if (overlay && overlay.data && overlay.data.length) {
+        gl.useProgram(lineProg)
+        gl.uniformMatrix4fv(uni(lineProg, 'uViewProj'), false, viewProj)
+        gl.bindVertexArray(lineVao)
+        gl.bindBuffer(gl.ARRAY_BUFFER, lineVbo)
+        gl.bufferData(gl.ARRAY_BUFFER, overlay.data, gl.DYNAMIC_DRAW)
+        const stride = 6 * 4
+        gl.enableVertexAttribArray(0)
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0)
+        gl.enableVertexAttribArray(1)
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 12)
+        gl.depthMask(false)
+        gl.drawArrays(gl.LINES, 0, overlay.verts)
+        gl.depthMask(true)
+        gl.bindVertexArray(null)
+      }
       // self-check: read back a horizontal strip so a silently blank frame is
       // detectable from the outside
       const probe = new Uint8Array(4 * 64 * 4)
@@ -6849,6 +6935,7 @@ function createGLRenderer(canvas) {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)
         gl.deleteFramebuffer(shadowFbo); gl.deleteVertexArray(vao); gl.deleteVertexArray(floorVao)
+        gl.deleteBuffer(lineVbo); gl.deleteVertexArray(lineVao)
       } catch (e) { /* context already gone */ }
     },
   }
@@ -8655,6 +8742,13 @@ function Studio() {
 
   const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
+  // Live bench overlay: support polygon + CoM plumb recomputed with the pose,
+  // so the floor tells the stability story while joints move.
+  const benchOv = useMemo(
+    () => benchOverlay(posedDesign, analysis.print && analysis.print.material),
+    [posedDesign, analysis],
+  )
+
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
   }, [])
@@ -9192,7 +9286,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
+        h(Viewport, { mesh, cam, setCam, opts, design, analysis, overlay: benchOv }),
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },

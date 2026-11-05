@@ -957,7 +957,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const fallback = useRef(false)
@@ -1012,7 +1012,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
               rough: m.rough, metal: m.metal, glow: m.glow, spec: m.spec, shine: m.shine, printed: true,
             }
           }
-          r.draw(mesh, cam, opts, matOf, boundsOfMesh(mesh))
+          r.draw(mesh, cam, opts, matOf, boundsOfMesh(mesh), overlay)
           return
         }
         fallback.current = true

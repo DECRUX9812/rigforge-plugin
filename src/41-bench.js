@@ -251,3 +251,42 @@ function solveChainIK(design, chain, target, tipWorld, iters = 6) {
   err = Math.hypot(tip[0] - target[0], tip[1] - target[1], tip[2] - target[2])
   return { err, iters }
 }
+
+/**
+ * GL overlay: support-polygon hull (dashed), CoM plumb line, CoM reticle.
+ * Returns interleaved [x,y,z,r,g,b] vertices for GL_LINES, or null when the
+ * machine has no ground contacts (shouldn't happen, but be honest).
+ */
+function benchOverlay(design, mat) {
+  const { com } = benchCoM(design, mat)
+  const c3 = benchContacts(design, mat)
+  if (!c3.length) return null
+  const floorZ = Math.min(...c3.map((p) => p[2]))
+  const hull = hull2D(c3.map((p) => [p[0], p[1]]))
+  const margin = benchHullMargin([com[0], com[1]], hull)
+  const col = margin > 15 ? [0.30, 0.95, 0.55] : margin > 0 ? [1.0, 0.72, 0.18] : [1.0, 0.32, 0.28]
+  const cyan = [0.25, 0.85, 1.0]
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const Z = floorZ + 0.8
+  if (hull.length >= 3) {
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i], b = hull[(i + 1) % hull.length]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      const dash = 12, gap = 8, n = Math.max(1, Math.floor(len / (dash + gap)))
+      for (let d = 0; d < n; d++) {
+        const t0 = (d * (dash + gap)) / len, t1 = Math.min(1, (d * (dash + gap) + dash) / len)
+        seg([a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, Z],
+            [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1, Z], cyan)
+      }
+    }
+  }
+  seg(com, [com[0], com[1], Z], col)
+  const s = 14
+  seg([com[0] - s, com[1], com[2]], [com[0] + s, com[1], com[2]], col)
+  seg([com[0], com[1] - s, com[2]], [com[0], com[1] + s, com[2]], col)
+  seg([com[0], com[1], com[2] - s], [com[0], com[1], com[2] + s], col)
+  seg([com[0] - 9, com[1], Z], [com[0] + 9, com[1], Z], col)
+  seg([com[0], com[1] - 9, Z], [com[0], com[1] + 9, Z], col)
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
