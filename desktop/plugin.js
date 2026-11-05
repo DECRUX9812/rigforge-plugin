@@ -9526,7 +9526,12 @@ const S = {
     position: 'absolute', top: '12px', right: '14px',
     display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 9px',
     borderRadius: '10px', border: `1px solid ${C.line}`, background: 'rgba(11,16,21,0.86)',
-    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 210px)',
+    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 28px)',
+    // The bar carries camera presets, eight display toggles, the time warp, the
+    // report and the power badge. At 1600px that is 827px of content in a 620px
+    // box, so 'REPORT' rendered as 'REPO' and the power badge vanished off the
+    // right edge. Wrapping costs one row and hides nothing.
+    flexWrap: 'wrap', justifyContent: 'flex-end', rowGap: '4px',
   },
   viewGroup: { display: 'flex', alignItems: 'center', gap: '2px', padding: '2px', borderRadius: '7px', background: 'transparent' },
   viewSep: { width: '1px', height: '18px', background: C.line, flex: '0 0 auto' },
