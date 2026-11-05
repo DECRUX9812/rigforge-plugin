@@ -1,0 +1,101 @@
+# No CI existed: every gate in tests/ only ran when someone remembered to run it
+# by hand, which is how the 3D view sat unnameable for ~20 merges and how a
+# print-pack button silently downloaded a single STL. This runs them on every
+# push and PR.
+#
+# The tests launch Chrome from /usr/bin/google-chrome; the runner's Playwright
+# build lives in ~/.cache/ms-playwright, so the job links it into place rather
+# than requiring CHROME_PATH support in every test file.
+name: gates
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  engine:
+    name: engine claims (no browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: build the shipped bundle
+        run: node build.mjs
+      - name: engine claims
+        run: node tests/truth.mjs
+      - name: OpenSCAD export really renders (when the gate exists)
+        # openscad-wasm is a 30MB wasm build; only fetched when the gate is present
+        run: |
+          if [ -f tests/scad-render.mjs ]; then
+            npm i --no-save --no-package-lock openscad-wasm
+            node tests/scad-render.mjs
+          else
+            echo "skip scad-render — not on this branch yet"
+          fi
+      - name: bundle matches sources
+        # Not a failure yet: the generated bundles drift whenever someone
+        # commits src/ without rebuilding, and that is worth seeing in the log
+        # before it is worth blocking on.
+        continue-on-error: true
+        run: |
+          if ! git diff --quiet -- web/plugin.js desktop/plugin.js; then
+            echo "::warning::web/plugin.js or desktop/plugin.js is stale - run node build.mjs and commit the result"
+            git diff --stat -- web/plugin.js desktop/plugin.js
+          fi
+
+  ui:
+    name: browser gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: install playwright, esbuild and react
+        run: npm i --no-save --no-package-lock playwright esbuild react react-dom
+      - name: install chromium
+        run: npx playwright install --with-deps chromium
+      - name: put chrome where the tests look for it
+        run: |
+          # playwright names the directory chrome-linux64 on current runners,
+          # chrome-linux on older ones — match the binary, not the directory
+          CHROME=$(find "$HOME/.cache/ms-playwright" -maxdepth 3 -type f -name chrome -path '*chromium-*' | head -1)
+          if [ -z "$CHROME" ]; then
+            echo "::error::no chromium binary in the playwright cache"
+            find "$HOME/.cache/ms-playwright" -maxdepth 2 -type d
+            exit 1
+          fi
+          sudo ln -sf "$CHROME" /usr/bin/google-chrome
+          /usr/bin/google-chrome --version
+      - name: build and serve the preview
+        run: |
+          node build.mjs
+          node tests/make-preview.mjs
+          (cd tests/tmp && python3 -m http.server 18734 --bind 127.0.0.1 &)
+          sleep 2
+          curl -sf -o /dev/null http://127.0.0.1:18734/preview.html
+      - name: layout at four widths
+        run: node tests/layout-widths.mjs
+      - name: accessibility
+        run: node tests/a11y-audit.mjs
+      - name: every export downloads
+        run: node tests/export-sweep.mjs
+      - name: bundle loads in the host
+        run: node tests/bundle-load.mjs
+      - name: gates that arrive with their own PR
+        # These tests live on open branches. Running them conditionally means the
+        # gate switches on the moment its PR merges, instead of needing a second
+        # commit to CI that nobody remembers to make.
+        run: |
+          for t in pose-reach cta-download pick-inspect; do
+            if [ -f "tests/$t.mjs" ]; then
+              echo "::group::$t"
+              node "tests/$t.mjs"
+              echo "::endgroup::"
+            else
+              echo "skip $t — not on this branch yet"
+            fi
+          done
