@@ -66,6 +66,43 @@ so instead of hiding it. Things it caught in its own output:
 | ![Controller board and its assembly tab](docs/screenshots/board.png) | ![Show the working](docs/screenshots/audit.png) |
 | ![Before and after a change](docs/screenshots/compare.png) | ![The studio, from one sentence](docs/screenshots/hero.png) |
 
+## Proof, not adjectives
+
+Every claim above is backed by a gate that can fail. These ship on `master` today and
+can be run by hand or in CI (`node tests/<name>.mjs`, the browser ones need
+`node tests/make-preview.mjs` and a server on `127.0.0.1:18734`):
+
+| gate | what it asserts | current |
+|---|---|---|
+| `tests/truth.mjs` | 40 engine claims: cost/mass/power arithmetic recomputed from the parts table, kinematics against a reference path, autopilot certification, honest refusals | **40/40** |
+| `tests/layout-widths.mjs` | no sideways scroll and the machine stays above the chooser at 1440/1180/900/640 | **clean** |
+| `tests/a11y-audit.mjs` | every Tab stop has a name and a visible focus ring; the 3D view is named and described | **clean** |
+| `tests/export-sweep.mjs` | every entry in the Export menu downloads something of the right type | **10/10** |
+| `tests/bundle-load.mjs` | the shipped bundle registers its page, nav, palette, directives and settings through the real host API | **clean** |
+
+The renderer holds **61 fps at 3200×1960** on a software GL stack (no GPU), and the
+number on screen is the real thing: 4,884 triangles in the viewport are 4,884
+triangles in the STL.
+
+### Bugs these gates caught in this product's own output
+
+- **An export OpenSCAD refused to open.** A `//` note inside a module body commented
+  out its closing brace, so `arm.scad` died with *syntax error at end of file*. Brace
+  counting passed it — the braces still balanced, one was just commented out. Caught by
+  rendering the export through a real OpenSCAD engine (`openscad-wasm`), which now runs
+  as a gate: all ten machines parse and produce 412–25,746 triangles.
+- **Two masses for one machine.** The stability verdict read 1893 g while the card
+  above it read 1216 g, because the bench summed solid geometry and the header summed
+  the BOM. One number now, with a claim that the CoM margin cannot move when only the
+  total mass changes.
+- **A prescription that could not be followed.** The bench said *fit ≥150mm wheels*
+  while the builder clamped wheels to 130 mm, so no wheel size could ever help. The
+  clamp is 220 mm now, and the claim applies the fix and re-simulates the climb.
+- **A renderer at 4 fps.** The soft-shadow loop cost 25 texture fetches per fragment;
+  nine taps in two rings measure 61 fps with 0.4% of pixels changed.
+- **A page that scrolled sideways at 640 px.** Only visible on a font stack wider than
+  the dev machine's — the top bar now wraps instead of shaving gaps.
+
 ## Sharing a design
 
 **Export ▸ Build code** copies one line — `RF1-eyJhcm…`, about 200 characters.
