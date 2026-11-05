@@ -495,7 +495,7 @@ function Studio() {
       if (powerRef.current) {
         const drv = driveRef.current
         const motorA = drv ? Math.abs(drv.state.throttle) * motorARef.current : 0
-        powerRef.current.step(dt, sim.state, motorA)
+        powerRef.current.step(dt * timeWarpRef.current, sim.state, motorA)
         sim.state.thermal = powerRef.current.state.cut
       }
       raf = requestAnimationFrame(tick)
@@ -604,23 +604,34 @@ function Studio() {
   const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
+  const senseRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
   const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
-  const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
+  const [, setSenseTick] = useState(0)
+  const [timeWarp, setTimeWarp] = useState(1)
+  const timeWarpRef = useRef(1)
+  timeWarpRef.current = timeWarp
   const keysRef = useRef({})
+  const spaceEdgeRef = useRef(false)
+  const rumbleRef = useRef({})
+  const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
+  const autotestRef = useRef(null)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
     gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
     gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
-    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : null
+    senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
+    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
+    autotestRef.current = createAutotest(driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current)
     setDriveAvail(!!kind)
     setChassis(null)
     if (ikRef.current) ikRef.current.reset()
@@ -636,11 +647,16 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
     const gait = gaitRef.current
     const grip = gripRef.current
+    const sense = senseRef.current
+    benchStatsRef.current = {
+      seconds: 0, maxV: 0, bumps: 0, stallMs: 0, slipMs: 0,
+      minSoc: 100, maxTemp: 0, cutouts: 0, ikErr: null, mode: teleopKind,
+    }
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
@@ -652,9 +668,15 @@ function Studio() {
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
       if (!pwrDead && drive) {
-        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        let throttle, steer
+        if (at && at.running) {
+          ;({ throttle, steer } = at.tick(dt))
+        } else {
+          throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+          steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        }
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -670,7 +692,9 @@ function Studio() {
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -679,26 +703,100 @@ function Studio() {
             cx = -gy; cy = gx; cz = -gz
           }
         }
-        const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        let certPose = null
+        if (at && at.running) {
+          const c = at.tick(dt, actual)
+          if (c && c.pose) certPose = c.pose
+          else if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
+        // certification runs carry their own IK-solved pose — applying it
+        // directly skips the velocity-cmd layer the script already bypassed
+        const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
-        // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
-        // planning, not just a yaw bias — honest omission, not fake steering)
+        // W/S walk speed, A/D steer; gamepad left stick same
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let gx = want
-        if (gp) {
+        const turn = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        let gx = want, gy = turn
+        const at = autotestRef.current
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
-          const gy = dz(gp.axes[1] || 0)
-          if (Math.abs(gy) > 0.04) gx = -gy
+          const gx2 = dz(gp.axes[0] || 0)
+          const gy2 = dz(gp.axes[1] || 0)
+          if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
+        }
+        if (at && at.running) {
+          const c = at.tick(dt)
+          if (c) { gx = c.x || 0; gy = c.y || 0 }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = gait.step({ x: gx }, dt, actual)
-        if (desired) setPose(desired)
+        if (gait.locomote) {
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          if (r && r.pose) setPose(r.pose)
+          if (r && r.chassis) setChassis({ ...r.chassis })
+        } else {
+          const desired = gait.step({ x: gx }, dt, actual)
+          if (desired) setPose(desired)
+        }
       } else if (!pwrDead && grip) {
-        const desired = grip.step({ grip: k.space }, dt)
+        const at = autotestRef.current
+        const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
+        const desired = grip.step(gcmd, dt)
         if (desired) setPose(desired)
+      } else if (!pwrDead && sense) {
+        // sensor nodes have no motion cmd — the autopilot writes stimulus
+        // fields straight into teleop state on its own timeline
+        const at = autotestRef.current
+        if (at && at.running) at.tick(dt)
       }
+      // bench stats: everything the test report needs, accumulated live
+      const bs = benchStatsRef.current
+      if (bs) {
+        bs.seconds += dt
+        const st = drive ? drive.state : (gait && gait.locomoteState) || null
+        if (st) {
+          bs.maxV = Math.max(bs.maxV, Math.abs(st.v))
+          bs.stallMs += st.stall ? dt * 1000 : 0
+          bs.slipMs += st.slip ? dt * 1000 : 0
+          bs.bumps = Math.max(bs.bumps, st.bumps || 0)
+        }
+        if (ik && ik.state && ik.state.ready) bs.ikErr = Math.max(bs.ikErr || 0, ik.state.err || 0)
+        const ps = powerRef.current && powerRef.current.state
+        if (ps) {
+          bs.minSoc = Math.min(bs.minSoc, ps.soc)
+          const tmax = ps.temps && ps.temps.length ? Math.max(...ps.temps) : 0
+          bs.maxTemp = Math.max(bs.maxTemp, tmax)
+          bs.cutouts = Math.max(bs.cutouts, (ps.cut || []).filter(Boolean).length)
+        }
+      }
+      // haptics: edge-triggered rumble — stall, wheelspin, bumps, joint stall,
+      // dead pack, sensor alert. One buzz per event, not a continuous scream.
+      if (gp && gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+        const mob = drive ? drive.state : (gait && gait.locomoteState) || null
+        const bumpN = (mob && mob.bumps) || 0
+        const jstall = !!(simRef.current && simRef.current.state.stalled && simRef.current.state.stalled.some(Boolean))
+        const sal = sense ? sense.hud().alerts.length : 0
+        const now2 = {
+          stall: !!(mob && mob.stall),
+          slip: !!(mob && mob.slip),
+          bump: bumpN,
+          jstall,
+          dead: !!pwrDead,
+          sense: sal > 0,
+        }
+        const prev = rumbleRef.current
+        const buzz = (sMag, wMag, ms) => {
+          try { gp.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: sMag, weakMagnitude: wMag }) } catch { /* pad went away */ }
+        }
+        if (now2.stall && !prev.stall) buzz(0.7, 0.5, 220)
+        else if (now2.slip && !prev.slip) buzz(0.35, 0.35, 120)
+        if (now2.bump > prev.bump) buzz(0.9, 0.2, 140)
+        if (now2.jstall && !prev.jstall) buzz(0.6, 0.6, 200)
+        if (now2.dead && !prev.dead) buzz(1, 1, 400)
+        if (now2.sense && !prev.sense) buzz(0.3, 0.5, 150)
+        rumbleRef.current = now2
+      }
+      spaceEdgeRef.current = false
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -711,9 +809,10 @@ function Studio() {
       const key = e.key.toLowerCase()
       if (['w', 'a', 's', 'd', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
         keysRef.current[key === ' ' ? 'space' : key] = true
+        if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
@@ -731,13 +830,15 @@ function Studio() {
   // drive mode, the pick-place desk for reach mode. Identity-stable per
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
-    () => (driveOn && teleopKind === 'drive' ? benchRampTris(benchEnv.slopeDeg)
-      : driveOn && teleopKind === 'ik' ? deskPropsTris() : null),
-    [driveOn, teleopKind, benchEnv.slopeDeg],
+    () => (driveOn && (teleopKind === 'drive' || teleopKind === 'gait')
+      ? (benchEnv.course === 'room' ? livingRoomTris() : benchEnv.course === 'stairs' ? stairsTris() : benchRampTris(benchEnv.slopeDeg))
+      : driveOn && teleopKind === 'ik' ? deskPropsTris()
+      : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
+    [driveOn, teleopKind, benchEnv],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : 'desk') : null
+    const rtSig = rtTris ? ((teleopKind === 'drive' || teleopKind === 'gait') ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -747,7 +848,7 @@ function Studio() {
       }
       xfRef.current = xf
     }
-    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach) : mesh
+    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach, benchEnv.course) : mesh
     if (!xf.combined) {
       const n = mach.length + (xf.rt ? xf.rt.length : 0)
       xf.combined = new Array(n)
@@ -759,6 +860,30 @@ function Studio() {
 
   // The overlay rides the machine in plan, but its points live ON the terrain:
   // yaw+translate in x/y, then each point takes the ramp height under it.
+  // camera chases the machine, not the course: course dressing can span
+  // metres while cam.dist is framed on the machine's own dimensions
+  const machBounds = useMemo(() => boundsOfMesh(mesh), [mesh])
+  const camFocus = useMemo(() => {
+    if (!chassis) return null
+    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    const cy = (machBounds.min[1] + machBounds.max[1]) / 2
+    const cz = (machBounds.min[2] + machBounds.max[2]) / 2
+    return [
+      cx * c - cy * sn + chassis.x * 1000,
+      cx * sn + cy * c + chassis.y * 1000,
+      terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
+    ]
+  }, [chassis, machBounds, benchEnv])
+  // floor contact-shadow radius tracks the machine, not the (possibly huge) course
+  const subjectR = useMemo(() => {
+    const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
+    return Math.min(1600, Math.max(160, Math.max(...d) * 0.8))
+  }, [machBounds])
+  const viewOpts = useMemo(
+    () => ({ ...opts, subjectR, subjectBounds: machBounds, focus: camFocus }),
+    [opts, subjectR, machBounds, camFocus],
+  )
   const benchOvWorld = useMemo(() => {
     if (!benchOv || !chassis) return benchOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
@@ -766,17 +891,18 @@ function Studio() {
     const d = benchOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
-      const wx = d[i] * c - d[i + 1] * sn + chassis.x
-      const wy = d[i] * sn + d[i + 1] * c + chassis.y
-      out[i] = wx
-      out[i + 1] = wy
-      out[i + 2] = terrainHeight(wx, slope)
+      // overlay verts are mm (design space); chassis state is metres
+      const wx = (d[i] * c - d[i + 1] * sn) / 1000 + chassis.x
+      const wy = (d[i] * sn + d[i + 1] * c) / 1000 + chassis.y
+      out[i] = wx * 1000
+      out[i + 1] = wy * 1000
+      out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current
+  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -791,11 +917,52 @@ function Studio() {
     const ratingG = ((design.metrics && design.metrics.payloadKg) || 0) * 1000
     return { name: near.prop.name, massG: near.prop.massG, ratingG, over: ratingG > 0 && near.prop.massG > ratingG }
   }, [driveHud, teleopKind, design])
+  // Grip bench verdict: the 1kg test mass vs this gripper's hold capacity.
+  const gripHud = useMemo(() => {
+    if (teleopKind !== 'grip') return null
+    const hold = design.metrics && design.metrics.gripMassKg
+    if (!hold) return null
+    return { holdKg: hold, blockKg: GRIP_BENCH.massG / 1000, ok: hold >= GRIP_BENCH.massG / 1000 }
+  }, [teleopKind, design])
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, power: powerHud }),
-    [benchLive, driveHud, propHud, powerHud])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
+    [benchLive, driveHud, propHud, gripHud, powerHud, brief])
+
+  // Field-test report: everything the bench logged, as a markdown file the
+  // builder can attach to the print pack or paste into a build log.
+  const downloadReport = useCallback(() => {
+    const bs = benchStatsRef.current || {}
+    const modeName = { drive: 'DRIVE', ik: 'REACH', gait: 'WALK', grip: 'GRIP', sense: 'SENSE' }[bs.mode] || 'MANUAL'
+    const md = [
+      '# RigForge field-test report',
+      '',
+      `- **machine:** ${design.title || design.subtitle || 'untitled'}`,
+      `- **mode:** ${modeName} · **duration:** ${((bs.seconds || 0)).toFixed(0)}s sim`,
+      bs.maxV ? `- **top speed:** ${bs.maxV.toFixed(2)} m/s` : null,
+      bs.bumps ? `- **obstacle hits:** ${bs.bumps}` : null,
+      (bs.stallMs || bs.slipMs) ? `- **stall time:** ${(bs.stallMs / 1000).toFixed(1)}s · **slip time:** ${(bs.slipMs / 1000).toFixed(1)}s` : null,
+      bs.ikErr != null ? `- **worst IK error:** ${bs.ikErr.toFixed(1)} mm` : null,
+      `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
+      bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
+      `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      ...(autotestRef.current && autotestRef.current.results.length ? [
+        '',
+        `## Auto test — ${autotestRef.current.score}`,
+        ...autotestRef.current.results.map((r) => `- ${r.pass ? 'PASS' : 'FAIL'} **${r.label}** — ${r.detail}`),
+      ] : []),
+      '',
+      '_Generated by RigForge test bench — numbers are simulated, not measured._',
+    ].filter(Boolean).join('\n')
+    try {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }))
+      a.download = 'rigforge-test-report.md'
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch { /* SSR / no DOM */ }
+  }, [design, fixes])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1334,7 +1501,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts, design, analysis, overlay: benchOvWorld }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -1357,14 +1524,33 @@ function Studio() {
               ]
             : driveHud.kind === 'gait'
             ? [
+                driveHud.loco ? h('span', { key: 'v' }, `v ${driveHud.loco.v.toFixed(2)} m/s`) : null,
                 h('span', { key: 'a' }, `gait ${driveHud.cadence}Hz`),
+                driveHud.loco && driveHud.loco.gradeDeg ? h('span', { key: 'g' }, `grade ${driveHud.loco.gradeDeg}°`) : null,
+                driveHud.loco ? h('span', { key: 'd', style: { color: C.faint } }, `${driveHud.loco.surface} μ${driveHud.loco.mu.toFixed(2)}`) : null,
+                driveHud.loco && driveHud.loco.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'SLIP') : null,
+                driveHud.loco && driveHud.loco.stall ? h('span', { key: 'g2', style: { color: C.red } }, 'STALL') : null,
+                driveHud.loco && driveHud.loco.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.loco.bumps}`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.strides} strides`),
-                h('span', { key: 'c', style: { color: C.faint } }, 'W walk · release to stand'),
+                h('span', { key: 'c', style: { color: C.faint } }, 'W walk · A/D steer · release to stand'),
               ]
             : driveHud.kind === 'grip'
             ? [
                 h('span', { key: 'a' }, `jaw ${driveHud.open ? 'OPEN' : 'SHUT'}`),
+                gripHud ? h('span', {
+                  key: 'g',
+                  style: { color: gripHud.ok ? C.green : C.red },
+                  title: `hold capacity ${gripHud.holdKg.toFixed(2)}kg vs ${gripHud.blockKg}kg test mass`,
+                }, `${gripHud.ok ? 'HOLD' : 'SLIP'} ${gripHud.blockKg}kg/${gripHud.holdKg.toFixed(1)}kg`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, 'Space toggles'),
+              ]
+            : driveHud.kind === 'sense'
+            ? [
+                h('span', { key: 'a' }, `OLED ${driveHud.oled}`),
+                ...(driveHud.lines || []).map((ln, i) => h('span', { key: `s${i}`, style: { color: C.faint } }, ln)),
+                driveHud.alerts && driveHud.alerts.length
+                  ? h('span', { key: 'al', style: { color: C.amber } }, `⚠ ${driveHud.alerts[0]}${driveHud.alerts.length > 1 ? ` +${driveHud.alerts.length - 1}` : ''}`)
+                  : h('span', { key: 'ok', style: { color: C.green } }, 'all readings nominal'),
               ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
@@ -1375,6 +1561,9 @@ function Studio() {
                 driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
+                driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
+                driveHud.course === 'stairs' ? h('span', { key: 'j2', style: { color: C.cyan } }, 'STAIRS') : null,
+                driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
           // endurance telemetry rides every teleop HUD — the pack drains and
@@ -1391,11 +1580,31 @@ function Studio() {
           fixes.length && (driveHud || propHud || powerHud)
             ? h('div', {
               key: 'fix',
-              style: { flexBasis: '100%', color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
-              title: fixes.map((f) => f.msg).join('\n'),
-            }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
+              style: { flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px' },
+            },
+              h('span', {
+                style: { color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
+                title: fixes.map((f) => f.msg).join('\n'),
+              }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`),
+              fixes[0].apply ? h('button', {
+                style: { ...S.viewChip, padding: '1px 7px', fontSize: '9px', flex: '0 0 auto' },
+                title: `rebuild with ${JSON.stringify(fixes[0].apply)} and re-run the bench`,
+                onClick: () => { setBrief((b) => ({ ...b, ...fixes[0].apply })); setDriveOn(false) },
+              }, 'APPLY FIX') : null)
             : null,
         ) : null,
+        driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
+          style: {
+            position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10.5px',
+            color: autotestRef.current.done && autotestRef.current.results.every((r) => r.pass) ? C.green : C.cyan,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '5px 10px', pointerEvents: 'none',
+            title: (autotestRef.current.results || []).map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.label} — ${r.detail}`).join('\n'),
+          },
+        }, autotestRef.current.running
+          ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
+          : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -1406,6 +1615,21 @@ function Studio() {
           },
         },
           h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+            [['rack', 'RACK'], ['room', 'ROOM'], ['stairs', 'STAIRS']].map(([ck, cl]) => h('button', {
+              key: ck,
+              onClick: () => setBenchEnv((e) => ({ ...e, course: ck })),
+              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles'
+                : ck === 'stairs' ? 'porch stairs: 4×80mm risers — mounts only if wheel radius bites the nosing'
+                : 'traction rack: adjustable ramp and surface',
+              style: {
+                fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
+                padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
+                border: `1px solid ${benchEnv.course === ck ? C.cyan : C.line}`,
+                background: benchEnv.course === ck ? 'rgba(0,229,255,0.12)' : 'transparent',
+                color: benchEnv.course === ck ? C.cyan : C.dim,
+              },
+            }, cl))),
+          benchEnv.course === 'rack' ? h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
             Object.keys(DRIVE_SURFACES).map((sk) => h('button', {
               key: sk,
               onClick: () => setBenchEnv((e) => ({ ...e, surface: sk })),
@@ -1416,7 +1640,8 @@ function Studio() {
                 background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
                 color: benchEnv.surface === sk ? C.cyan : C.dim,
               },
-            }, sk.toUpperCase()))),
+            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } },
+              benchEnv.course === 'stairs' ? 'stairs: wood treads, μ0.8 — risers decide' : 'course surfaces: hardwood + rug'),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
             h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
             h('input', {
@@ -1447,6 +1672,33 @@ function Studio() {
               title: `shove test — ${n}N lateral impulse`,
             }, `SHOVE ${n}N`))),
         ) : null,
+        driveOn && teleopKind === 'sense' && senseRef.current ? h('div', {
+          style: {
+            position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10px', color: C.dim,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '7px 10px', width: '188px',
+            display: 'flex', flexDirection: 'column', gap: '6px',
+          },
+        },
+          (senseRef.current.fields || []).map((f) => h('label', {
+            key: f.k,
+            style: { display: 'flex', alignItems: 'center', gap: '7px' },
+          },
+            h('span', { style: { width: '52px', color: C.faint } }, `${f.sensorLabel.split(' ')[0]} ${f.label}`),
+            h('input', {
+              type: 'range', min: f.min, max: f.max, step: f.bool ? 1 : (f.max - f.min) / 100,
+              value: senseRef.current.state[f.k],
+              onChange: (e) => {
+                senseRef.current.set(f.k, f.bool ? Number(e.target.value) > 0.5 : Number(e.target.value))
+                setSenseTick((t) => t + 1)
+              },
+              style: { flex: 1, accentColor: C.cyan },
+              'aria-label': `stimulus ${f.k}`,
+            }),
+            h('span', { style: { width: '34px', textAlign: 'right', color: C.cyan } },
+              `${f.bool ? (senseRef.current.state[f.k] ? 'YES' : 'no') : `${senseRef.current.state[f.k]}${f.unit}`}`))),
+        ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
@@ -1476,7 +1728,18 @@ function Studio() {
               'aria-pressed': !!cam.ortho,
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
-            }, 'ORTHO')),
+            }, 'ORTHO'),
+            h('button', {
+              style: timeWarp === 10 ? S.viewChipOn : S.viewChip,
+              'aria-pressed': timeWarp === 10,
+              title: 'endurance time warp — battery drains and servos heat 10× faster',
+              onClick: () => setTimeWarp((w) => (w === 1 ? 10 : 1)),
+            }, `TIME ${timeWarp}×`),
+            h('button', {
+              style: S.viewChip,
+              title: 'download the field-test report (markdown) — stats the bench logged this session',
+              onClick: downloadReport,
+            }, 'REPORT')),
           driveAvail ? h('div', { style: S.viewSep }) : null,
           driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'bench teleop' },
             h('button', {
@@ -1485,12 +1748,26 @@ function Studio() {
               title: teleopKind === 'ik'
                 ? 'reach mode — WASD plane, R/F height, gamepad sticks, 0 re-anchors'
                 : teleopKind === 'gait'
-                ? 'gait mode — W walks (treadmill), release to stand, gamepad left stick'
+                ? 'gait mode — W walks the course, A/D steers, gamepad left stick'
                 : teleopKind === 'grip'
                 ? 'jaw mode — Space opens/closes the gripper'
+                : teleopKind === 'sense'
+                ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            autotestRef.current ? h('button', {
+              style: autotestRef.current.running || (autotestRef.current.done && !autotestRef.current.results.every((r) => r.pass)) ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!(autotestRef.current && autotestRef.current.running),
+              title: 'autopilot certification — scripts sprint, turn, climb, shove-recovery and return, scoring each check',
+              onClick: () => {
+                const at = autotestRef.current
+                if (!at) return
+                if (at.running) { at.stop(); return }
+                at.start()
+                setDriveOn(true)
+              },
+            }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',

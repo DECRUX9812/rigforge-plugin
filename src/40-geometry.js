@@ -699,9 +699,9 @@ function toOpenSCAD(design) {
     if (n.kind === 'box' || n.kind === 'rbox') {
       prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);`
     } else if (n.kind === 'wedge' || n.kind === 'rack') {
-      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); // simplified from ${n.kind}`
+      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* simplified from ${n.kind} */`
     } else if (n.kind === 'gear') {
-      prim = `${wrap}cylinder(h=${n.width.toFixed(1)}, r=${(((n.module * n.teeth) / 2) - n.module).toFixed(1)}, center=true); // ${n.teeth}T module ${n.module}`
+      prim = `${wrap}cylinder(h=${n.width.toFixed(1)}, r=${(((n.module * n.teeth) / 2) - n.module).toFixed(1)}, center=true); /* ${n.teeth}T module ${n.module} */`
     } else if (n.kind === 'ring') {
       prim = `${wrap}difference() { cylinder(h=${n.height.toFixed(1)}, r=${n.outer.toFixed(1)}, center=true); cylinder(h=${(n.height + 1).toFixed(1)}, r=${n.inner.toFixed(1)}, center=true); }`
     } else if (n.kind === 'torus' || n.kind === 'bend') {
@@ -711,9 +711,9 @@ function toOpenSCAD(design) {
     } else if (n.kind === 'mesh') {
       // imported CAD mesh: OpenSCAD gets its bounding box, because the STL is
       // the authoritative geometry and this is a worked-in-space placeholder
-      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); // imported mesh (${n.part || 'part'})`
+      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
     } else if (n.radius == null) {
-      prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); // ${n.kind || 'node'}`
+      prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
       const r2 = n.radius2 != null ? `, r2=${n.radius2.toFixed(1)}` : ''
       prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r=${n.radius.toFixed(1)}${r2}, center=true);`
