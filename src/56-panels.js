@@ -319,6 +319,21 @@ function TabPower({ analysis }) {
             h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
       )
       : null,
+    analysis.harness && analysis.harness.rows.length
+      ? h('div', {},
+        h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'servo harness'),
+        h('table', { style: S.table },
+          h('thead', {}, h('tr', {},
+            h('th', { style: S.th }, 'JOINT'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'RUN'),
+            h('th', { style: S.th }, 'LEAD'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'V DROP'))),
+          h('tbody', {}, analysis.harness.rows.map((r) => h('tr', { key: r.id },
+            h('td', { style: S.td }, r.label || r.id),
+            h('td', { style: S.tdNum }, `~${r.run}mm`),
+            h('td', { style: { ...S.td, color: r.lead === 'extend' ? C.red : r.lead === 'check' ? C.amber : C.faint, fontSize: '9.5px' } },
+              r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead' : r.lead === 'extend' ? 'needs ext.' : r.lead),
+            h('td', { style: { ...S.tdNum, color: r.vdrop > 0.5 ? C.red : C.faint } }, `${r.vdrop}V`))))),
+        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } }, analysis.harness.note))
+      : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },
       bat ? h(KV, { k: 'pack', v: bat.name }) : h(KV, { k: 'source', v: 'n/a' }),

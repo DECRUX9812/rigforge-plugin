@@ -2935,10 +2935,67 @@ function printFit(design, bedMm) {
   return { bed, usable, rows, worst, fitsAll: rows.every((r) => r.fits), count: rows.length }
 }
 
+/**
+ * Servo-lead harness check. Every driven joint's pivot is a world position at
+ * rest pose, so the wire run back to the electrical home (centroid of the root
+ * joints — where the driver/bus lives) is measurable, not guessed. Stock servo
+ * leads are 180–300mm; a wrist 380mm from the base genuinely cannot reach.
+ * 1.35× slack covers the route along the structure, not through air.
+ */
+function harnessAnalysis(design) {
+  const joints = (design.joints || []).filter((j) => j.pivot)
+  const servoParts = (design.parts || []).map(({ key }) => PARTS[key]).filter((p) => p && p.cat === 'servo')
+  if (!joints.length || !servoParts.length) return null
+  const leads = servoParts
+    .map((p) => { const m = /(\d+)\s*mm\s*lead/i.exec(p.conn || ''); return m ? +m[1] : null })
+    .filter((v) => v != null)
+  const busOnly = servoParts.every((p) => /daisy|bus/i.test(p.conn || ''))
+  const minLead = leads.length ? Math.min(...leads) : null
+  const maxLead = leads.length ? Math.max(...leads) : null
+  const roots = joints.filter((j) => j.parent == null)
+  // A lone joint's pivot is the joint itself, not the bay — for single-axis
+  // machines the driver lives in the body, so home is the footprint centre.
+  let home
+  if (joints.length === 1) {
+    const bb = boundsOf(design.nodes)
+    home = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, bb.min[2] + 10]
+  } else {
+    home = roots.length
+      ? [0, 1, 2].map((i) => roots.reduce((s, j) => s + j.pivot[i], 0) / roots.length)
+      : joints[0].pivot
+  }
+  // Voltage drop on a stock 26AWG servo lead (~0.13Ω/m, out and back), at the
+  // largest servo stall current in the BOM — the sag a far joint actually sees.
+  const peakA = Math.max(0.5, ...servoParts.map((p) => (p.curr && p.curr.peak) || 0))
+  const R_PER_M = 0.26 // 26AWG out-and-back
+  const rows = joints.map((j) => {
+    const d = Math.hypot(j.pivot[0] - home[0], j.pivot[1] - home[1], j.pivot[2] - home[2])
+    const run = Math.round(d * 1.35)
+    const lead = busOnly ? 'daisy-chain'
+      : minLead == null ? 'unknown'
+      : run <= minLead ? 'stock'
+      : run <= maxLead ? 'check'
+      : 'extend'
+    const vdrop = +(peakA * R_PER_M * (run / 1000)).toFixed(3)
+    return { id: j.id, label: j.label, run, lead, vdrop }
+  })
+  const worst = rows.reduce((a, b) => (b.run > (a ? a.run : -1) ? b : a), null)
+  const needExt = rows.filter((r) => r.lead === 'extend').length
+  const dropBad = rows.filter((r) => r.vdrop > 0.5)
+  return {
+    home, rows, worst, needExt, dropBad,
+    minLead, maxLead, busOnly,
+    note: busOnly
+      ? 'Servos are on a daisy-chained TTL bus — signal runs joint to joint; only the power taps need to reach home.'
+      : `Stock leads are ${minLead}–${maxLead}mm. Runs include 35% routing slack.`,
+  }
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
+  const harness = harnessAnalysis(design)
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
 
   let cost = 0
@@ -3027,6 +3084,19 @@ function analyze(design) {
   } else {
     checks.push({ level: 'ok', msg: 'Overhang check: every printed face has material or the bed underneath — no support needed.' })
   }
+  if (harness && harness.needExt) {
+    checks.push({
+      level: 'warn',
+      msg: `${harness.needExt} joint(s) sit beyond the longest stock servo lead (${harness.maxLead}mm) — ${harness.worst.label} runs ~${harness.worst.run}mm home. Fit extension leads or move the driver closer; a lead that does not reach is a robot that does not ship.`,
+    })
+  } else if (harness && harness.dropBad.length) {
+    checks.push({
+      level: 'warn',
+      msg: `${harness.dropBad.length} joint run(s) drop over 0.5V on a stock 26AWG lead at stall current — use a thicker extension or a remote 6V buck at that joint.`,
+    })
+  } else if (harness) {
+    checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
+  }
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -3035,6 +3105,7 @@ function analyze(design) {
     printFit: fit,
     pins,
     power,
+    harness,
     cost,
     costBuy,
     costShop: cost - costBuy,
@@ -4597,6 +4668,14 @@ function toSpecMarkdown(design, a) {
   L.push('## Power budget', '', '| Rail | Typical | Peak | Wire | Fuse |', '|---|---|---|---|---|')
   for (const w of (a.power.wiring || [])) L.push(`| ${w.rail} | ${fmt(w.amps, 2)} A | ${fmt(w.peak, 2)} A | AWG ${w.awg} | ${w.fuse ? `${w.fuse} A` : '—'} |`)
   L.push('', `Typical ${fmt(a.power.typ, 2)}A, peak ${fmt(a.power.peak, 2)}A${a.power.runtimeMin ? `, ~${Math.round(a.power.runtimeMin)} min on ${a.power.bat.name}` : ''}.`, '')
+
+  if (a.harness && a.harness.rows.length) {
+    L.push('## Servo harness', '', '| Joint | Run (est.) | Lead | V drop @ stall |', '|---|---|---|---|')
+    for (const r of a.harness.rows) {
+      L.push(`| ${r.label || r.id} | ~${r.run}mm | ${r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead length' : r.lead === 'extend' ? 'needs extension' : r.lead} | ${r.vdrop}V |`)
+    }
+    L.push('', a.harness.note, '')
+  }
 
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
   L.push('## Assembly', '')
@@ -9918,6 +9997,21 @@ function TabPower({ analysis }) {
             h('td', { style: { ...S.tdNum, color: w.fuse ? C.amber : C.faint } }, w.fuse ? `${w.fuse}A` : '—'),
             h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
       )
+      : null,
+    analysis.harness && analysis.harness.rows.length
+      ? h('div', {},
+        h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'servo harness'),
+        h('table', { style: S.table },
+          h('thead', {}, h('tr', {},
+            h('th', { style: S.th }, 'JOINT'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'RUN'),
+            h('th', { style: S.th }, 'LEAD'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'V DROP'))),
+          h('tbody', {}, analysis.harness.rows.map((r) => h('tr', { key: r.id },
+            h('td', { style: S.td }, r.label || r.id),
+            h('td', { style: S.tdNum }, `~${r.run}mm`),
+            h('td', { style: { ...S.td, color: r.lead === 'extend' ? C.red : r.lead === 'check' ? C.amber : C.faint, fontSize: '9.5px' } },
+              r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead' : r.lead === 'extend' ? 'needs ext.' : r.lead),
+            h('td', { style: { ...S.tdNum, color: r.vdrop > 0.5 ? C.red : C.faint } }, `${r.vdrop}V`))))),
+        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } }, analysis.harness.note))
       : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },
