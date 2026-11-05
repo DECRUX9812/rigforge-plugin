@@ -638,7 +638,11 @@ check('servo harness: runs measured from joint pivots, long leads flagged honest
   const arm = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
   const wrist = arm.analysis.harness.rows.find((r) => r.id === 'wrist-roll')
   assert(wrist && wrist.lead === 'extend', `arm wrist-roll should need an extension lead, got ${wrist && wrist.lead} (${wrist && wrist.run}mm)`)
-  return `${rows} joint runs checked; arm wrist honestly flagged ~${wrist.run}mm > 300mm lead`
+  // Flagged joints must put the part in the BOM — the check is useless if the
+  // shopping list still says "everything included".
+  const ext = arm.design.parts.find((p) => p.key === 'extlead_300')
+  assert(ext && ext.qty >= arm.analysis.harness.needExt, `arm BOM should carry ${arm.analysis.harness.needExt} extension leads, got ${ext && ext.qty}`)
+  return `${rows} joint runs checked; arm wrist honestly flagged ~${wrist.run}mm > 300mm lead, ${ext.qty} extension leads in BOM`
 })
 
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────

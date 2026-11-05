@@ -554,6 +554,11 @@ const PARTS = {
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
   },
+  extlead_300: {
+    name: 'Servo extension lead 300mm (JR)', cat: 'mech', price: 2, mass: 12, volts: 0,
+    conn: 'JR 3-pin extension', sku: 'servo extension cable 300mm JR', src: 'ali',
+    note: 'For joints whose stock lead cannot reach the driver — the harness check flags them.',
+  },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
     conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
@@ -2996,6 +3001,12 @@ function analyze(design) {
   const pins = pinMap(design)
   const power = powerBudget(design)
   const harness = harnessAnalysis(design)
+  // A joint the stock lead cannot reach is not a note — it is a part you must
+  // buy. Put the extension in the BOM so cost and shopping list stay honest.
+  if (harness && harness.needExt && !design._harnessed) {
+    design._harnessed = true
+    addPart(design, 'extlead_300', harness.needExt, `${harness.needExt} joint run(s) exceed stock servo lead`)
+  }
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
 
   let cost = 0
@@ -3087,7 +3098,7 @@ function analyze(design) {
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
-      msg: `${harness.needExt} joint(s) sit beyond the longest stock servo lead (${harness.maxLead}mm) — ${harness.worst.label} runs ~${harness.worst.run}mm home. Fit extension leads or move the driver closer; a lead that does not reach is a robot that does not ship.`,
+      msg: `${harness.needExt} joint(s) sit beyond the longest stock servo lead (${harness.maxLead}mm) — ${harness.worst.label} runs ~${harness.worst.run}mm home. ${harness.needExt}× 300mm extension lead${harness.needExt > 1 ? 's are' : ' is'} in the BOM; a lead that does not reach is a robot that does not ship.`,
     })
   } else if (harness && harness.dropBad.length) {
     checks.push({
