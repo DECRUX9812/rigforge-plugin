@@ -217,11 +217,80 @@ function reachAutotest(ik) {
   })
 }
 
-// ── gait: trot N strides, then stand — checks cadence and clean stop ─────────
+// ── gait locomotion: trot / sprint / climb / obstacle / stand ────────────────
+// Same certification shape as the drive suite, scored on locomoteState — the
+// legged machine's own chassis telemetry. OBSTACLE predicts from leg geometry
+// (gait.maxStepM vs the 80mm porch riser) then checks the sim agreed: tall
+// bots climb, small bots stall with bumps — nobody phases through a wall.
 
-function gaitAutotest(gait) {
-  const st = { running: false, done: false, results: [], phase: null }
-  let leg = 'walk', t = 0, strides0 = 0
+const GAIT_LOCO_PHASES = [
+  { id: 'trot',     label: 'TROT',     dur: 4, x: 0.85 },
+  { id: 'sprint',   label: 'SPRINT',   dur: 3, x: 1 },
+  { id: 'climb',    label: 'CLIMB',    dur: 4, x: 1 },
+  { id: 'obstacle', label: 'OBSTACLE', dur: 4, x: 1 },
+  { id: 'stand',    label: 'STAND',    dur: 2, x: 0 },
+]
+
+function locoGaitAutotest(gait) {
+  const st = { running: false, done: false, results: [], phase: null, stallEver: false }
+  let idx = 0, t = 0, mark = null
+  const loco = () => gait.locomoteState || {}
+
+  function beginPhase(i) {
+    const p = GAIT_LOCO_PHASES[i]
+    const s = loco()
+    mark = {
+      x0: s.x || 0, y0: s.y || 0, z0: s.z || 0, bumps0: s.bumps || 0,
+      strides0: gait.state.strides, maxV: 0, stallT: 0, gradeT: 0, stallSeen: false,
+    }
+    idx = i; t = 0
+    begin(st, p.label, p.dur, GAIT_LOCO_PHASES.length)
+  }
+
+  function scorePhase(p, m) {
+    const s = loco()
+    const dist = Math.hypot((s.x || 0) - m.x0, (s.y || 0) - m.y0)
+    const dz = (s.z || 0) - m.z0
+    const stallFrac = m.stallT / p.dur
+    const bumps = (s.bumps || 0) - m.bumps0
+    const gained = gait.state.strides - m.strides0
+    switch (p.id) {
+      case 'trot':
+        return { pass: gained >= 4, detail: `${gained.toFixed(1)} strides in ${p.dur}s` }
+      case 'sprint':
+        return { pass: dist >= 0.8 && stallFrac < 0.4,
+          detail: `covered ${dist.toFixed(2)} m, top ${m.maxV.toFixed(2)} m/s, stall ${(stallFrac * 100).toFixed(0)}%` }
+      case 'climb':
+        if (m.gradeT / p.dur < 0.3) {
+          return { pass: dist >= 0.6 && stallFrac < 0.4, detail: `flat bench — covered ${dist.toFixed(2)} m` }
+        }
+        return { pass: dz > 0.04, detail: `climbed ${dz.toFixed(2)} m over graded ground` }
+      case 'obstacle': {
+        const course = s.course || 'rack'
+        const xGain = (s.x || 0) - m.x0
+        if (course === 'stairs') {
+          const reachMm = (gait.maxStepM || 0) * 1000
+          if (reachMm > 75) {
+            return { pass: xGain > 1.2, detail: `leg reach ${reachMm.toFixed(0)}mm predicts climb — covered ${xGain.toFixed(2)} m` }
+          }
+          // the block may have engaged in an earlier phase — count total
+          // bumps and any stall seen this run, not just this window
+          const blocked = (s.bumps || 0) > 0 && (m.stallSeen || stallFrac > 0.1 || st.stallEver)
+          return { pass: blocked,
+            detail: `leg reach ${reachMm.toFixed(0)}mm can't mount 80mm — ${blocked ? 'blocked honestly' : 'never engaged'}, ${s.bumps || 0} bumps total` }
+        }
+        if (course === 'room') {
+          return { pass: (s.bumps || 0) >= 1 || dist > 2.5, detail: `${s.bumps || 0} prop hits over ${dist.toFixed(2)} m` }
+        }
+        return { pass: dist >= 0.6, detail: `covered ${dist.toFixed(2)} m` }
+      }
+      case 'stand': {
+        const stopped = gait.state.speed < 0.03 && Math.abs(s.v || 0) < 0.03
+        return { pass: stopped, detail: `settled at ${gait.state.speed.toFixed(2)} gait, ${Math.abs(s.v || 0).toFixed(2)} m/s` }
+      }
+    }
+    return { pass: true, detail: '' }
+  }
 
   return facade({
     get running() { return st.running }, get done() { return st.done },
@@ -229,31 +298,30 @@ function gaitAutotest(gait) {
     start() {
       gait.reset()
       st.running = true; st.done = false; st.results = []
-      leg = 'walk'; t = 0; strides0 = gait.state.strides
-      begin(st, 'TROT', 10, 2)
+      beginPhase(0)
     },
     stop() { st.running = false; st.phase = null },
     tick(dt) {
       if (!st.running) return { x: 0 }
       t += dt
-      if (leg === 'walk') {
-        const gained = gait.state.strides - strides0
-        if (gained >= 8 || t > 10) {
-          pushResult(st, 'strides', 'STRIDES', gained >= 6, `${gained.toFixed(1)} strides in ${t.toFixed(1)}s`)
-          leg = 'stand'; t = 0
-          begin(st, 'STAND', 2, 2)
+      const p = GAIT_LOCO_PHASES[idx]
+      const s = loco()
+      mark.maxV = Math.max(mark.maxV, Math.abs(s.v || 0))
+      if ((s.gradeDeg || 0) > 4) mark.gradeT += dt
+      if (s.stall) { mark.stallT += dt; mark.stallSeen = true; st.stallEver = true }
+      if (t >= p.dur) {
+        const r = scorePhase(p, mark)
+        pushResult(st, p.id, p.label, r.pass, r.detail)
+        idx += 1
+        if (idx >= GAIT_LOCO_PHASES.length) {
+          st.running = false; st.done = true; st.phase = null
           return { x: 0 }
         }
-        st.phase.t = t
-        return { x: 0.85 }
+        beginPhase(idx)
+        return { x: GAIT_LOCO_PHASES[idx].x }
       }
       st.phase.t = t
-      if (t >= 1.6) {
-        const stopped = gait.state.speed < 0.03
-        pushResult(st, 'stand', 'STAND', stopped, `settled at ${gait.state.speed.toFixed(2)} speed`)
-        st.running = false; st.done = true; st.phase = null
-      }
-      return { x: 0 }
+      return { x: p.x }
     },
   })
 }
@@ -348,7 +416,7 @@ function createAutotest(teleop) {
   if (!teleop) return null
   if (teleop.kind === 'drive' || teleop.wheelD) return driveAutotest(teleop)
   if (teleop.kind === 'ik') return reachAutotest(teleop)
-  if (teleop.kind === 'gait') return gaitAutotest(teleop)
+  if (teleop.kind === 'gait') return locoGaitAutotest(teleop)
   if (teleop.kind === 'grip') return gripAutotest(teleop)
   if (teleop.kind === 'sense') return senseAutotest(teleop)
   return null

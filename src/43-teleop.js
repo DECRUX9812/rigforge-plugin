@@ -291,6 +291,7 @@ function createGaitTeleop(design) {
   return {
     kind: 'gait',
     state,
+    maxStepM, // tallest riser the legs can mount — the autotest predicts with it
     /** cmd: {x: -1..1 walk speed}; actualAngles current pose. */
     step(cmd, dt, actualAngles) {
       const want = Math.max(-1, Math.min(1, cmd.x || 0))

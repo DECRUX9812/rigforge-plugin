@@ -625,17 +625,45 @@ check('autotest reach: arm tour scores real IK error per desk prop', () => {
   return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
 })
 
-check('autotest gait: quadruped trots 8 strides and stands clean', () => {
+check('autotest gait: quadruped locomotion suite passes on rack', () => {
   const { design } = presetDesign('quadruped')
   const gait = A.createGaitTeleop(design)
   const at = A.createAutotest(gait)
   at.start()
-  const actual = design.joints.map(() => 0)
-  for (let i = 0; i < 60 * 20 && at.running; i++) gait.step(at.tick(1 / 60), 1 / 60, actual)
-  assert(at.done, 'gait test did not finish')
-  assert(at.results.length === 2 && at.results.every((r) => r.pass),
-    `gait failures: ${at.results.filter((r) => !r.pass).map((r) => r.detail).join(',')}`)
-  return at.results.map((r) => r.detail).join(' · ')
+  let actual = design.joints.map(() => 0)
+  const env = { surface: 'hardwood', slopeDeg: 8, course: 'rack' }
+  for (let i = 0; i < 60 * 25 && at.running; i++) {
+    const c = at.tick(1 / 60)
+    const r = gait.locomote(c, 1 / 60, actual, env)
+    if (r && r.pose) actual = r.pose
+  }
+  assert(at.done, 'gait locomotion test did not finish')
+  const fails = at.results.filter((r) => !r.pass)
+  assert(fails.length === 0, `gait failures: ${fails.map((r) => `${r.label}(${r.detail})`).join(',')}`)
+  return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
+check('autotest gait: quad honestly fails porch stairs, humanoid climbs', () => {
+  const env = { surface: 'hardwood', slopeDeg: 0, course: 'stairs' }
+  const run = (arch) => {
+    const { design } = presetDesign(arch)
+    const gait = A.createGaitTeleop(design)
+    const at = A.createAutotest(gait)
+    at.start()
+    let actual = design.joints.map(() => 0)
+    for (let i = 0; i < 60 * 25 && at.running; i++) {
+      const c = at.tick(1 / 60)
+      const r = gait.locomote(c, 1 / 60, actual, env)
+      if (r && r.pose) actual = r.pose
+    }
+    return at.results.find((r) => r.id === 'obstacle')
+  }
+  const quad = run('quadruped')
+  const hum = run('humanoid')
+  assert(quad && quad.pass, `quad obstacle check should pass-by-blocking: ${quad && quad.detail}`)
+  assert(/can't mount|blocked/i.test(quad.detail), `quad should report an honest block, got: ${quad.detail}`)
+  assert(hum && hum.pass, `humanoid should top the flight: ${hum && hum.detail}`)
+  return `quad: ${quad.detail} · humanoid: ${hum.detail}`
 })
 
 check('autotest grip: jaw cycles open/closed on command', () => {
