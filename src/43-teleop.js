@@ -90,7 +90,29 @@ function createArmTeleop(design) {
       state.err = r.err
       return scratch.joints.map((j) => j.angle)
     },
+    /** One-shot reachability solve: point the target anywhere and run the
+     *  CCD solver hard (30 iters vs the 5 the live path uses). Certification
+     *  asks "can it get there", not "can it track a moving stick". */
+    seek(tx, ty, tz, actualAngles, iters = 30) {
+      state.tx = tx; state.ty = ty; state.tz = tz; state.ready = true
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      const r = solveChainIK(scratch, ikChain, [tx, ty, tz], tipWorld, iters)
+      state.err = r.err
+      return scratch.joints.map((j) => j.angle)
+    },
     reset() { state.ready = false; state.err = 0 },
+    /** Where the tip actually is under the live joint angles, world mm. */
+    tipPos(actualAngles) {
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      return tipWorld(scratch)
+    },
+    /** Physical tip-to-target distance under the live joint angles — what
+     *  the bench actually measures, vs state.err which is solver residual. */
+    liveErr(actualAngles) {
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      const t = tipWorld(scratch)
+      return Math.hypot(t[0] - state.tx, t[1] - state.ty, t[2] - state.tz)
+    },
     hud() {
       return {
         kind: 'ik',

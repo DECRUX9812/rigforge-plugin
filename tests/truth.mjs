@@ -562,6 +562,63 @@ check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
   return `blocked at x=${s.x.toFixed(2)}, ${s.bumps} bumps, stall=${stalled}`
 })
 
+// ── 33-36. autopilot certification covers every teleop kind ────────────────
+const presetDesign = (archetype) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === archetype).brief })
+
+check('autotest reach: arm tour scores real IK error per desk prop', () => {
+  const { design } = presetDesign('arm')
+  const ik = A.createArmTeleop(design)
+  const at = A.createAutotest(ik)
+  at.start()
+  const actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 40 && at.running; i++) {
+    const c = at.tick(1 / 60, actual)
+    const pose = c && c.pose ? c.pose : (c ? ik.step(c, 1 / 60, actual) : null)
+    if (pose) pose.forEach((a, j) => { actual[j] = a }) // engine has no servo lag — apply instantly
+  }
+  assert(at.done, 'reach tour did not finish')
+  assert(at.results.length === 4, `expected 4 results (3 props + home), got ${at.results.length}`)
+  const steel = at.results.find((r) => r.id === 'reach-steel')
+  assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
+  const bin = at.results.find((r) => r.id === 'reach-bin')
+  assert(bin && !bin.pass, `parts bin should be honestly unreachable for this arm — ${bin && bin.detail}`)
+  assert(at.results.every((r) => /err \d+mm|returned/.test(r.detail)), 'results lack measured detail')
+  return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
+})
+
+check('autotest gait: quadruped trots 8 strides and stands clean', () => {
+  const { design } = presetDesign('quadruped')
+  const gait = A.createGaitTeleop(design)
+  const at = A.createAutotest(gait)
+  at.start()
+  const actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 20 && at.running; i++) gait.step(at.tick(1 / 60), 1 / 60, actual)
+  assert(at.done, 'gait test did not finish')
+  assert(at.results.length === 2 && at.results.every((r) => r.pass),
+    `gait failures: ${at.results.filter((r) => !r.pass).map((r) => r.detail).join(',')}`)
+  return at.results.map((r) => r.detail).join(' · ')
+})
+
+check('autotest grip: jaw cycles open/closed on command', () => {
+  const { design } = presetDesign('gripper')
+  const grip = A.createGripTeleop(design)
+  const at = A.createAutotest(grip)
+  at.start()
+  for (let i = 0; i < 60 * 15 && at.running; i++) grip.step(at.tick(1 / 60))
+  assert(at.done && at.results[0] && at.results[0].pass, `jaw test: ${at.results[0] && at.results[0].detail}`)
+  return at.results[0].detail
+})
+
+check('autotest sense: stimulus sweep fires a real threshold alert', () => {
+  const { design } = presetDesign('iot')
+  const sense = A.createSensorTeleop(design)
+  const at = A.createAutotest(sense)
+  at.start()
+  for (let i = 0; i < 60 * 10 && at.running; i++) at.tick(1 / 60)
+  assert(at.done && at.results[0] && at.results[0].pass, `sense test: ${at.results[0] && at.results[0].detail}`)
+  return at.results[0].detail
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
