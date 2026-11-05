@@ -154,8 +154,10 @@ function createDrive(design, analysis) {
       s.yaw += s.w * dt
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
-      // stall = asking for climb the machine cannot make (motor OR traction)
-      s.stall = s.throttle > 0.3 && s.v < 0.05 && grade > 0.03
+      // stall = flooring it on a grade but crawling: under ~13 cm/s of
+      // progress (or sliding backwards) the machine is not climbing — the
+      // traction fix and this flag are the same failure seen two ways.
+      s.stall = s.throttle > 0.3 && grade > 0.03 && s.v < 0.13
       return s
     },
     /** Disturbance test: a lateral shove in newtons — slides and yaws the

@@ -789,8 +789,13 @@ function Studio() {
     const near = deskPropNear(s.tx, s.ty, s.tz)
     if (!near) return null
     const ratingG = ((design.metrics && design.metrics.payloadKg) || 0) * 1000
-    return { name: near.prop.name, massG: near.prop.massG, over: ratingG > 0 && near.prop.massG > ratingG }
+    return { name: near.prop.name, massG: near.prop.massG, ratingG, over: ratingG > 0 && near.prop.massG > ratingG }
   }, [driveHud, teleopKind, design])
+  // Break → Fix: the bench detects failures; this line prescribes the fix.
+  // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
+  const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, power: powerHud }),
+    [benchLive, driveHud, propHud, powerHud])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1383,6 +1388,13 @@ function Studio() {
             powerHud.cuts ? h('span', { key: 'p4', style: { color: C.red } }, `${powerHud.cuts} CUT`) : null,
             powerHud.dead ? h('span', { key: 'p5', style: { color: C.red } }, 'BATTERY DEAD — 0 swaps') : null,
           ] : null,
+          fixes.length && (driveHud || propHud || powerHud)
+            ? h('div', {
+              key: 'fix',
+              style: { flexBasis: '100%', color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
+              title: fixes.map((f) => f.msg).join('\n'),
+            }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
+            : null,
         ) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {

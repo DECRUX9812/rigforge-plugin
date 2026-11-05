@@ -338,3 +338,41 @@ function deskPropNear(x, y, z, r = 110) {
   }
   return best ? { prop: best, dist: bd } : null
 }
+
+/**
+ * "Break → Fix": turn live failure signals into one concrete next step each.
+ * Consumes the bench verdicts plus whichever teleop/power HUDs are live.
+ * Returns up to 3 fixes, failures first — the bench detects, this prescribes.
+ */
+function fixSuggestions(s) {
+  const out = []
+  const push = (sev, msg) => {
+    if (out.length < 3 && !out.some((f) => f.msg === msg)) out.push({ sev, msg })
+  }
+  for (const v of s.bench ? s.bench.verdicts : []) {
+    if (v.status !== 'fail' && v.status !== 'warn') continue
+    if (/stab|tip|balance/i.test(v.label)) {
+      push('fail', `Fix stability: ${v.detail || v.label} — widen the base/track or lower the CoM`)
+    } else if (/torque|servo|joint|bend/i.test(v.label)) {
+      push('warn', `Fix torque: ${v.detail || v.label} — bigger servo or shorter reach`)
+    }
+  }
+  if (s.drive) {
+    if (s.drive.stall || (s.drive.slide && s.drive.throttle)) {
+      push('fail', `Fix drive: wheels can't pull ${s.drive.mass ? s.drive.mass.toFixed(1) + 'kg ' : ''}up ${s.drive.gradeDeg}° ${s.drive.surface} — more torque, lower grade, or shed payload`)
+    } else if (s.drive.slip) {
+      push('warn', `Fix traction: slipping on ${s.drive.surface} (μ${s.drive.mu}) — rubber wheels or less payload`)
+    }
+  }
+  if (s.prop && s.prop.over) {
+    push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
+  }
+  if (s.power) {
+    if (s.power.dead) {
+      push('fail', 'Fix power: battery flat — bigger pack (3S→4S) or shorter duty cycle')
+    } else if (s.power.cuts > 0 || s.power.tempMax > 75) {
+      push('warn', `Fix thermal: servo hit ${Math.round(s.power.tempMax)}°C${s.power.cuts ? ` after ${s.power.cuts} cutoff${s.power.cuts > 1 ? 's' : ''}` : ''} — ease off stalls or pick hotter-rated servos`)
+    }
+  }
+  return out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'fail' ? -1 : 1))
+}
