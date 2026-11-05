@@ -927,8 +927,8 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud }),
-    [benchLive, driveHud, propHud, gripHud, powerHud])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
+    [benchLive, driveHud, propHud, gripHud, powerHud, brief])
 
   // Field-test report: everything the bench logged, as a markdown file the
   // builder can attach to the print pack or paste into a build log.
@@ -1580,9 +1580,17 @@ function Studio() {
           fixes.length && (driveHud || propHud || powerHud)
             ? h('div', {
               key: 'fix',
-              style: { flexBasis: '100%', color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
-              title: fixes.map((f) => f.msg).join('\n'),
-            }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
+              style: { flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px' },
+            },
+              h('span', {
+                style: { color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
+                title: fixes.map((f) => f.msg).join('\n'),
+              }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`),
+              fixes[0].apply ? h('button', {
+                style: { ...S.viewChip, padding: '1px 7px', fontSize: '9px', flex: '0 0 auto' },
+                title: `rebuild with ${JSON.stringify(fixes[0].apply)} and re-run the bench`,
+                onClick: () => { setBrief((b) => ({ ...b, ...fixes[0].apply })); setDriveOn(false) },
+              }, 'APPLY FIX') : null)
             : null,
         ) : null,
         driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {

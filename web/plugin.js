@@ -5686,6 +5686,7 @@ function createGaitTeleop(design) {
     locomote(cmd, dt, actualAngles, env) {
       const e = env || {}
       const course = e.course === 'room' ? 'room' : e.course === 'stairs' ? 'stairs' : 'rack'
+      loco.course = course
       dt = Math.min(dt, 0.05)
       loco.throttle = Math.max(-1, Math.min(1, cmd.x || 0))
       loco.steer = Math.max(-1, Math.min(1, cmd.y || 0))
@@ -5798,6 +5799,7 @@ function createGaitTeleop(design) {
           gradeDeg: Math.round(Math.abs(loco.grade) * 180 / Math.PI),
           surface: loco.surf,
           mu: loco.mu,
+          course: loco.course,
           slip: loco.slip, stall: loco.stall, bumps: loco.bumps,
         },
       }
@@ -5891,9 +5893,10 @@ function deskPropNear(x, y, z, r = 110) {
  */
 function fixSuggestions(s) {
   const out = []
-  const push = (sev, msg) => {
-    if (out.length < 3 && !out.some((f) => f.msg === msg)) out.push({ sev, msg })
+  const push = (sev, msg, apply) => {
+    if (out.length < 3 && !out.some((f) => f.msg === msg)) out.push({ sev, msg, apply: apply || null })
   }
+  const brief = s.brief || {}
   for (const v of s.bench ? s.bench.verdicts : []) {
     if (v.status !== 'fail' && v.status !== 'warn') continue
     if (/stab|tip|balance/i.test(v.label)) {
@@ -5902,18 +5905,32 @@ function fixSuggestions(s) {
       push('warn', `Fix torque: ${v.detail || v.label} — bigger servo or shorter reach`)
     }
   }
-  if (s.drive) {
-    if (s.drive.stall || (s.drive.slide && s.drive.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${s.drive.mass ? s.drive.mass.toFixed(1) + 'kg ' : ''}up ${s.drive.gradeDeg}° ${s.drive.surface} — more torque, lower grade, or shed payload`)
-    } else if (s.drive.slip) {
-      push('warn', `Fix traction: slipping on ${s.drive.surface} (μ${s.drive.mu}) — rubber wheels or less payload`)
+  // legged locomotion reports under .loco; wheeled drive reports flat —
+  // normalize so the same failure rules apply to both
+  const drv = s.drive ? (s.drive.loco || s.drive) : null
+  if (drv) {
+    if (drv.stall || (drv.slide && drv.throttle)) {
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+    } else if (drv.slip) {
+      push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }
-    if (s.drive.course === 'stairs' && (s.drive.stall || (s.drive.bumps || 0) > 0)) {
-      push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension')
+    if (drv.course === 'stairs' && (drv.stall || (drv.bumps || 0) > 0)) {
+      const isLegged = !!(s.drive && s.drive.loco)
+      if (isLegged) {
+        const reach = brief.reachMm || 400
+        push('fail', 'Fix steps: 80mm risers beat leg reach — longer legs or a different gait',
+          reach < 700 ? { reachMm: Math.min(900, reach + 200) } : null)
+      } else {
+        const wheelMm = brief.wheelMm || 100
+        push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension',
+          wheelMm < 150 ? { wheelMm: 150 } : null)
+      }
     }
   }
   if (s.prop && s.prop.over) {
-    push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
+    const pay = brief.payloadKg || 1
+    push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`,
+      { payloadKg: Math.max(0.1, Math.round(pay * 0.7 * 10) / 10) })
   }
   if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
     push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
@@ -5923,7 +5940,9 @@ function fixSuggestions(s) {
   }
   if (s.power) {
     if (s.power.dead) {
-      push('fail', 'Fix power: battery flat — bigger pack (3S→4S) or shorter duty cycle')
+      const bat = brief.battery || 'pack3s'
+      push('fail', 'Fix power: battery flat — bigger pack or shorter duty cycle',
+        bat !== 'lipo3s' && bat !== 'pd5v' ? { battery: 'lipo3s' } : null)
     } else if (s.power.cuts > 0 || s.power.tempMax > 75) {
       push('warn', `Fix thermal: servo hit ${Math.round(s.power.tempMax)}°C${s.power.cuts ? ` after ${s.power.cuts} cutoff${s.power.cuts > 1 ? 's' : ''}` : ''} — ease off stalls or pick hotter-rated servos`)
     }
@@ -7722,6 +7741,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
   return h('div', { style: S.viewWrap },
     h('canvas', {
       ref,
+      // A canvas is a picture of a machine, not a widget: give it a name and a
+      // description so a screen reader announces it instead of skipping it, and
+      // say where the accessible controls live.
+      role: 'img',
+      'aria-label': `3D view of ${design.title}`,
+      'aria-describedby': 'rf-view-desc',
       style: S.canvas,
       onPointerDown: onDown,
       onPointerMove: onMove,
@@ -7735,6 +7760,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'MASS'), h('span', { style: S.hudVal }, `${Math.round(analysis?.mass.totalG || 0)} g`)),
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
+    h('span', {
+      id: 'rf-view-desc',
+      style: {
+        position: 'absolute', width: '1px', height: '1px', margin: '-1px',
+        padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+      },
+    }, `${design.subtitle}. Drag to orbit, scroll to zoom. Pose it with the joint sliders below the view.`),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
@@ -8480,7 +8512,9 @@ const GLOBAL_CSS = `
 [data-rf="root"] textarea:focus-visible,
 [data-rf="root"] select:focus-visible,
 [data-rf="root"] [role="button"]:focus-visible {
-  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+  /* inline styles in a few fields say outline:none; the ring has to win, or a
+     keyboard user cannot see where they are */
+  outline: 2px solid #FF6A1A !important; outline-offset: 2px; border-radius: 8px;
 }
 [data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
@@ -8490,9 +8524,12 @@ const GLOBAL_CSS = `
   [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
-  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }
-  [data-rf="spec"] { grid-column: 1 / -1; max-height: 44vh; border-top: 1px solid #1E2A35; }
-  [data-rf="view"] { min-height: 38vh; }
+  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(430px, 1fr) auto; }
+  [data-rf="spec"] { grid-column: 1 / -1; max-height: 32vh; border-top: 1px solid #1E2A35; }
+  [data-rf="view"] { min-height: 46vh; }
+  /* the bar carries camera presets, display toggles and a live power badge; it
+     wraps rather than pushing the page sideways */
+  [data-rf="viewbar"], [role="toolbar"] { flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 28px); }
   [data-rf="strip"] { display: none; }
 }
 @media (max-width: 900px) {
@@ -8503,14 +8540,28 @@ const GLOBAL_CSS = `
     grid-auto-rows: min-content;
     overflow-y: auto;
   }
-  [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
-  [data-rf="view"] { min-height: 62vh; }
-  [data-rf="spec"] { max-height: none; }
+  /* the machine goes first: on a tablet the 3D view *is* the product, and
+     having to scroll past the chooser to see it is backwards */
+  [data-rf="view"] { order: 1; min-height: 54vh; }
+  [data-rf="rail"] { order: 2; max-height: none !important; overflow: visible !important; }
+  [data-rf="spec"] { order: 3; max-height: none; }
   [data-rf="codeInput"]::placeholder { color: #6F8493; opacity: 1; }
   [data-rf="tagline"] { display: none; }
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 780px) {
+  /* the drawing title block and the HUD are sheet niceties; on a narrow screen
+     they sit on top of the machine, so the machine wins */
+  [data-rf="titleblock"] { display: none; }
+  [data-rf="hud"] { display: none; }
+  [data-rf="view"] { min-height: 50vh; }
+  [data-rf="viewbar"], [role="toolbar"] { left: 8px; right: 8px; padding: 6px; max-width: calc(100% - 16px); }
+  [data-rf="viewbar"] button, [role="toolbar"] button { min-height: 30px; min-width: 34px; }
+  /* inline style says nowrap; the caption should wrap, not trail off */
+  [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-rf="root"] * { transition: none !important; animation: none !important; }
 }
@@ -10604,8 +10655,8 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud }),
-    [benchLive, driveHud, propHud, gripHud, powerHud])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
+    [benchLive, driveHud, propHud, gripHud, powerHud, brief])
 
   // Field-test report: everything the bench logged, as a markdown file the
   // builder can attach to the print pack or paste into a build log.
@@ -11257,9 +11308,17 @@ function Studio() {
           fixes.length && (driveHud || propHud || powerHud)
             ? h('div', {
               key: 'fix',
-              style: { flexBasis: '100%', color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
-              title: fixes.map((f) => f.msg).join('\n'),
-            }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
+              style: { flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px' },
+            },
+              h('span', {
+                style: { color: fixes[0].sev === 'fail' ? C.red : C.amber, fontWeight: 600 },
+                title: fixes.map((f) => f.msg).join('\n'),
+              }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`),
+              fixes[0].apply ? h('button', {
+                style: { ...S.viewChip, padding: '1px 7px', fontSize: '9px', flex: '0 0 auto' },
+                title: `rebuild with ${JSON.stringify(fixes[0].apply)} and re-run the bench`,
+                onClick: () => { setBrief((b) => ({ ...b, ...fixes[0].apply })); setDriveOn(false) },
+              }, 'APPLY FIX') : null)
             : null,
         ) : null,
         driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
