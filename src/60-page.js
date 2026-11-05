@@ -616,6 +616,10 @@ function Studio() {
 
   const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
+  // teleop handles + kind live above the overlay memos: REACH reads them.
+  const ikRef = useRef(null)
+  const [teleopKind, setTeleopKind] = useState(null)
+
   // Live bench overlay: support polygon + CoM plumb recomputed with the pose,
   // so the floor tells the stability story while joints move.
   const benchOv = useMemo(
@@ -648,14 +652,12 @@ function Studio() {
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
-  const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
   const senseRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
-  const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
