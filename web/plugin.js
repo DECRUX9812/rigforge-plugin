@@ -3007,6 +3007,18 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
+  const overhang = overhangReport(design)
+  if (overhang.unsupportedMm2 > 150) {
+    const w = overhang.worst
+    checks.push({
+      level: 'warn',
+      msg: `${overhang.unsupportedMm2}mm² of printed surface hangs in mid-air with nothing under it — the slicer will need support material (${prettyPart(w.id)} is the worst at ${w.unsupported}mm²). Reorient the part, add a rib, or accept the support scars.`,
+    })
+  } else if (overhang.unsupportedMm2 > 0) {
+    checks.push({ level: 'ok', msg: `Overhang check: only ${overhang.unsupportedMm2}mm² needs support — mostly self-supporting geometry.` })
+  } else {
+    checks.push({ level: 'ok', msg: 'Overhang check: every printed face has material or the bed underneath — no support needed.' })
+  }
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -3019,7 +3031,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
@@ -3723,7 +3735,18 @@ function ringTris(outer, inner, h, axis, segs) {
     tris.push([pt(outer, t1, 0), pt(inner, t0, 0), pt(inner, t1, 0)])
     tris.push([pt(outer, t0, 0), pt(inner, t0, 0), pt(outer, t1, 0)])
   }
-  return tris
+  // The cap windings above only face outward for some axes — enforce it
+  // geometrically: a cap tri's normal must point along its own side's axis.
+  const ax = axis === 'z' ? 2 : axis === 'y' ? 1 : 0
+  return tris.map((t) => {
+    if (!t.every((p) => Math.abs(p[ax]) === h)) return t
+    const side = t[0][ax] > 0 ? 1 : -1
+    const [a, b, c] = t
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    return Math.sign(n[ax]) === side ? t : [a, c, b]
+  })
 }
 
 function torusTris(R, r, axis, arcDeg) {
@@ -4026,7 +4049,54 @@ function toSTL(tris, headerText) {
  * on the bed, sitting on Z=0. Axis-aligned permutation only — no arbitrary
  * rotations, because a wrong "clever" angle is worse than the model's own frame.
  */
-function printReadyTris(tris) {
+/**
+ * Pick the bed orientation by actual contact area, not bounding-box dims.
+ * The dims heuristic stands wedges and chamfered parts on edge — parts that
+ * then need support or tip in the printer. For each of the 6 axis
+ * permutations, score = area of faces that land nearly flat facing down
+ * (they rest on the bed); ties go to the lower profile. Normals permute
+ * with the coordinates, so n[perm[2]] < 0 is a bed-contact face.
+ */
+function bestBedPerm(tris, dims) {
+  const lo = [Infinity, Infinity, Infinity]
+  for (const t of tris) for (const p of t.pts) for (let i = 0; i < 3; i += 1) lo[i] = Math.min(lo[i], p[i])
+  let best = null, bestKey = -Infinity
+  for (let a = 0; a < 3; a += 1) for (let b = 0; b < 3; b += 1) {
+    if (b === a) continue
+    const perm = [a, b, 3 - a - b]
+    const up = perm[2]
+    let contact = 0
+    for (const t of tris) {
+      const [p, q, r] = t.pts
+      const e1 = [q[0] - p[0], q[1] - p[1], q[2] - p[2]]
+      const e2 = [r[0] - p[0], r[1] - p[1], r[2] - p[2]]
+      const nx = e1[1] * e2[2] - e1[2] * e2[1]
+      const ny = e1[2] * e2[0] - e1[0] * e2[2]
+      const nz = e1[0] * e2[1] - e1[1] * e2[0]
+      const nup = [nx, ny, nz][up]
+      const nl = Math.hypot(nx, ny, nz) || 1
+      if (-nup / nl <= 0.85) continue
+      // real bed contact means the whole face lies in the bed plane — a
+      // curved wall strip has the right normal but only touches along a line
+      if (p[up] > lo[up] + 0.4 || q[up] > lo[up] + 0.4 || r[up] > lo[up] + 0.4) continue
+      contact += 0.5 * nl
+    }
+    const key = contact * 1e6 - dims[up] // contact first, lower profile breaks ties
+    if (key > bestKey) { bestKey = key; best = perm }
+  }
+  let inversions = 0
+  for (let i = 0; i < 3; i += 1) for (let j = i + 1; j < 3; j += 1) if (best[i] > best[j]) inversions += 1
+  return { perm: best, mirrored: inversions % 2 === 1 }
+}
+
+/**
+ * The bed-frame transform every printed part gets: best face down, centred
+ * on the bed, sitting on Z=0. Axis-aligned permutation only — no arbitrary
+ * rotations, because a wrong "clever" angle is worse than the model's own frame.
+ * Shared by printReadyTris (the STL bytes) and overhangReport (the DFM check)
+ * so the analysis always describes the file the slicer actually opens.
+ */
+function bedFrameTris(tris) {
   if (!tris.length) return tris
   const min = [Infinity, Infinity, Infinity]
   const max = [-Infinity, -Infinity, -Infinity]
@@ -4039,14 +4109,7 @@ function printReadyTris(tris) {
     }
   }
   const dims = [max[0] - min[0], max[1] - min[1], max[2] - min[2]]
-  // biggest two dims into XY, thinnest into Z: that is "largest face down"
-  const order = [0, 1, 2].sort((a, b) => dims[b] - dims[a])
-  const perm = order // perm[0] -> X, perm[1] -> Y, perm[2] -> Z
-  // a coordinate permutation with odd parity mirrors the solid, which would
-  // turn every normal inward — flip two corners to compensate
-  let inversions = 0
-  for (let i = 0; i < 3; i += 1) for (let j = i + 1; j < 3; j += 1) if (perm[i] > perm[j]) inversions += 1
-  const mirrored = inversions % 2 === 1
+  const { perm, mirrored } = bestBedPerm(tris, dims)
   const sizeX = dims[perm[0]]
   const sizeY = dims[perm[1]]
   return tris.map((t) => {
@@ -4058,6 +4121,10 @@ function printReadyTris(tris) {
     // a coordinate swap mirrors the solid; flip two corners to keep normals out
     return { ...t, pts: mirrored ? [pts[0], pts[2], pts[1]] : pts }
   })
+}
+
+function printReadyTris(tris) {
+  return bedFrameTris(tris)
 }
 
 // Convex primitives: every face's normal must point away from the part's own
@@ -4093,6 +4160,113 @@ function printedPartSTLs(design) {
     out.push({ name: `${slug(node.id)}.stl`, buf: toSTL(printReadyTris(raw), `rigforge printed part ${node.id}`) })
   }
   return out
+}
+
+/**
+ * DFM overhang check, run on the exact bed-oriented tris the STL pack ships.
+ *
+ * A printed part is a solid shell: in every (x,y) column the lowest exterior
+ * surface prints first. A downward-facing face that IS the column minimum but
+ * sits above the bed is an overhang — there is air beneath it all the way down,
+ * so the slicer needs support (or the part fails). Faces above the column
+ * minimum have material printing underneath them and need nothing.
+ *
+ * "Downward-facing" uses the wound normal: n.z < -0.6 is steeper than ~53°
+ * from vertical — past what a 0.4mm nozzle bridges unaided. Heightfield cell
+ * size adapts to part size so big plates and tiny brackets both resolve.
+ */
+function overhangReport(design) {
+  const parts = []
+  let unsupportedMm2 = 0, steepMm2 = 0
+  for (const node of design.nodes) {
+    if (!node.print) continue
+    let tris = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    if (CONVEX_KINDS.has(node.kind)) tris = orientConvex(tris)
+    tris = bedFrameTris(tris)
+    if (!tris.length) continue
+    let maxDim = 0
+    for (const t of tris) for (const p of t.pts) {
+      maxDim = Math.max(maxDim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
+    }
+    const cell = Math.min(10, Math.max(1.5, maxDim / 90))
+    const cols = new Map() // "ix,iy" -> lowest surface z in that column
+    const colMin = (x, y) => {
+      const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+      return cols.has(k) ? cols.get(k) : Infinity
+    }
+    const colSet = (x, y, z) => {
+      const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+      if (!cols.has(k) || z < cols.get(k)) cols.set(k, z)
+    }
+    const normal = (t) => {
+      const [a, b, c] = t.pts
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+      const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+      return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    }
+    // pass 1: rasterize every near-horizontal surface into the columns it
+    // actually covers — cell centre inside the tri's XY projection, height
+    // interpolated on the tri plane. Bbox stamping would let a big plate
+    // face claim columns it never touches and hide real overhangs.
+    for (const t of tris) {
+      const n = normal(t)
+      const nl = Math.hypot(n[0], n[1], n[2]) || 1
+      if (Math.abs(n[2]) / nl < 0.4) continue
+      const [a, b, c] = t.pts
+      const minx = Math.min(a[0], b[0], c[0]), maxx = Math.max(a[0], b[0], c[0])
+      const miny = Math.min(a[1], b[1], c[1]), maxy = Math.max(a[1], b[1], c[1])
+      // plane: n·p = d → z = (d - nx*x - ny*y) / nz
+      const d = n[0] * a[0] + n[1] * a[1] + n[2] * a[2]
+      const den = n[2] || 1e-9
+      for (let ix = Math.floor(minx / cell); ix <= Math.floor(maxx / cell); ix++) {
+        for (let iy = Math.floor(miny / cell); iy <= Math.floor(maxy / cell); iy++) {
+          const px = ix * cell + cell / 2, py = iy * cell + cell / 2
+          // barycentric in XY — inside the projected tri?
+          const v0x = b[0] - a[0], v0y = b[1] - a[1]
+          const v1x = c[0] - a[0], v1y = c[1] - a[1]
+          const v2x = px - a[0], v2y = py - a[1]
+          const den2 = v0x * v1y - v1x * v0y
+          if (Math.abs(den2) < 1e-9) continue
+          const u = (v2x * v1y - v1x * v2y) / den2
+          const v = (v0x * v2y - v2x * v0y) / den2
+          if (u < -0.02 || v < -0.02 || u + v > 1.02) continue
+          colSet(px, py, (d - n[0] * px - n[1] * py) / den)
+        }
+      }
+    }
+    // pass 2: downward faces that are their column's floor, above bed level
+    let unsupported = 0, steep = 0, bed = 0
+    for (const t of tris) {
+      const n = normal(t)
+      const nl = Math.hypot(n[0], n[1], n[2]) || 1
+      const nz = n[2] / nl
+      if (nz > -0.35) continue // not a downward face worth judging
+      const [a, b, c] = t.pts
+      const area = 0.5 * Math.hypot(
+        (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
+        (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
+      )
+      const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3
+      const zc = (a[2] + b[2] + c[2]) / 3
+      if (zc < 0.8) { bed += area; continue }
+      if (nz < -0.6) {
+        if (zc <= colMin(cx, cy) + 0.6) unsupported += area
+      } else {
+        steep += area
+      }
+    }
+    unsupportedMm2 += unsupported; steepMm2 += steep
+    parts.push({
+      id: node.id, unsupported: Math.round(unsupported * 10) / 10,
+      steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
+    })
+  }
+  parts.sort((a, b) => b.unsupported - a.unsupported)
+  return {
+    parts, unsupportedMm2: Math.round(unsupportedMm2), steepMm2: Math.round(steepMm2),
+    worst: parts.find((p) => p.unsupported > 0) || null,
+  }
 }
 
 /**

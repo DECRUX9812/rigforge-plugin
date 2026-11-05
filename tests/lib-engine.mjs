@@ -38,7 +38,8 @@ export function loadEngine() {
   }
   vm.createContext(ctx)
   vm.runInContext(
-    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit, toURDF, toMJCF, toBOMCsv, toSpecMarkdown, toOpenSCAD, stepsFor, createDrive, createArmTeleop, createGaitTeleop, createGripTeleop, createPowerSim, createSensorTeleop, createAutotest, solveChainIK, chainsFor, benchNodeWorld, benchCoM, benchContacts, benchSlopeMargin, benchTorqueMargins, benchReport, benchOverlay, jointLoadNm, createJointSim, terrainHeight, benchRampTris, applyChassis, DRIVE_SURFACES, fixSuggestions, deskPropsTris, deskPropNear, gripBenchTris, GRIP_BENCH, nodeAffine, rotEuler, applyChain, slideDisp, RF_PARTS: globalThis.__RF_PARTS || {} };',    ctx,
+    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, overhangReport, nodeTriangles, bedFrameTris, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit, toURDF, toMJCF, toBOMCsv, toSpecMarkdown, toOpenSCAD, stepsFor, createDrive, createArmTeleop, createGaitTeleop, createGripTeleop, createPowerSim, createSensorTeleop, createAutotest, solveChainIK, chainsFor, benchNodeWorld, benchCoM, benchContacts, benchSlopeMargin, benchTorqueMargins, benchReport, benchOverlay, jointLoadNm, createJointSim, terrainHeight, benchRampTris, applyChassis, DRIVE_SURFACES, fixSuggestions, deskPropsTris, deskPropNear, gripBenchTris, GRIP_BENCH, applyChain, nodeAffine, rotEuler, slideDisp, RF_PARTS: globalThis.__RF_PARTS || {} };',
+    ctx,
   )
   return ctx.API
 }
