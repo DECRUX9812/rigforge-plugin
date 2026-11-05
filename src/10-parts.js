@@ -520,6 +520,11 @@ const PARTS = {
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
   },
+  extlead_300: {
+    name: 'Servo extension lead 300mm (JR)', cat: 'mech', price: 2, mass: 12, volts: 0,
+    conn: 'JR 3-pin extension', sku: 'servo extension cable 300mm JR', src: 'ali',
+    note: 'For joints whose stock lead cannot reach the driver — the harness check flags them.',
+  },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
     conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
