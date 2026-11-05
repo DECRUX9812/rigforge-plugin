@@ -637,6 +637,7 @@ function Studio() {
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
+  const autotestRef = useRef(null)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -646,6 +647,7 @@ function Studio() {
     senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
     const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
+    autotestRef.current = createAutotest(driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current)
     setDriveAvail(!!kind)
     setChassis(null)
     if (ikRef.current) ikRef.current.reset()
@@ -682,9 +684,15 @@ function Studio() {
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
       if (!pwrDead && drive) {
-        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        let throttle, steer
+        if (at && at.running) {
+          ;({ throttle, steer } = at.tick(dt))
+        } else {
+          throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+          steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        }
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -700,7 +708,9 @@ function Studio() {
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -709,25 +719,44 @@ function Studio() {
             cx = -gy; cy = gx; cz = -gz
           }
         }
-        const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        let certPose = null
+        if (at && at.running) {
+          const c = at.tick(dt, actual)
+          if (c && c.pose) certPose = c.pose
+          else if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
+        // certification runs carry their own IK-solved pose — applying it
+        // directly skips the velocity-cmd layer the script already bypassed
+        const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
         // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
         // planning, not just a yaw bias — honest omission, not fake steering)
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let gx = want
-        if (gp) {
+        const at = autotestRef.current
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gy = dz(gp.axes[1] || 0)
           if (Math.abs(gy) > 0.04) gx = -gy
+        }
+        if (at && at.running) {
+          const c = at.tick(dt)
+          if (c) gx = c.x || 0
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = gait.step({ x: gx }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && grip) {
-        const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
+        const at = autotestRef.current
+        const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
+        const desired = grip.step(gcmd, dt)
         if (desired) setPose(desired)
+      } else if (!pwrDead && sense) {
+        // sensor nodes have no motion cmd — the autopilot writes stimulus
+        // fields straight into teleop state on its own timeline
+        const at = autotestRef.current
+        if (at && at.running) at.tick(dt)
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
@@ -809,14 +838,14 @@ function Studio() {
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
     () => (driveOn && teleopKind === 'drive'
-      ? (benchEnv.course === 'room' ? livingRoomTris() : benchRampTris(benchEnv.slopeDeg))
+      ? (benchEnv.course === 'room' ? livingRoomTris() : benchEnv.course === 'stairs' ? stairsTris() : benchRampTris(benchEnv.slopeDeg))
       : driveOn && teleopKind === 'ik' ? deskPropsTris()
       : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
     [driveOn, teleopKind, benchEnv],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
+    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -900,6 +929,11 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      ...(autotestRef.current && autotestRef.current.results.length ? [
+        '',
+        `## Auto test — ${autotestRef.current.score}`,
+        ...autotestRef.current.results.map((r) => `- ${r.pass ? 'PASS' : 'FAIL'} **${r.label}** — ${r.detail}`),
+      ] : []),
       '',
       '_Generated by RigForge test bench — numbers are simulated, not measured._',
     ].filter(Boolean).join('\n')
@@ -1509,6 +1543,7 @@ function Studio() {
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
                 driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
+                driveHud.course === 'stairs' ? h('span', { key: 'j2', style: { color: C.cyan } }, 'STAIRS') : null,
                 driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
@@ -1531,6 +1566,18 @@ function Studio() {
             }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
             : null,
         ) : null,
+        driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
+          style: {
+            position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10.5px',
+            color: autotestRef.current.done && autotestRef.current.results.every((r) => r.pass) ? C.green : C.cyan,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '5px 10px', pointerEvents: 'none',
+            title: (autotestRef.current.results || []).map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.label} — ${r.detail}`).join('\n'),
+          },
+        }, autotestRef.current.running
+          ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
+          : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -1541,10 +1588,12 @@ function Studio() {
           },
         },
           h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-            [['rack', 'RACK'], ['room', 'ROOM']].map(([ck, cl]) => h('button', {
+            [['rack', 'RACK'], ['room', 'ROOM'], ['stairs', 'STAIRS']].map(([ck, cl]) => h('button', {
               key: ck,
               onClick: () => setBenchEnv((e) => ({ ...e, course: ck })),
-              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles' : 'traction rack: adjustable ramp and surface',
+              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles'
+                : ck === 'stairs' ? 'porch stairs: 4×80mm risers — mounts only if wheel radius bites the nosing'
+                : 'traction rack: adjustable ramp and surface',
               style: {
                 fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
                 padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
@@ -1564,7 +1613,8 @@ function Studio() {
                 background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
                 color: benchEnv.surface === sk ? C.cyan : C.dim,
               },
-            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } }, 'course surfaces: hardwood + rug'),
+            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } },
+              benchEnv.course === 'stairs' ? 'stairs: wood treads, μ0.8 — risers decide' : 'course surfaces: hardwood + rug'),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
             h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
             h('input', {
@@ -1678,7 +1728,19 @@ function Studio() {
                 ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            autotestRef.current ? h('button', {
+              style: autotestRef.current.running || (autotestRef.current.done && !autotestRef.current.results.every((r) => r.pass)) ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!(autotestRef.current && autotestRef.current.running),
+              title: 'autopilot certification — scripts sprint, turn, climb, shove-recovery and return, scoring each check',
+              onClick: () => {
+                const at = autotestRef.current
+                if (!at) return
+                if (at.running) { at.stop(); return }
+                at.start()
+                setDriveOn(true)
+              },
+            }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',

@@ -5326,6 +5326,7 @@ const RAMP = { x0: 1.4, x1: 3.0, halfW: 1.1, topX: 5.2 }
 
 /** Terrain height at world x — flat, ramp grade, then plateau. */
 function terrainHeight(x, slopeDeg, course) {
+  if (course === 'stairs') return stairsHeight(x)
   if (course === 'room') return roomHeight(x)
   if (x <= RAMP.x0) return 0
   const h = (RAMP.x1 - RAMP.x0) * Math.tan((slopeDeg * Math.PI) / 180)
@@ -5335,6 +5336,7 @@ function terrainHeight(x, slopeDeg, course) {
 
 /** Local grade (radians, + = uphill toward +X) at world x. */
 function terrainGrade(x, slopeDeg, course) {
+  if (course === 'stairs') return 0
   if (course === 'room') {
     for (const g of ROOM.segs) {
       if (x >= g[0] && x < g[1]) return g[3] !== g[2] ? Math.atan2(g[3] - g[2], g[1] - g[0]) : 0
@@ -5379,10 +5381,34 @@ function roomHeight(x) {
 
 /** Friction at world x — the rug grips harder than the floor. */
 function muAt(x, env) {
+  if (env.course === 'stairs') return DRIVE_SURFACES.hardwood.mu
   if (env.course === 'room') {
     return x >= ROOM.rug.x0 && x < ROOM.rug.x1 ? ROOM.rug.mu : ROOM.muFloor
   }
   return (DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood).mu
+}
+
+// ── stairs course ───────────────────────────────────────────────────────────
+// A porch-stair run along +X: 4 risers of 80mm with 320mm treads. Whether a
+// chassis mounts a nosing is decided by wheel radius, not by torque — a rigid
+// bot on 50mm wheels cannot climb an 80mm step, and the bench says so.
+const STAIRS = { x0: 1.6, tread: 0.32, stepH: 0.08, n: 4, halfW: 1.1 }
+
+function stairsHeight(x) {
+  if (x <= STAIRS.x0) return 0
+  const i = Math.floor((x - STAIRS.x0) / STAIRS.tread)
+  return Math.min(i + 1, STAIRS.n) * STAIRS.stepH
+}
+
+/** Stacked tread boxes — reads as a real stair flight, not a ramp. */
+function stairsTris() {
+  const tris = []
+  for (let i = 0; i < STAIRS.n; i++) {
+    tris.push(...deskBoxTris(
+      STAIRS.x0 + (i + 0.5) * STAIRS.tread, 0, (i + 0.5) * STAIRS.stepH,
+      STAIRS.tread, STAIRS.halfW * 2, STAIRS.stepH, 'metal', `stair-${i}`))
+  }
+  return tris
 }
 
 /**
@@ -5443,11 +5469,14 @@ function createDrive(design, analysis) {
   const motorTorque = (motor && motor.torque) || m.torquePerWheel || 0.5
   const fMotor = (2 * motorTorque * 0.35) / Math.max(wheelR, 0.01)
   const vmax = Math.min(m.speedMps || 1, 1.4) // bench scale, not a highway
+  // largest riser this chassis can mount: about a wheel radius of bite
+  const maxStep = wheelR * 1.1
 
   const env = { surface: 'hardwood', slopeDeg: 0, payloadKg: 0 }
   const mass = () => baseMass + (env.payloadKg || 0)
 
   return {
+    kind: 'drive',
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
     vmax,
@@ -5456,7 +5485,7 @@ function createDrive(design, analysis) {
     surfaces: DRIVE_SURFACES,
     /** Merge bench controls; physics picks them up next step. */
     setEnv(patch) { Object.assign(env, patch) },
-    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0 },
+    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0, stepHit: false },
     /** cmd: {throttle: -1..1, steer: -1..1}; dt seconds. Mutates state. */
     step(cmd, dt) {
       const s = this.state
@@ -5464,7 +5493,7 @@ function createDrive(design, analysis) {
       s.throttle = Math.max(-1, Math.min(1, cmd.throttle || 0))
       s.steer = Math.max(-1, Math.min(1, cmd.steer || 0))
       const mNow = mass()
-      const course = env.course === 'room' ? 'room' : 'rack'
+      const course = env.course === 'room' ? 'room' : env.course === 'stairs' ? 'stairs' : 'rack'
       const mu = muAt(s.x, env)
       const grade = terrainGrade(s.x, env.slopeDeg, course)
       s.grade = grade
@@ -5502,9 +5531,24 @@ function createDrive(design, analysis) {
       s.vl -= Math.sign(s.vl) * Math.min(Math.abs(s.vl), aLat * dt)
       if (Math.abs(s.vl) < 0.005) s.vl = 0
       const fx = Math.cos(s.yaw), fy = Math.sin(s.yaw)
+      const xPrev = s.x, yPrev = s.y
       s.x += (s.v * fx - s.vl * fy) * dt
       s.y += (s.v * fy + s.vl * fx) * dt
       s.yaw += s.w * dt
+      // stairs: a riser taller than the wheel radius is a wall, not a grade.
+      // The nose may already be over the nosing when the hull centre crosses,
+      // so the check keys on centre-x — close enough for a bench verdict.
+      let stepBlocked = false
+      if (course === 'stairs') {
+        const rise = terrainHeight(s.x, env.slopeDeg, course) - s.z
+        if (rise > maxStep) {
+          s.x = xPrev; s.y = yPrev
+          s.v = 0; s.vl = 0
+          s.stall = true
+          stepBlocked = true
+          if (!s.stepHit) { s.bumps = (s.bumps || 0) + 1; s.stepHit = true }
+        } else s.stepHit = false
+      }
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
       // living-room obstacles: circle chassis vs AABB props, kill inward vel
@@ -5537,7 +5581,7 @@ function createDrive(design, analysis) {
       // stall = flooring it on a grade but crawling: under ~13 cm/s of
       // progress (or sliding backwards) the machine is not climbing — the
       // traction fix and this flag are the same failure seen two ways.
-      s.stall = s.throttle > 0.3 && grade > 0.03 && s.v < 0.13
+      s.stall = stepBlocked || (s.throttle > 0.3 && grade > 0.03 && s.v < 0.13)
       return s
     },
     /** Disturbance test: a lateral shove in newtons — slides and yaws the
@@ -5553,7 +5597,7 @@ function createDrive(design, analysis) {
     reset() {
       const s = this.state
       s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0; s.vl = 0
-      s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false; s.bumps = 0
+      s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false; s.bumps = 0; s.stepHit = false
     },
     /** Telemetry for the HUD. */
     hud() {
@@ -5571,7 +5615,7 @@ function createDrive(design, analysis) {
         slip: s.slip,
         stall: s.stall,
         slide: Math.abs(s.vl) > 0.08,
-        course: env.course === 'room' ? 'room' : 'rack',
+        course: env.course === 'room' ? 'room' : env.course === 'stairs' ? 'stairs' : 'rack',
         bumps: s.bumps || 0,
       }
     },
@@ -5733,7 +5777,29 @@ function createArmTeleop(design) {
       state.err = r.err
       return scratch.joints.map((j) => j.angle)
     },
+    /** One-shot reachability solve: point the target anywhere and run the
+     *  CCD solver hard (30 iters vs the 5 the live path uses). Certification
+     *  asks "can it get there", not "can it track a moving stick". */
+    seek(tx, ty, tz, actualAngles, iters = 30) {
+      state.tx = tx; state.ty = ty; state.tz = tz; state.ready = true
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      const r = solveChainIK(scratch, ikChain, [tx, ty, tz], tipWorld, iters)
+      state.err = r.err
+      return scratch.joints.map((j) => j.angle)
+    },
     reset() { state.ready = false; state.err = 0 },
+    /** Where the tip actually is under the live joint angles, world mm. */
+    tipPos(actualAngles) {
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      return tipWorld(scratch)
+    },
+    /** Physical tip-to-target distance under the live joint angles — what
+     *  the bench actually measures, vs state.err which is solver residual. */
+    liveErr(actualAngles) {
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      const t = tipWorld(scratch)
+      return Math.hypot(t[0] - state.tx, t[1] - state.ty, t[2] - state.tz)
+    },
     hud() {
       return {
         kind: 'ik',
@@ -6007,6 +6073,9 @@ function fixSuggestions(s) {
       push('fail', `Fix drive: wheels can't pull ${s.drive.mass ? s.drive.mass.toFixed(1) + 'kg ' : ''}up ${s.drive.gradeDeg}° ${s.drive.surface} — more torque, lower grade, or shed payload`)
     } else if (s.drive.slip) {
       push('warn', `Fix traction: slipping on ${s.drive.surface} (μ${s.drive.mu}) — rubber wheels or less payload`)
+    }
+    if (s.drive.course === 'stairs' && (s.drive.stall || (s.drive.bumps || 0) > 0)) {
+      push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension')
     }
   }
   if (s.prop && s.prop.over) {
@@ -6408,6 +6477,362 @@ function parseDirective(attrs) {
   } catch {
     return null
   }
+}
+
+// Autopilot certification — one click runs the machine through a scripted
+// maneuver suite and scores each check against live teleop state. Every
+// check is a real measurement; nothing passes by default, so a machine that
+// can't climb wet ice, reach the bench, or cycle its jaw fails here exactly
+// as it would on the floor.
+//
+// createAutotest(teleop) dispatches on teleop.kind — drive machines get the
+// maneuver suite, arms get a reach tour over the desk props, legged bots a
+// stride test, grippers a jaw-cycle test, sensor nodes a stimulus sweep.
+
+const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a }
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+
+/** Shared facade: page/HUD/report only ever touch these members. */
+function facade(script) {
+  return {
+    get running() { return script.running },
+    get done() { return script.done },
+    get results() { return script.results },
+    get phase() { return script.phase },
+    get score() { return `${script.results.filter((r) => r.pass).length}/${script.results.length}` },
+    start() { script.start() },
+    stop() { script.stop() },
+    tick(dt, actual) { return script.tick(dt, actual) },
+  }
+}
+
+function begin(script, label, dur, n) {
+  script.phase = { label, t: 0, dur, n }
+}
+function pushResult(script, id, label, pass, detail) {
+  script.results.push({ id, label, pass: !!pass, detail })
+}
+
+// ── drive: sprint / turn / climb / shove / return ────────────────────────────
+
+const DRIVE_PHASES = [
+  { id: 'sprint', label: 'SPRINT', dur: 2.5, throttle: 1, steer: 0 },
+  { id: 'turn',   label: 'TURN',   dur: 1.6, throttle: 0.4, steer: -1 },
+  { id: 'climb',  label: 'CLIMB',  dur: 4.0, throttle: 1, steer: 0 },
+  { id: 'shove',  label: 'SHOVE',  dur: 1.8, throttle: 1.0, steer: 0, shoveAt: 0.4, shoveN: 15 },
+  { id: 'return', label: 'RETURN', dur: 2.2, throttle: 0.6, steer: 1 },
+]
+
+function driveAutotest(drive) {
+  const st = { running: false, done: false, idx: 0, t: 0, results: [], phase: null }
+  let mark = null
+
+  function beginPhase(i) {
+    const p = DRIVE_PHASES[i]
+    const s = drive.state
+    mark = {
+      x0: s.x, y0: s.y, yaw0: s.yaw, z0: s.z, bumps0: s.bumps || 0,
+      maxV: 0, stallT: 0, slipT: 0, gradeT: 0, vPreShove: null, shoved: false,
+    }
+    st.idx = i; st.t = 0
+    begin(st, p.label, p.dur, DRIVE_PHASES.length)
+  }
+
+  function score(p, m, s) {
+    const dist = Math.hypot(s.x - m.x0, s.y - m.y0)
+    const stallFrac = m.stallT / p.dur
+    const bumps = (s.bumps || 0) - m.bumps0
+    switch (p.id) {
+      case 'sprint': {
+        const need = drive.vmax * 0.45
+        return { pass: m.maxV >= need, detail: `top ${m.maxV.toFixed(2)} m/s vs ${need.toFixed(2)} needed` }
+      }
+      case 'turn': {
+        const dyaw = Math.abs(wrap(s.yaw - m.yaw0))
+        return { pass: dyaw >= 0.5, detail: `turned ${(dyaw * 180 / Math.PI).toFixed(0)}°` }
+      }
+      case 'climb': {
+        // elevation is the honest metric — you cannot fake altitude. On a
+        // mostly-flat bench the same phase degrades to a sustained-speed run.
+        if (m.gradeT / p.dur < 0.3) {
+          const ok = dist >= 0.8 && stallFrac < 0.4
+          return { pass: ok, detail: `flat run ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+        }
+        const dz = s.z - m.z0
+        const ok = dz >= 0.1 && stallFrac < 0.4
+        return { pass: ok, detail: `+${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%${s.grade > 0.05 ? ` @ ${(s.grade * 180 / Math.PI).toFixed(0)}°` : ''}` }
+      }
+      case 'shove': {
+        const recovered = s.v > 0.15 || dist > 0.3
+        return { pass: recovered && stallFrac < 0.6, detail: `post-shove ${s.v.toFixed(2)} m/s, ${bumps} bump${bumps === 1 ? '' : 's'}` }
+      }
+      case 'return': {
+        const ok = Math.abs(s.v) > 0.03 || dist > 0.3
+        return { pass: ok && stallFrac < 0.6, detail: `finished at ${s.v.toFixed(2)} m/s, ${bumps} bump${bumps === 1 ? '' : 's'}` }
+      }
+      default: return { pass: false, detail: 'unknown phase' }
+    }
+  }
+
+  function endPhase() {
+    const p = DRIVE_PHASES[st.idx]
+    const r = score(p, mark, drive.state)
+    pushResult(st, p.id, p.label, r.pass, r.detail)
+    st.phase = null
+  }
+
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      drive.reset()
+      st.running = true; st.done = false; st.results = []; st.idx = 0; st.t = 0
+      beginPhase(0)
+    },
+    stop() { st.running = false; st.phase = null },
+    tick(dt) {
+      if (!st.running) return { throttle: 0, steer: 0 }
+      const p = DRIVE_PHASES[st.idx]
+      const s = drive.state
+      st.t += dt
+      mark.maxV = Math.max(mark.maxV, Math.abs(s.v))
+      if (s.stall) mark.stallT += dt
+      if (s.slip) mark.slipT += dt
+      if (s.grade > 0.03) mark.gradeT += dt
+      if (p.shoveAt != null && !mark.shoved && st.t >= p.shoveAt) {
+        mark.shoved = true
+        mark.vPreShove = s.v
+        drive.shove(p.shoveN)
+      }
+      if (st.t >= p.dur) {
+        endPhase()
+        if (st.idx + 1 >= DRIVE_PHASES.length) {
+          st.running = false; st.done = true
+          return { throttle: 0, steer: 0 }
+        }
+        beginPhase(st.idx + 1)
+      }
+      st.phase.t = st.t
+      // climb holds heading toward +X (the ramp direction). PD on yaw rate —
+      // a saturated P-only steer overshoots through 200°+ because the
+      // chassis yaw has real inertia (w slews at wMax rad/s²).
+      let steer = p.steer
+      if (p.id === 'climb') {
+        const kYaw = drive.vmax / Math.max((drive.trackMm / 1000) * 0.5, 0.05)
+        const err = wrap(-s.yaw)
+        steer = clampN((0.9 * s.w - 2.2 * err) / kYaw, -1, 1)
+      }
+      return { throttle: p.throttle, steer }
+    },
+  })
+}
+
+// ── reach: waypoint tour over the desk props, scored on real IK error ────────
+
+function reachAutotest(ik) {
+  const st = { running: false, done: false, results: [], phase: null, home: null, seedAngles: null }
+  // one leg per prop: seek the descend point, then wait for the live tip to
+  // arrive (the joint sim slews at real servo speed — that lag is the test).
+  // Every seek seeds from the SAME rest pose — certification asks "can the
+  // arm reach this point from standing", not "can CCD escape the last
+  // leg's local minimum".
+  const legs = []
+  for (const p of DESK_PROPS) {
+    const top = p.pos[2] + p.size[2] / 2
+    legs.push({ kind: 'prop', prop: p, wp: [p.pos[0], p.pos[1], top + 8], pose: null, t: 0, err: null })
+  }
+  legs.push({ kind: 'home', wp: null, pose: null, t: 0, err: null })
+  let li = 0
+
+  const legLabel = (l) => (l.kind === 'home' ? 'HOME' : `REACH ${l.prop.name}`)
+
+  function scoreLeg() {
+    const leg = legs[li]
+    const err = leg.err == null ? 999 : leg.err
+    if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm`)
+    else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm`)
+  }
+  function advance() {
+    li++
+    if (li >= legs.length) { st.running = false; st.done = true; st.phase = null; return false }
+    begin(st, legLabel(legs[li]), 6, legs.length)
+    return true
+  }
+
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      ik.reset()
+      st.running = true; st.done = false; st.results = []; st.home = null; st.seedAngles = null
+      li = 0
+      legs.forEach((l) => { l.t = 0; l.err = null; l.pose = null; l.wp = l.kind === 'home' ? null : l.wp })
+      begin(st, legLabel(legs[0]), 6, legs.length)
+    },
+    stop() { st.running = false; st.phase = null },
+    /**
+     * tick(dt, actual) — `actual` is the live joint-angle array. Returns
+     * {pose} for the page to apply directly (the IK seek already solved it),
+     * or {x,y,z} for callers without a pose channel.
+     */
+    tick(dt, actual) {
+      if (!st.running) return { x: 0, y: 0, z: 0 }
+      const leg = legs[li]
+      leg.t += dt
+      st.phase.t = leg.t
+      if (!st.seedAngles) st.seedAngles = (actual || []).slice()
+      if (leg.kind === 'home' && !leg.wp) {
+        // home = wherever the tip started this run
+        leg.wp = ik.tipPos ? ik.tipPos(st.seedAngles) : [0, 0, 150]
+      }
+      if (!leg.pose) leg.pose = ik.seek(leg.wp[0], leg.wp[1], leg.wp[2], st.seedAngles)
+      const e = typeof ik.liveErr === 'function' ? ik.liveErr(actual || []) : (ik.state.err || 999)
+      leg.err = leg.err == null ? e : Math.min(leg.err, e)
+      const need = leg.kind === 'home' ? 45 : 30
+      if (e <= need || leg.t > 6) {
+        scoreLeg()
+        if (!advance()) return { x: 0, y: 0, z: 0, pose: leg.pose }
+      }
+      return { x: 0, y: 0, z: 0, pose: leg.pose }
+    },
+  })
+}
+
+// ── gait: trot N strides, then stand — checks cadence and clean stop ─────────
+
+function gaitAutotest(gait) {
+  const st = { running: false, done: false, results: [], phase: null }
+  let leg = 'walk', t = 0, strides0 = 0
+
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      gait.reset()
+      st.running = true; st.done = false; st.results = []
+      leg = 'walk'; t = 0; strides0 = gait.state.strides
+      begin(st, 'TROT', 10, 2)
+    },
+    stop() { st.running = false; st.phase = null },
+    tick(dt) {
+      if (!st.running) return { x: 0 }
+      t += dt
+      if (leg === 'walk') {
+        const gained = gait.state.strides - strides0
+        if (gained >= 8 || t > 10) {
+          pushResult(st, 'strides', 'STRIDES', gained >= 6, `${gained.toFixed(1)} strides in ${t.toFixed(1)}s`)
+          leg = 'stand'; t = 0
+          begin(st, 'STAND', 2, 2)
+          return { x: 0 }
+        }
+        st.phase.t = t
+        return { x: 0.85 }
+      }
+      st.phase.t = t
+      if (t >= 1.6) {
+        const stopped = gait.state.speed < 0.03
+        pushResult(st, 'stand', 'STAND', stopped, `settled at ${gait.state.speed.toFixed(2)} speed`)
+        st.running = false; st.done = true; st.phase = null
+      }
+      return { x: 0 }
+    },
+  })
+}
+
+// ── grip: jaw must cycle open↔closed on command ──────────────────────────────
+
+function gripAutotest(grip) {
+  const st = { running: false, done: false, results: [], phase: null }
+  let t = 0, pulses = 0, prevOpen = null, toggles = 0
+
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      grip.reset()
+      st.running = true; st.done = false; st.results = []
+      t = 0; pulses = 0; toggles = 0; prevOpen = grip.state.open
+      begin(st, 'JAW', 9, 1)
+    },
+    stop() { st.running = false; st.phase = null },
+    tick(dt) {
+      if (!st.running) return { grip: false, gripEdge: false }
+      t += dt
+      st.phase.t = t
+      if (grip.state.open !== prevOpen) { toggles++; prevOpen = grip.state.open }
+      // one edge pulse every 1.4s — six commanded cycles
+      const edge = pulses < 6 && t >= (pulses + 1) * 1.4 - dt / 2 && t < (pulses + 1) * 1.4 + dt
+      if (edge) pulses++
+      if (t >= 9.2) {
+        pushResult(st, 'jaw', 'JAW', toggles >= 5, `${toggles} jaw transitions`)
+        st.running = false; st.done = true; st.phase = null
+      }
+      return { grip: false, gripEdge: !!edge }
+    },
+  })
+}
+
+// ── sense: sweep one stimulus into alert territory and back ──────────────────
+
+function senseAutotest(sense) {
+  const st = { running: false, done: false, results: [], phase: null }
+  // pick the first field whose alert actually fires at an extreme
+  const field = (sense.fields || []).find((f) => f.alert && (f.alert(f.max) || f.alert(f.min)))
+  const target = field ? (field.alert(field.max) ? field.max : field.min) : null
+  let leg = 'restore', t = 0, fired = false
+
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      sense.reset()
+      st.running = true; st.done = false; st.results = []
+      leg = 'restore'; t = 0; fired = false
+      if (field) sense.set(field.k, field.def)
+      begin(st, field ? `STIM ${field.label}` : 'STIM', 6, 1)
+    },
+    stop() { st.running = false; st.phase = null },
+    tick(dt) {
+      if (!st.running) return null
+      t += dt
+      st.phase.t = t
+      if (!field || target == null) {
+        pushResult(st, 'sense', 'SENSE', false, 'no alertable stimulus field')
+        st.running = false; st.done = true; st.phase = null
+        return null
+      }
+      if (leg === 'restore' && t >= 0.8) { leg = 'stim'; t = 0; begin(st, `STIM ${field.label}`, 6, 1) }
+      else if (leg === 'stim') {
+        // ramp toward the alert extreme — sensors respond instantly, so the
+        // crossing itself is the test
+        const u = Math.min(1, t / 1.5)
+        sense.set(field.k, field.def + (target - field.def) * u)
+        if (t >= 1.5) { leg = 'hold'; t = 0 }
+      } else if (leg === 'hold') {
+        if (sense.hud().alerts.length) fired = true
+        if (t >= 1.2) { leg = 'restore2'; t = 0 }
+      } else if (leg === 'restore2') {
+        sense.set(field.k, field.def + (field.def - target) * Math.min(1, t / 0.8))
+        if (t >= 0.9) {
+          pushResult(st, 'sense', 'SENSE', fired, fired ? `${field.label} alert fired` : `${field.label} never alerted`)
+          st.running = false; st.done = true; st.phase = null
+        }
+      }
+      return null
+    },
+  })
+}
+
+// ── dispatch ─────────────────────────────────────────────────────────────────
+
+function createAutotest(teleop) {
+  if (!teleop) return null
+  if (teleop.kind === 'drive' || teleop.wheelD) return driveAutotest(teleop)
+  if (teleop.kind === 'ik') return reachAutotest(teleop)
+  if (teleop.kind === 'gait') return gaitAutotest(teleop)
+  if (teleop.kind === 'grip') return gripAutotest(teleop)
+  if (teleop.kind === 'sense') return senseAutotest(teleop)
+  return null
 }
 
 // ── viewport: a software 3D renderer, because a CAD view cannot be a DIV ────
@@ -10471,6 +10896,7 @@ function Studio() {
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
+  const autotestRef = useRef(null)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -10480,6 +10906,7 @@ function Studio() {
     senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
     const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
+    autotestRef.current = createAutotest(driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current)
     setDriveAvail(!!kind)
     setChassis(null)
     if (ikRef.current) ikRef.current.reset()
@@ -10516,9 +10943,15 @@ function Studio() {
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
       if (!pwrDead && drive) {
-        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        let throttle, steer
+        if (at && at.running) {
+          ;({ throttle, steer } = at.tick(dt))
+        } else {
+          throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+          steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        }
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -10534,7 +10967,9 @@ function Studio() {
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -10543,25 +10978,44 @@ function Studio() {
             cx = -gy; cy = gx; cz = -gz
           }
         }
-        const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        let certPose = null
+        if (at && at.running) {
+          const c = at.tick(dt, actual)
+          if (c && c.pose) certPose = c.pose
+          else if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
+        // certification runs carry their own IK-solved pose — applying it
+        // directly skips the velocity-cmd layer the script already bypassed
+        const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
         // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
         // planning, not just a yaw bias — honest omission, not fake steering)
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let gx = want
-        if (gp) {
+        const at = autotestRef.current
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gy = dz(gp.axes[1] || 0)
           if (Math.abs(gy) > 0.04) gx = -gy
+        }
+        if (at && at.running) {
+          const c = at.tick(dt)
+          if (c) gx = c.x || 0
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = gait.step({ x: gx }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && grip) {
-        const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
+        const at = autotestRef.current
+        const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
+        const desired = grip.step(gcmd, dt)
         if (desired) setPose(desired)
+      } else if (!pwrDead && sense) {
+        // sensor nodes have no motion cmd — the autopilot writes stimulus
+        // fields straight into teleop state on its own timeline
+        const at = autotestRef.current
+        if (at && at.running) at.tick(dt)
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
@@ -10643,14 +11097,14 @@ function Studio() {
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
     () => (driveOn && teleopKind === 'drive'
-      ? (benchEnv.course === 'room' ? livingRoomTris() : benchRampTris(benchEnv.slopeDeg))
+      ? (benchEnv.course === 'room' ? livingRoomTris() : benchEnv.course === 'stairs' ? stairsTris() : benchRampTris(benchEnv.slopeDeg))
       : driveOn && teleopKind === 'ik' ? deskPropsTris()
       : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
     [driveOn, teleopKind, benchEnv],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
+    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -10734,6 +11188,11 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      ...(autotestRef.current && autotestRef.current.results.length ? [
+        '',
+        `## Auto test — ${autotestRef.current.score}`,
+        ...autotestRef.current.results.map((r) => `- ${r.pass ? 'PASS' : 'FAIL'} **${r.label}** — ${r.detail}`),
+      ] : []),
       '',
       '_Generated by RigForge test bench — numbers are simulated, not measured._',
     ].filter(Boolean).join('\n')
@@ -11343,6 +11802,7 @@ function Studio() {
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
                 driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
+                driveHud.course === 'stairs' ? h('span', { key: 'j2', style: { color: C.cyan } }, 'STAIRS') : null,
                 driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
@@ -11365,6 +11825,18 @@ function Studio() {
             }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
             : null,
         ) : null,
+        driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
+          style: {
+            position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10.5px',
+            color: autotestRef.current.done && autotestRef.current.results.every((r) => r.pass) ? C.green : C.cyan,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '5px 10px', pointerEvents: 'none',
+            title: (autotestRef.current.results || []).map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.label} — ${r.detail}`).join('\n'),
+          },
+        }, autotestRef.current.running
+          ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
+          : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -11375,10 +11847,12 @@ function Studio() {
           },
         },
           h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-            [['rack', 'RACK'], ['room', 'ROOM']].map(([ck, cl]) => h('button', {
+            [['rack', 'RACK'], ['room', 'ROOM'], ['stairs', 'STAIRS']].map(([ck, cl]) => h('button', {
               key: ck,
               onClick: () => setBenchEnv((e) => ({ ...e, course: ck })),
-              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles' : 'traction rack: adjustable ramp and surface',
+              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles'
+                : ck === 'stairs' ? 'porch stairs: 4×80mm risers — mounts only if wheel radius bites the nosing'
+                : 'traction rack: adjustable ramp and surface',
               style: {
                 fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
                 padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
@@ -11398,7 +11872,8 @@ function Studio() {
                 background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
                 color: benchEnv.surface === sk ? C.cyan : C.dim,
               },
-            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } }, 'course surfaces: hardwood + rug'),
+            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } },
+              benchEnv.course === 'stairs' ? 'stairs: wood treads, μ0.8 — risers decide' : 'course surfaces: hardwood + rug'),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
             h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
             h('input', {
@@ -11512,7 +11987,19 @@ function Studio() {
                 ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            autotestRef.current ? h('button', {
+              style: autotestRef.current.running || (autotestRef.current.done && !autotestRef.current.results.every((r) => r.pass)) ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!(autotestRef.current && autotestRef.current.running),
+              title: 'autopilot certification — scripts sprint, turn, climb, shove-recovery and return, scoring each check',
+              onClick: () => {
+                const at = autotestRef.current
+                if (!at) return
+                if (at.running) { at.stop(); return }
+                at.start()
+                setDriveOn(true)
+              },
+            }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',
