@@ -58,6 +58,16 @@ plugin.register({
   i18n: {},
 })
 
+// Test hooks: seed the studio's storage from the query string so a scenario
+// like "an agent handed back a brief" can be reproduced exactly.
+const q = new URLSearchParams(location.search)
+for (const key of ['lastBrief', 'pendingBrief', 'seenFirstRun']) {
+  const raw = q.get(key)
+  if (raw) {
+    try { store.set(key, JSON.parse(raw)) } catch { store.set(key, raw === 'true' ? true : raw) }
+  }
+}
+
 const el = document.getElementById('root')
 createRoot(el).render(React.createElement(Studio))
 `)

@@ -444,14 +444,22 @@ function Studio() {
     if (CTX) CTX.storage.set('lastBrief', brief)
   }, [brief])
 
-  // A build handed over by the agent (`::rigforge{...}` → shelf) lands here.
+  // A build handed over by the agent (`::rigforge{...}` → card → here) lands
+  // now, and the first thing it shows is what it changed: an agent rewrite is a
+  // proposal, so it gets the same before/after as your own edits.
+  const [fromAgent, setFromAgent] = useState(false)
   useEffect(() => {
     if (!CTX) return
     const pending = CTX.storage.get('pendingBrief', null)
     if (pending && pending.mission) {
       CTX.storage.remove('pendingBrief')
+      const before = CTX.storage.get('lastBrief', null)
+      if (before && before.mission) setHistory([{ brief: before, at: Date.now() }])
       setBrief({ ...DEFAULT_BRIEF, ...pending })
       setMission(pending.mission || '')
+      setFromAgent(true)
+      setSimple(false)
+      setCompareOpen(true)
     }
   }, [])
 
@@ -760,6 +768,26 @@ function Studio() {
     h('div', { style: S.body, 'data-rf': 'body' },
       // left rail: the brief
       h('div', { style: S.rail, 'data-rf': 'rail' },
+        fromAgent
+          ? h('div', {
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '6px 9px',
+              borderRadius: '7px', border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.08)',
+              fontSize: '10.5px', color: C.dim,
+            },
+          },
+            h('span', { style: { color: C.accent, fontFamily: C.mono, fontSize: '9.5px', letterSpacing: '0.08em' } }, 'FROM HERMES'),
+            h('button', {
+              style: { ...S.btn, height: '20px', padding: '0 7px', fontSize: '9.5px', marginLeft: 'auto' },
+              onClick: () => setCompareOpen(true),
+              'aria-label': 'Compare this agent build with what you had',
+            }, 'see what changed'),
+            h('button', {
+              style: { background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '0 2px' },
+              onClick: () => setFromAgent(false),
+              'aria-label': 'Dismiss the agent notice',
+            }, '×'))
+          : null,
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
         // Three steps, one row: the guide must not push BUILD below the fold
         // on an 800px window, which is where a laptop actually sits.

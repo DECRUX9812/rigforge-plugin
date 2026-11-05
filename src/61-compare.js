@@ -109,11 +109,12 @@ function CompareDialog({ open, onClose, currentBrief, history }) {
           `${cmp.A.design.title} → ${cmp.B.design.title}`)),
       h('button', { style: { ...S.btn, height: '26px', padding: '0 10px' }, onClick: onClose, 'aria-label': 'Close' }, 'Close')),
 
+    // "Better" only means something between two versions of the same machine.
+    // Across archetypes it is a choice, not a score, so the verdict is withheld.
     cmp.A.design.archetype !== cmp.B.design.archetype
-      ? h('div', { style: { fontSize: '11px', color: C.amber, lineHeight: 1.5, margin: '10px 0 0' } },
-        'Different machines — this is two designs side by side, not a before/after of one change.')
-      : null,
-    h('div', { style: { fontSize: '12.5px', color: C.text, lineHeight: 1.5, margin: '10px 0 14px' } }, compareVerdict(cmp)),
+      ? h('div', { style: { fontSize: '12px', color: C.amber, lineHeight: 1.5, margin: '10px 0 12px' } },
+        'Two different machines — pick by what you need, not by which column wins. The numbers are side by side, not a score.')
+      : h('div', { style: { fontSize: '12.5px', color: C.text, lineHeight: 1.5, margin: '10px 0 14px' } }, compareVerdict(cmp)),
 
     changes.length
       ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '0 0 12px' } },
