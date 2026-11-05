@@ -5170,14 +5170,12 @@ function applyChassis(mesh, st, slopeDeg, out) {
   const res = out || new Array(mesh.length)
   for (let i = 0; i < mesh.length; i++) {
     const t = mesh[i]
-    let pts = res[i] && res[i].pts
-    if (!pts) {
-      pts = [null, null, null]
-      res[i] = { ...t, pts }
-    } else {
-      res[i].pts = pts
-      for (let k = 0; k < 3; k++) if (!pts[k]) pts[k] = [0, 0, 0]
+    let slot = res[i]
+    if (!slot) {
+      slot = { ...t, pts: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] }
+      res[i] = slot
     }
+    const pts = slot.pts
     for (let k = 0; k < 3; k++) {
       const p = t.pts[k]
       // pitch about local Y (nose-up when climbing), then yaw about Z
@@ -5190,6 +5188,110 @@ function applyChassis(mesh, st, slopeDeg, out) {
     }
   }
   return res
+}
+
+// ── arm teleop: WASD drives the end-effector through real IK ────────────────
+// For jointed machines with nothing to drive (the 5-DoF arm and friends),
+// WASD moves a target point in the world and solveChainIK — the same CCD
+// solver the TEST tab trusts — converts it to joint angles every frame. The
+// joint sim then slews the real servos toward those angles at their actual
+// speed and stalls under load, so the arm on screen obeys the same physics
+// as the numbers in the spec rail. No fake keyframing.
+
+/**
+ * Returns a teleop object for designs with one dominant revolute chain
+ * (≥3 joints), else null. `step(cmd, dt, actualAngles)` returns the desired
+ * joint-angle array (deg) for the pose command, or null when idle.
+ */
+function createArmTeleop(design) {
+  const joints = design.joints || []
+  if (!joints.length || joints.length > 8) return null
+  const chains = chainsFor(design)
+
+  // The end-effector chain: the joint with the deepest revolute ancestry.
+  // Ambiguous machines (humanoid legs, quadruped) have several equal chains —
+  // picking one silently would be a lie, so they get no IK mode.
+  let tipJoint = null
+  let tipChain = null
+  let tie = false
+  for (const j of joints) {
+    if (j.slide) continue
+    const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
+    if (!tipChain || ch.length > tipChain.length) {
+      tipChain = ch; tipJoint = j; tie = false
+    } else if (ch.length === tipChain.length && tipJoint && j.id !== tipJoint.id) {
+      tie = true
+    }
+  }
+  if (!tipChain || tipChain.length < 3 || tie) return null
+
+  // Tip node: the node rigidly attached to the last joint, farthest from its
+  // pivot — the business end of the arm.
+  const tj = tipJoint
+  const attached = (design.nodes || []).filter((n) => n.joint === tj.id && n.pos)
+  if (!attached.length) return null
+  let tipNode = attached[0]
+  let bestD = -1
+  for (const n of attached) {
+    const d = Math.hypot(n.pos[0] - tj.pivot[0], n.pos[1] - tj.pivot[1], n.pos[2] - tj.pivot[2])
+    if (d > bestD) { bestD = d; tipNode = n }
+  }
+
+  // Scratch design: IK mutates joint angles, so it must never touch `design`.
+  const scratch = { ...design, joints: joints.map((j) => ({ ...j })) }
+  const scratchById = new Map(scratch.joints.map((j) => [j.id, j]))
+  const ikChain = tipChain.map((j) => scratchById.get(j.id)).filter(Boolean)
+  if (ikChain.length < 3) return null
+
+  const tipWorld = (d) => benchNodeWorld(d, chainsFor(d), tipNode)
+  const state = {
+    tx: 0, ty: 0, tz: 0,      // target point, world mm — set on first step
+    err: 0, ready: false,
+    reach: Math.max(...(design.nodes || []).map((n) => Math.hypot(n.pos[0], n.pos[1], n.pos[2])), 200),
+  }
+
+  const MOVE = 220 // mm/s at full deflection
+  const ZONE = { x: 0.12, y: 0.12, z: 0.12 } // stick deadzone per axis
+
+  return {
+    kind: 'ik',
+    state,
+    /**
+     * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
+     * Returns desired joint angles (deg, design.joints order) or null.
+     */
+    step(cmd, dt, actualAngles) {
+      // First contact: aim where the tip already is, so WASD deltas feel
+      // relative instead of teleporting the arm across the bench.
+      if (!state.ready) {
+        for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+        const t = tipWorld(scratch)
+        state.tx = t[0]; state.ty = t[1]; state.tz = Math.max(t[2], 40)
+        state.ready = true
+      }
+      const ax = Math.abs(cmd.x || 0) > ZONE.x ? cmd.x : 0
+      const ay = Math.abs(cmd.y || 0) > ZONE.y ? cmd.y : 0
+      const az = Math.abs(cmd.z || 0) > ZONE.z ? cmd.z : 0
+      state.tx += ax * MOVE * dt
+      state.ty += ay * MOVE * dt
+      state.tz = Math.min(600, Math.max(40, state.tz + az * MOVE * 0.8 * dt))
+      if (!ax && !ay && !az) return null // hold — joints keep tracking
+
+      for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actualAngles[i] || 0
+      const r = solveChainIK(scratch, ikChain, [state.tx, state.ty, state.tz], tipWorld, 5)
+      state.err = r.err
+      return scratch.joints.map((j) => j.angle)
+    },
+    reset() { state.ready = false; state.err = 0 },
+    hud() {
+      return {
+        kind: 'ik',
+        speed: 0,
+        err: state.err,
+        tx: Math.round(state.tx), ty: Math.round(state.ty), tz: Math.round(state.tz),
+      }
+    },
+  }
 }
 
 // ── sharing: a design is a brief, so a build code is just the brief ─────────
@@ -8998,7 +9100,9 @@ function Studio() {
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
+  const ikRef = useRef(null)
   const [driveAvail, setDriveAvail] = useState(false)
+  const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
@@ -9006,8 +9110,11 @@ function Studio() {
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
-    setDriveAvail(!!driveRef.current)
+    ikRef.current = driveRef.current ? null : createArmTeleop(design)
+    setTeleopKind(driveRef.current ? 'drive' : ikRef.current ? 'ik' : null)
+    setDriveAvail(!!(driveRef.current || ikRef.current))
     setChassis(null)
+    if (ikRef.current) ikRef.current.reset()
   }, [design, analysis])
 
   useEffect(() => {
@@ -9015,26 +9122,46 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || !driveRef.current) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current)) return undefined
     const drive = driveRef.current
+    const ik = ikRef.current
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
       const k = keysRef.current
-      let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-      let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
-      if (gp) {
-        const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
-        const gx = dz(gp.axes[0] || 0)
-        const gy = dz(gp.axes[1] || 0)
-        if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
+      if (drive) {
+        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
+        }
+        drive.step({ throttle, steer }, dt)
+        setChassis({ ...drive.state })
+      } else if (ik) {
+        // WASD/arrows plane, R/F height; left stick plane, right stick height
+        let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
+        let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+            cx = -gy; cy = gx; cz = -gz
+          }
+        }
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        if (desired) setPose(desired)
       }
-      drive.step({ throttle, steer }, dt)
-      setChassis({ ...drive.state })
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -9045,11 +9172,11 @@ function Studio() {
     if (!driveOn) return undefined
     const dn = (e) => {
       const key = e.key.toLowerCase()
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+      if (['w', 'a', 's', 'd', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
         keysRef.current[key === ' ' ? 'space' : key] = true
         e.preventDefault()
       }
-      if (key === 'r') driveRef.current && driveRef.current.reset()
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset() }
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -9104,7 +9231,10 @@ function Studio() {
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const driveHud = driveOn && chassis ? driveRef.current.hud() : null
+  const teleop = driveRef.current || ikRef.current
+  const driveHud = driveOn && teleop && (chassis || (ikRef.current && ikRef.current.state.ready))
+    ? teleop.hud()
+    : null
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -9653,15 +9783,23 @@ function Studio() {
             display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
           },
         },
-          h('span', {}, `v ${driveHud.speed.toFixed(2)} m/s`),
-          h('span', {}, `hdg ${driveHud.yawDeg}°`),
-          driveHud.gradeDeg ? h('span', {}, `grade ${driveHud.gradeDeg}°`) : null,
-          h('span', { style: { color: C.faint } }, `${driveHud.surface} μ${driveHud.mu}`),
-          driveHud.mass > 0 ? h('span', { style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
-          driveHud.slip ? h('span', { style: { color: C.amber } }, 'WHEELSPIN') : null,
-          driveHud.stall ? h('span', { style: { color: C.red } }, 'STALL') : null,
-          h('span', { style: { color: C.faint } }, 'WASD · R reset')) : null,
-        driveOn ? h('div', {
+          driveHud.kind === 'ik'
+            ? [
+                h('span', { key: 'a' }, `IK err ${driveHud.err.toFixed(0)}mm`),
+                h('span', { key: 'b', style: { color: C.faint } }, `tgt ${driveHud.tx},${driveHud.ty},${driveHud.tz}`),
+                h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
+              ]
+            : [
+                h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
+                h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
+                driveHud.gradeDeg ? h('span', { key: 'c' }, `grade ${driveHud.gradeDeg}°`) : null,
+                h('span', { key: 'd', style: { color: C.faint } }, `${driveHud.surface} μ${driveHud.mu}`),
+                driveHud.mass > 0 ? h('span', { key: 'e', style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
+                driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
+                driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
+                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · 0 reset'),
+              ]) : null,
+        driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
             fontFamily: C.mono, fontSize: '10px', color: C.dim,
@@ -9732,13 +9870,15 @@ function Studio() {
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
             }, 'ORTHO')),
           driveAvail ? h('div', { style: S.viewSep }) : null,
-          driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'drive mode' },
+          driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'bench teleop' },
             h('button', {
               style: driveOn ? S.viewChipOn : S.viewChip,
               'aria-pressed': driveOn,
-              title: 'drive mode — WASD or gamepad: W/S throttle, A/D steer, R reset',
+              title: teleopKind === 'ik'
+                ? 'reach mode — WASD plane, R/F height, gamepad sticks, 0 re-anchors'
+                : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : 'DRIVE')) : null,
         ),
 
         h('div', { style: S.jointBar },

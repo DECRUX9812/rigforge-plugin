@@ -594,7 +594,9 @@ function Studio() {
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
+  const ikRef = useRef(null)
   const [driveAvail, setDriveAvail] = useState(false)
+  const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
@@ -602,8 +604,11 @@ function Studio() {
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
-    setDriveAvail(!!driveRef.current)
+    ikRef.current = driveRef.current ? null : createArmTeleop(design)
+    setTeleopKind(driveRef.current ? 'drive' : ikRef.current ? 'ik' : null)
+    setDriveAvail(!!(driveRef.current || ikRef.current))
     setChassis(null)
+    if (ikRef.current) ikRef.current.reset()
   }, [design, analysis])
 
   useEffect(() => {
@@ -611,26 +616,46 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || !driveRef.current) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current)) return undefined
     const drive = driveRef.current
+    const ik = ikRef.current
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
       const k = keysRef.current
-      let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-      let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
-      if (gp) {
-        const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
-        const gx = dz(gp.axes[0] || 0)
-        const gy = dz(gp.axes[1] || 0)
-        if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
+      if (drive) {
+        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
+        }
+        drive.step({ throttle, steer }, dt)
+        setChassis({ ...drive.state })
+      } else if (ik) {
+        // WASD/arrows plane, R/F height; left stick plane, right stick height
+        let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
+        let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+            cx = -gy; cy = gx; cz = -gz
+          }
+        }
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        if (desired) setPose(desired)
       }
-      drive.step({ throttle, steer }, dt)
-      setChassis({ ...drive.state })
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -641,11 +666,11 @@ function Studio() {
     if (!driveOn) return undefined
     const dn = (e) => {
       const key = e.key.toLowerCase()
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+      if (['w', 'a', 's', 'd', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
         keysRef.current[key === ' ' ? 'space' : key] = true
         e.preventDefault()
       }
-      if (key === 'r') driveRef.current && driveRef.current.reset()
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset() }
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -700,7 +725,10 @@ function Studio() {
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const driveHud = driveOn && chassis ? driveRef.current.hud() : null
+  const teleop = driveRef.current || ikRef.current
+  const driveHud = driveOn && teleop && (chassis || (ikRef.current && ikRef.current.state.ready))
+    ? teleop.hud()
+    : null
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1249,15 +1277,23 @@ function Studio() {
             display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
           },
         },
-          h('span', {}, `v ${driveHud.speed.toFixed(2)} m/s`),
-          h('span', {}, `hdg ${driveHud.yawDeg}°`),
-          driveHud.gradeDeg ? h('span', {}, `grade ${driveHud.gradeDeg}°`) : null,
-          h('span', { style: { color: C.faint } }, `${driveHud.surface} μ${driveHud.mu}`),
-          driveHud.mass > 0 ? h('span', { style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
-          driveHud.slip ? h('span', { style: { color: C.amber } }, 'WHEELSPIN') : null,
-          driveHud.stall ? h('span', { style: { color: C.red } }, 'STALL') : null,
-          h('span', { style: { color: C.faint } }, 'WASD · R reset')) : null,
-        driveOn ? h('div', {
+          driveHud.kind === 'ik'
+            ? [
+                h('span', { key: 'a' }, `IK err ${driveHud.err.toFixed(0)}mm`),
+                h('span', { key: 'b', style: { color: C.faint } }, `tgt ${driveHud.tx},${driveHud.ty},${driveHud.tz}`),
+                h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
+              ]
+            : [
+                h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
+                h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
+                driveHud.gradeDeg ? h('span', { key: 'c' }, `grade ${driveHud.gradeDeg}°`) : null,
+                h('span', { key: 'd', style: { color: C.faint } }, `${driveHud.surface} μ${driveHud.mu}`),
+                driveHud.mass > 0 ? h('span', { key: 'e', style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
+                driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
+                driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
+                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · 0 reset'),
+              ]) : null,
+        driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
             fontFamily: C.mono, fontSize: '10px', color: C.dim,
@@ -1328,13 +1364,15 @@ function Studio() {
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
             }, 'ORTHO')),
           driveAvail ? h('div', { style: S.viewSep }) : null,
-          driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'drive mode' },
+          driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'bench teleop' },
             h('button', {
               style: driveOn ? S.viewChipOn : S.viewChip,
               'aria-pressed': driveOn,
-              title: 'drive mode — WASD or gamepad: W/S throttle, A/D steer, R reset',
+              title: teleopKind === 'ik'
+                ? 'reach mode — WASD plane, R/F height, gamepad sticks, 0 re-anchors'
+                : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : 'DRIVE')) : null,
         ),
 
         h('div', { style: S.jointBar },
