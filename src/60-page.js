@@ -622,6 +622,7 @@ function Studio() {
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
   const autotestRef = useRef(null)
+  const autoReportOffRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -1624,6 +1625,30 @@ function Studio() {
         }, autotestRef.current.running
           ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
           : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
+        driveOn && autotestRef.current && autotestRef.current.done && !autoReportOffRef.current ? h('div', {
+          style: {
+            position: 'absolute', top: '44px', left: '50%', transform: 'translateX(-50%)', zIndex: 6,
+            fontFamily: C.mono, fontSize: '10.5px', minWidth: '300px', maxWidth: '440px',
+            background: 'rgba(10,13,16,0.88)', border: `1px solid ${C.line}`,
+            borderRadius: '8px', padding: '8px 12px', pointerEvents: 'auto',
+          },
+        },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+            h('span', {
+              style: { fontWeight: 700, color: autotestRef.current.results.every((r) => r.pass) ? C.green : C.amber },
+            }, `CERTIFICATION ${autotestRef.current.score}`),
+            h('button', {
+              style: { marginLeft: 'auto', background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '0 4px' },
+              title: 'dismiss — results stay in REPORT',
+              onClick: () => { autoReportOffRef.current = true },
+            }, '×')),
+          ...autotestRef.current.results.map((r) => h('div', {
+            key: r.id || r.label,
+            style: { display: 'flex', gap: '8px', alignItems: 'baseline', padding: '2px 0' },
+          },
+            h('span', { style: { color: r.pass ? C.green : C.red, fontWeight: 700, flex: '0 0 38px' } }, r.pass ? 'PASS' : 'FAIL'),
+            h('span', { style: { color: C.dim, flex: '0 0 74px' } }, r.label),
+            h('span', { style: { color: C.text } }, r.detail)))) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -1784,6 +1809,7 @@ function Studio() {
                 if (!at) return
                 if (at.running) { at.stop(); return }
                 at.start()
+                autoReportOffRef.current = false
                 setDriveOn(true)
               },
             }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
