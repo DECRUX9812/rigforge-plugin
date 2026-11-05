@@ -378,3 +378,38 @@ function wireOverlay(design, harness) {
   }
   return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
 }
+
+/**
+ * Reach-envelope overlay for IK machines: a wireframe sphere at the arm's
+ * base joint, radius = sum of link lengths + tool offset — the
+ * triangle-inequality bound, so every reachable tip point sits inside it.
+ * Plus a crosshair on the live tip so "you are here" reads against the bound.
+ * sphere: {c:[x,y,z], r} mm design space; tip: [x,y,z] mm or null.
+ */
+function reachOverlay(sphere, tip) {
+  if (!sphere || !(sphere.r > 0)) return null
+  const arr = []
+  const col = [0.45, 0.8, 1.0]
+  const tipCol = [1.0, 0.85, 0.3]
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const R = sphere.r, c = sphere.c, N = 20
+  const planes = [[[1, 0, 0], [0, 1, 0]], [[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]]]
+  for (const [u, v] of planes) {
+    for (let i = 0; i < N; i++) {
+      const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2
+      const pt = (a) => [
+        c[0] + R * (Math.cos(a) * u[0] + Math.sin(a) * v[0]),
+        c[1] + R * (Math.cos(a) * u[1] + Math.sin(a) * v[1]),
+        c[2] + R * (Math.cos(a) * u[2] + Math.sin(a) * v[2]),
+      ]
+      seg(pt(a0), pt(a1), col)
+    }
+  }
+  if (tip) {
+    const s = 14
+    seg([tip[0] - s, tip[1], tip[2]], [tip[0] + s, tip[1], tip[2]], tipCol)
+    seg([tip[0], tip[1] - s, tip[2]], [tip[0], tip[1] + s, tip[2]], tipCol)
+    seg([tip[0], tip[1], tip[2] - s], [tip[0], tip[1], tip[2] + s], tipCol)
+  }
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
