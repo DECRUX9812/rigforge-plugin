@@ -171,6 +171,21 @@ check('STL: header count = (size-84)/50; parts centred, on Z=0', () => {
   return `${parts} STL files validated`
 })
 
+// ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
+// The dims heuristic used to stand wedges and ring towers on edge — the
+// overhang check caught it, bestBedPerm fixed it. These presets must stay
+// self-supporting; the gantry corner bracket is the honest positive control.
+check('DFM overhang: presets self-support, gantry bracket flags honestly', () => {
+  const designOf = (arch) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief }).design
+  for (const arch of ['arm', 'rover', 'robot', 'quadruped', 'humanoid', 'gripper', 'iot', 'gadget']) {
+    const oh = A.overhangReport(designOf(arch))
+    assert(oh.unsupportedMm2 <= 60, `${arch}: ${oh.unsupportedMm2}mm² unsupported — bed orientation regressed`)
+  }
+  const oh = A.overhangReport(designOf('gantry'))
+  assert(oh.unsupportedMm2 > 100, `gantry corner overhang should be detected, got ${oh.unsupportedMm2}`)
+  return `gantry flags ${oh.unsupportedMm2}mm² unsupported; all other presets self-support`
+})
+
 // ── 10. build codes round-trip ───────────────────────────────────────────────
 check('build code round-trips to the same machine', () => {
   eachPreset((p, { design }) => {
@@ -437,6 +452,42 @@ check('drive physics: wet ice stalls where hardwood climbs', () => {
   return `ice +${ice.dx.toFixed(2)}m (${ice.stall ? 'stall' : 'slip'}), hardwood +${wood.dx.toFixed(2)}m`
 })
 
+// ── 25b. living-room course: threshold climbs, props block, bumps count ────
+check('living-room course: obstacles stop the chassis and count bumps', () => {
+  const { design, analysis } = A.composeDesign({ ...A.DEFAULT_BRIEF, archetype: 'rover' })
+  const d = A.createDrive(design, analysis)
+  d.setEnv({ course: 'room', surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  // centre lane is blocked by the toy bin — a straight driver must stop
+  for (let i = 0; i < 60 * 12; i++) d.step({ throttle: 1, steer: 0 }, 1 / 60)
+  assert(d.state.bumps >= 1, `centre lane: expected bumps, got ${d.state.bumps}`)
+  assert(d.state.x < 2.6, `centre lane reached x=${d.state.x.toFixed(2)} — drove through a prop`)
+  // the wide-left lane is clear — same machine, offset start, runs the course
+  const d2 = A.createDrive(design, analysis)
+  d2.setEnv({ course: 'room', surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  d2.state.y = 0.5
+  for (let i = 0; i < 60 * 10; i++) d2.step({ throttle: 1, steer: 0 }, 1 / 60)
+  assert(d2.state.x > 5, `wide lane only reached x=${d2.state.x.toFixed(2)} — corridor should be open`)
+  assert(d2.state.bumps === 0, `wide lane bumped ${d2.state.bumps}× — should be clear`)
+  return `centre pinned at x=${d.state.x.toFixed(2)} (${d.state.bumps} bumps), wide lane x=${d2.state.x.toFixed(2)}`
+})
+
+// ── 25c. sensor bench: fitted sensors read injected stimulus, alerts fire ──
+check('sensor bench: stimulus drives readings and threshold alerts', () => {
+  const iot = A.PRESETS.find((p) => p.id === 'iot')
+  const { design } = A.composeDesign({ ...iot.brief, mission: 'a plant sensor that reports soil moisture and temperature' })
+  const t = A.createSensorTeleop(design)
+  assert(t, 'iot design offers no sensor teleop')
+  assert(t.fields.length >= 3, `expected temp+humid+soil fields, got ${t.fields.length}`)
+  t.set('humid', 96)
+  t.set('soil', 12)
+  const h = t.hud()
+  assert(h.alerts.length >= 2, `expected humidity+soil alerts, got ${h.alerts.length}: ${h.alerts}`)
+  assert(/\d/.test(h.oled) && !/node/.test(h.oled), `oled line should lead with a sensor reading: ${h.oled}`)
+  t.reset()
+  assert(t.hud().alerts.length === 0, 'reset should clear alerts')
+  return `${t.fields.length} stimulus fields, alerts: ${h.alerts.join('; ')}`
+})
+
 // ── 26. gait: legs cycle within joint limits, diagonal pairs phase-locked ───
 check('gait: quadruped trot moves all legs inside limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
@@ -459,6 +510,45 @@ check('gait: quadruped trot moves all legs inside limits', () => {
   return `${g.state.strides.toFixed(1)} strides, femur swing ${swing('femur-fl').toFixed(0)}°, all joints inside limits`
 })
 
+// ── 26b. locomotion: legs traverse the bench courses with honest limits ────
+check('locomotion: quadruped walks, derates on grade/ice, blocked by stairs', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
+  const g = A.createGaitTeleop(design)
+  assert(g && g.locomote, 'quadruped gait offers no locomotion')
+  let actual = design.joints.map(() => 0)
+  const run = (env, secs, cmd) => {
+    for (let i = 0; i < secs * 60; i++) {
+      const r = g.locomote(cmd || { x: 1 }, 1 / 60, actual, env)
+      if (r && r.pose) actual = r.pose
+    }
+    return { ...g.locomoteState } // snapshot — the live object keeps mutating
+  }
+  g.reset(); actual = design.joints.map(() => 0)
+  const flat = run({ surface: 'hardwood', slopeDeg: 0, course: 'rack' }, 3)
+  assert(flat.x > 0.8, `walked only ${flat.x.toFixed(2)}m in 3s`)
+  assert(Math.abs(flat.v - 0.39) < 0.08, `cruise ${flat.v.toFixed(2)} m/s — gait kinematics say ~0.39`)
+  const ice = run({ surface: 'ice', slopeDeg: 0, course: 'rack' }, 3)
+  assert(ice.slip && ice.v < flat.v * 0.6, `ice should slip and crawl: v=${ice.v.toFixed(2)} slip=${ice.slip}`)
+  g.reset(); actual = design.joints.map(() => 0)
+  const stairs = run({ surface: 'hardwood', slopeDeg: 0, course: 'stairs' }, 10)
+  assert(stairs.x < 1.8 && stairs.stall && stairs.bumps > 0, `small quad should be stopped by 80mm risers: x=${stairs.x.toFixed(2)} bumps=${stairs.bumps} stall=${stairs.stall}`)
+  return `flat ${flat.x.toFixed(2)}m @${flat.v.toFixed(2)}m/s · ice ${ice.v.toFixed(2)}m/s slip · stairs blocked @x=${stairs.x.toFixed(2)}`
+})
+
+check('locomotion: tall humanoid climbs porch stairs the quad cannot', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'humanoid').brief })
+  const g = A.createGaitTeleop(design)
+  assert(g && g.locomote, 'humanoid gait offers no locomotion')
+  let actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 12; i++) {
+    const r = g.locomote({ x: 1 }, 1 / 60, actual, { surface: 'hardwood', slopeDeg: 0, course: 'stairs' })
+    if (r && r.pose) actual = r.pose
+  }
+  const st = g.locomoteState
+  assert(st.x > 3.0, `humanoid should top the stair flight: x=${st.x.toFixed(2)}`)
+  return `topped stairs at x=${st.x.toFixed(2)} — leg reach decides, not motors`
+})
+
 // ── 27. endurance: sustained load cooks servos to cutoff, pack drains ───────
 check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
@@ -478,6 +568,137 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   assert(h.soc < soc0, `SoC did not drain: ${soc0} → ${h.soc}`)
   assert(h.vbus < 12, `bus voltage did not sag: ${h.vbus.toFixed(1)}V`)
   return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
+})
+
+// ── 30/31. autopilot certification scores maneuvers honestly ───────────────
+const runAutotest = (env) => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
+  const drive = A.createDrive(design, analysis)
+  drive.setEnv(env || {})
+  const at = A.createAutotest(drive)
+  at.start()
+  for (let i = 0; i < 60 * 20 && at.running; i++) drive.step(at.tick(1 / 60), 1 / 60)
+  return at
+}
+
+check('autotest: rover passes the certification suite on a real climb', () => {
+  const at = runAutotest({ surface: 'hardwood', slopeDeg: 10 })
+  assert(at.done, 'autotest did not finish within 20s sim')
+  assert(at.results.length === 5, `expected 5 phase results, got ${at.results.length}`)
+  const fails = at.results.filter((r) => !r.pass)
+  assert(fails.length === 0, `unexpected failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
+  return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
+check('autotest: wet-ice ramp fails the climb check honestly', () => {
+  const at = runAutotest({ surface: 'ice', slopeDeg: 10 })
+  assert(at.done, 'autotest did not finish')
+  const climb = at.results.find((r) => r.id === 'climb')
+  assert(climb && !climb.pass, `climb passed on wet ice — ${climb && climb.detail}`)
+  return `climb FAIL — ${climb.detail}`
+})
+
+// ── 32. stairs course: risers taller than wheel bite block honestly ─────────
+check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
+  const drive = A.createDrive(design, analysis)
+  drive.setEnv({ course: 'stairs' })
+  let stalled = false
+  for (let i = 0; i < 60 * 10; i++) {
+    drive.step({ throttle: 1, steer: 0 }, 1 / 60)
+    if (drive.state.stall) stalled = true
+  }
+  const s = drive.state
+  assert(s.bumps > 0, 'never registered a stair hit')
+  assert(stalled, 'never flagged stall at the nosing')
+  assert(s.x < 1.9, `rode through the stairs to x=${s.x.toFixed(2)}`)
+  assert(s.z < 0.01, `climbed to z=${s.z.toFixed(2)} without wheel bite`)
+  return `blocked at x=${s.x.toFixed(2)}, ${s.bumps} bumps, stall=${stalled}`
+})
+
+// ── 33-36. autopilot certification covers every teleop kind ────────────────
+const presetDesign = (archetype) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === archetype).brief })
+
+check('autotest reach: arm tour scores real IK error per desk prop', () => {
+  const { design } = presetDesign('arm')
+  const ik = A.createArmTeleop(design)
+  const at = A.createAutotest(ik)
+  at.start()
+  const actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 40 && at.running; i++) {
+    const c = at.tick(1 / 60, actual)
+    const pose = c && c.pose ? c.pose : (c ? ik.step(c, 1 / 60, actual) : null)
+    if (pose) pose.forEach((a, j) => { actual[j] = a }) // engine has no servo lag — apply instantly
+  }
+  assert(at.done, 'reach tour did not finish')
+  assert(at.results.length === 4, `expected 4 results (3 props + home), got ${at.results.length}`)
+  const steel = at.results.find((r) => r.id === 'reach-steel')
+  assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
+  const bin = at.results.find((r) => r.id === 'reach-bin')
+  assert(bin && !bin.pass, `parts bin should be honestly unreachable for this arm — ${bin && bin.detail}`)
+  assert(at.results.every((r) => /err \d+mm|returned/.test(r.detail)), 'results lack measured detail')
+  return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
+})
+
+check('autotest gait: quadruped locomotion suite passes on rack', () => {
+  const { design } = presetDesign('quadruped')
+  const gait = A.createGaitTeleop(design)
+  const at = A.createAutotest(gait)
+  at.start()
+  let actual = design.joints.map(() => 0)
+  const env = { surface: 'hardwood', slopeDeg: 8, course: 'rack' }
+  for (let i = 0; i < 60 * 25 && at.running; i++) {
+    const c = at.tick(1 / 60)
+    const r = gait.locomote(c, 1 / 60, actual, env)
+    if (r && r.pose) actual = r.pose
+  }
+  assert(at.done, 'gait locomotion test did not finish')
+  const fails = at.results.filter((r) => !r.pass)
+  assert(fails.length === 0, `gait failures: ${fails.map((r) => `${r.label}(${r.detail})`).join(',')}`)
+  return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
+check('autotest gait: quad honestly fails porch stairs, humanoid climbs', () => {
+  const env = { surface: 'hardwood', slopeDeg: 0, course: 'stairs' }
+  const run = (arch) => {
+    const { design } = presetDesign(arch)
+    const gait = A.createGaitTeleop(design)
+    const at = A.createAutotest(gait)
+    at.start()
+    let actual = design.joints.map(() => 0)
+    for (let i = 0; i < 60 * 25 && at.running; i++) {
+      const c = at.tick(1 / 60)
+      const r = gait.locomote(c, 1 / 60, actual, env)
+      if (r && r.pose) actual = r.pose
+    }
+    return at.results.find((r) => r.id === 'obstacle')
+  }
+  const quad = run('quadruped')
+  const hum = run('humanoid')
+  assert(quad && quad.pass, `quad obstacle check should pass-by-blocking: ${quad && quad.detail}`)
+  assert(/can't mount|blocked/i.test(quad.detail), `quad should report an honest block, got: ${quad.detail}`)
+  assert(hum && hum.pass, `humanoid should top the flight: ${hum && hum.detail}`)
+  return `quad: ${quad.detail} · humanoid: ${hum.detail}`
+})
+
+check('autotest grip: jaw cycles open/closed on command', () => {
+  const { design } = presetDesign('gripper')
+  const grip = A.createGripTeleop(design)
+  const at = A.createAutotest(grip)
+  at.start()
+  for (let i = 0; i < 60 * 15 && at.running; i++) grip.step(at.tick(1 / 60))
+  assert(at.done && at.results[0] && at.results[0].pass, `jaw test: ${at.results[0] && at.results[0].detail}`)
+  return at.results[0].detail
+})
+
+check('autotest sense: stimulus sweep fires a real threshold alert', () => {
+  const { design } = presetDesign('iot')
+  const sense = A.createSensorTeleop(design)
+  const at = A.createAutotest(sense)
+  at.start()
+  for (let i = 0; i < 60 * 10 && at.running; i++) at.tick(1 / 60)
+  assert(at.done && at.results[0] && at.results[0].pass, `sense test: ${at.results[0] && at.results[0].detail}`)
+  return at.results[0].detail
 })
 
 // ── report ──────────────────────────────────────────────────────────────────

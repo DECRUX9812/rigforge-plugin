@@ -957,11 +957,12 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const fallback = useRef(false)
   const target = useMemo(() => {
+    if (focus) return focus
     if (!mesh.length) return [0, 0, 120]
     const min = [Infinity, Infinity, Infinity]
     const max = [-Infinity, -Infinity, -Infinity]
@@ -970,7 +971,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       if (p[i] > max[i]) max[i] = p[i]
     }
     return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]
-  }, [mesh])
+  }, [mesh, focus])
 
   useEffect(() => {
     const cv = ref.current
@@ -1061,6 +1062,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   return h('div', { style: S.viewWrap },
     h('canvas', {
       ref,
+      // A canvas is a picture of a machine, not a widget: give it a name and a
+      // description so a screen reader announces it instead of skipping it, and
+      // say where the accessible controls live.
+      role: 'img',
+      'aria-label': `3D view of ${design.title}`,
+      'aria-describedby': 'rf-view-desc',
       style: S.canvas,
       onPointerDown: onDown,
       onPointerMove: onMove,
@@ -1074,6 +1081,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'MASS'), h('span', { style: S.hudVal }, `${Math.round(analysis?.mass.totalG || 0)} g`)),
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
+    h('span', {
+      id: 'rf-view-desc',
+      style: {
+        position: 'absolute', width: '1px', height: '1px', margin: '-1px',
+        padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+      },
+    }, `${design.subtitle}. Drag to orbit, scroll to zoom. Pose it with the joint sliders below the view.`),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
