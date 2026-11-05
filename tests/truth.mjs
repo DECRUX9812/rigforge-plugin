@@ -171,6 +171,21 @@ check('STL: header count = (size-84)/50; parts centred, on Z=0', () => {
   return `${parts} STL files validated`
 })
 
+// ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
+// The dims heuristic used to stand wedges and ring towers on edge — the
+// overhang check caught it, bestBedPerm fixed it. These presets must stay
+// self-supporting; the gantry corner bracket is the honest positive control.
+check('DFM overhang: presets self-support, gantry bracket flags honestly', () => {
+  const designOf = (arch) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief }).design
+  for (const arch of ['arm', 'rover', 'robot', 'quadruped', 'humanoid', 'gripper', 'iot', 'gadget']) {
+    const oh = A.overhangReport(designOf(arch))
+    assert(oh.unsupportedMm2 <= 60, `${arch}: ${oh.unsupportedMm2}mm² unsupported — bed orientation regressed`)
+  }
+  const oh = A.overhangReport(designOf('gantry'))
+  assert(oh.unsupportedMm2 > 100, `gantry corner overhang should be detected, got ${oh.unsupportedMm2}`)
+  return `gantry flags ${oh.unsupportedMm2}mm² unsupported; all other presets self-support`
+})
+
 // ── 10. build codes round-trip ───────────────────────────────────────────────
 check('build code round-trips to the same machine', () => {
   eachPreset((p, { design }) => {
