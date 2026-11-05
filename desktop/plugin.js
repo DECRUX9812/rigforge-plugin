@@ -11143,6 +11143,26 @@ function Studio() {
   const timeWarpRef = useRef(1)
   timeWarpRef.current = timeWarp
   const keysRef = useRef({})
+  // Touch joystick: {x,y} in [-1,1], y+ = stick down. Injected into the same
+  // input mix as keys/gamepad so every teleop mode gets it for free.
+  const touchRef = useRef({ x: 0, y: 0, active: false })
+  const [isTouch] = useState(() => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+  const joyRef = useRef(null)
+  const joyKnobRef = useRef(null)
+  const joyVec = useCallback((e) => {
+    const r = joyRef.current.getBoundingClientRect()
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+    const R = r.width / 2 - 8
+    let dx = (e.clientX - cx) / R, dy = (e.clientY - cy) / R
+    const m = Math.hypot(dx, dy)
+    if (m > 1) { dx /= m; dy /= m }
+    touchRef.current = { x: +dx.toFixed(3), y: +dy.toFixed(3), active: true }
+    if (joyKnobRef.current) joyKnobRef.current.style.transform = `translate(${dx * R * 0.62}px, ${dy * R * 0.62}px)`
+  }, [])
+  const joyEnd = useCallback(() => {
+    touchRef.current = { x: 0, y: 0, active: false }
+    if (joyKnobRef.current) joyKnobRef.current.style.transform = 'translate(0,0)'
+  }, [])
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
@@ -11210,6 +11230,11 @@ function Studio() {
           const gy = dz(gp.axes[1] || 0)
           if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
         }
+        // a finger on the stick is a deliberate input — it wins over keys
+        if (touchRef.current.active && !(at && at.running)) {
+          steer = touchRef.current.x
+          throttle = -touchRef.current.y
+        }
         drive.step({ throttle, steer }, dt)
         // gamepad face button = shove test (edge-triggered)
         if (gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed && !gpBtnRef.current) drive.shove(15)
@@ -11230,6 +11255,9 @@ function Studio() {
           if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
             cx = -gy; cy = gx; cz = -gz
           }
+        }
+        if (touchRef.current.active && !(at && at.running)) {
+          cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0
         }
         let certPose = null
         if (at && at.running) {
@@ -11253,6 +11281,7 @@ function Studio() {
           const gy2 = dz(gp.axes[1] || 0)
           if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
+        if (touchRef.current.active && !(at && at.running)) { gx = -touchRef.current.y; gy = -touchRef.current.x }
         let gaitEnv = benchEnv
         if (at && at.running) {
           const c = at.tick(dt)
@@ -12145,7 +12174,7 @@ function Studio() {
                 driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
                 driveHud.course === 'stairs' ? h('span', { key: 'j2', style: { color: C.cyan } }, 'STAIRS') : null,
                 driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
-                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
+                h('span', { key: 'h', style: { color: C.faint } }, isTouch ? 'STICK drive · 0 reset' : 'WASD · X shove · 0 reset'),
               ],
           // endurance telemetry rides every teleop HUD — the pack drains and
           // the servos cook whether you are driving, reaching or walking
@@ -12174,6 +12203,28 @@ function Studio() {
               }, 'APPLY FIX') : null)
             : null,
         ) : null,
+        driveOn && isTouch ? h('div', {
+          ref: joyRef,
+          onPointerDown: (e) => { try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* older webview */ } joyVec(e) },
+          onPointerMove: (e) => { if (touchRef.current.active) joyVec(e) },
+          onPointerUp: joyEnd,
+          onPointerCancel: joyEnd,
+          style: {
+            position: 'absolute', left: '14px', bottom: '14px', width: '104px', height: '104px',
+            borderRadius: '50%', background: 'rgba(16,22,28,0.55)', border: `1px solid ${C.line}`,
+            touchAction: 'none', zIndex: 4, userSelect: 'none',
+          },
+        },
+          h('div', { style: { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.faint, fontFamily: C.mono, fontSize: '8.5px', letterSpacing: '0.08em', pointerEvents: 'none' } }, 'STICK'),
+          h('div', {
+            ref: joyKnobRef,
+            style: {
+              position: 'absolute', left: '50%', top: '50%', width: '44px', height: '44px',
+              margin: '-22px 0 0 -22px', borderRadius: '50%',
+              background: `linear-gradient(135deg, ${C.accent}, ${C.accent}cc)`,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.5)', pointerEvents: 'none',
+            },
+          })) : null,
         driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
           style: {
             position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5,
