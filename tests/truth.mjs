@@ -616,6 +616,31 @@ check('OpenSCAD export: one named module per node, each instantiated once, every
   return `${total} named modules across ten machines`
 })
 
+// ── 29. servo harness: stock leads must reach, voltage drop stays bounded ────
+check('servo harness: runs measured from joint pivots, long leads flagged honestly', () => {
+  let rows = 0
+  eachPreset((p, { design, analysis }) => {
+    const h = analysis.harness
+    const hasServos = (design.parts || []).some(({ key }) => A.PARTS[key] && A.PARTS[key].cat === 'servo')
+    const driven = (design.joints || []).filter((j) => j.pivot).length
+    if (!hasServos || !driven) { assert(!h, `${p.id}: harness should be absent without servos/joints`); return }
+    assert(h, `${p.id}: servos + joints but no harness analysis`)
+    assert(h.rows.length === driven, `${p.id}: ${h.rows.length} harness rows for ${driven} joints`)
+    for (const r of h.rows) {
+      assert(r.run >= 0 && isFinite(r.run), `${p.id}/${r.id}: bad run ${r.run}`)
+      assert(['stock', 'check', 'extend', 'daisy-chain', 'unknown'].includes(r.lead), `${p.id}/${r.id}: bad verdict ${r.lead}`)
+      assert(r.vdrop >= 0 && r.vdrop < 2, `${p.id}/${r.id}: implausible drop ${r.vdrop}V`)
+      rows += 1
+    }
+  })
+  // The 450mm arm's wrist is ~380mm from the base on a 300mm-lead servo — the
+  // check must say so, not smooth it over.
+  const arm = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const wrist = arm.analysis.harness.rows.find((r) => r.id === 'wrist-roll')
+  assert(wrist && wrist.lead === 'extend', `arm wrist-roll should need an extension lead, got ${wrist && wrist.lead} (${wrist && wrist.run}mm)`)
+  return `${rows} joint runs checked; arm wrist honestly flagged ~${wrist.run}mm > 300mm lead`
+})
+
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────
 const runAutotest = (env) => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })

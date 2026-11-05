@@ -1106,6 +1106,14 @@ function toSpecMarkdown(design, a) {
   for (const w of (a.power.wiring || [])) L.push(`| ${w.rail} | ${fmt(w.amps, 2)} A | ${fmt(w.peak, 2)} A | AWG ${w.awg} | ${w.fuse ? `${w.fuse} A` : '—'} |`)
   L.push('', `Typical ${fmt(a.power.typ, 2)}A, peak ${fmt(a.power.peak, 2)}A${a.power.runtimeMin ? `, ~${Math.round(a.power.runtimeMin)} min on ${a.power.bat.name}` : ''}.`, '')
 
+  if (a.harness && a.harness.rows.length) {
+    L.push('## Servo harness', '', '| Joint | Run (est.) | Lead | V drop @ stall |', '|---|---|---|---|')
+    for (const r of a.harness.rows) {
+      L.push(`| ${r.label || r.id} | ~${r.run}mm | ${r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead length' : r.lead === 'extend' ? 'needs extension' : r.lead} | ${r.vdrop}V |`)
+    }
+    L.push('', a.harness.note, '')
+  }
+
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
   L.push('## Assembly', '')
   for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${fmtMinutes(s.min)}) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)
