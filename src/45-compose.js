@@ -41,27 +41,29 @@ function matchArchetype(text) {
     ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
     ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
   ]
-  for (const [id, re] of rules) if (re.test(t)) return { id, confident: true }
-  return { id: 'gadget', confident: false }
+  for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
+  // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
+  // load carrier: catching it here beats building an enclosure and calling it a
+  // misunderstanding
+  if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
+    return { id: 'rover', archetype: 'rover', confident: true, matched: true }
+  }
+  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false }
 }
 
 function detectArchetype(text) {
-  const t = String(text || '').toLowerCase()
-  if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
-  if (/\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/.test(t)) return 'pcb'
-  if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
-  if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
-  if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
-  if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
-  if (/gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/.test(t)) return 'gripper'
-  if (/\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/.test(t)) return 'arm'
-  if (/rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/.test(t)) return 'rover'
-  return 'gadget'
+  return matchArchetype(text).archetype
 }
 
 /** Pull numbers out of prose. "a 1.2kg payload with 500mm reach, 6 dof". */
 function parseBrief(text) {
-  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: detectArchetype(text) }
+  const verdict = matchArchetype(text)
+  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: verdict.archetype }
+  // Whether the words actually named a machine. Nonsense used to fall through to
+  // the smallest enclosure and build it without a word, which reads as "it
+  // understood me" when it did not.
+  out.archetypeMatched = verdict.matched
+  if (!verdict.matched && out.mission.length < 4) out.archetypeMatched = true
   const kg = text.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilo)/i)
   if (kg) out.payloadKg = parseFloat(kg[1].replace(',', '.'))
   const g = text.match(/(\d{2,4})\s*g(?:ram)?\b/i)
