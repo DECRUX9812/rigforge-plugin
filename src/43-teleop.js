@@ -369,6 +369,9 @@ function fixSuggestions(s) {
   if (s.prop && s.prop.over) {
     push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
   }
+  if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
+    push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
+  }
   if (s.grip && !s.grip.ok) {
     push('fail', `Fix grip: ${s.grip.blockKg}kg test mass beats ${s.grip.holdKg.toFixed(2)}kg hold — bigger servo/pinion or lighter test piece`)
   }
@@ -395,6 +398,7 @@ function gripBenchTris() {
   _gripTris.push(...deskBoxTris(GRIP_BENCH.pos[0], GRIP_BENCH.pos[1], GRIP_BENCH.pos[2], ...GRIP_BENCH.size, GRIP_BENCH.mat, 'grip-testmass'))
   return _gripTris
 }
+
 
 // ── sensor stimulus bench: inject the environment, watch the readings ────────
 // IoT nodes have no joints — the honest teleop is stimulus, not motion.
@@ -428,6 +432,7 @@ function createSensorTeleop(design) {
   }
   // OLED line: whichever real sensor exists leads the display
   const lead = sensors.find((k) => k !== 'display') || sensors[0]
+  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
   const alerts = () => {
     const out = []
     for (const sk of sensors) {
@@ -437,7 +442,6 @@ function createSensorTeleop(design) {
     }
     return out
   }
-  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
   return {
     kind: 'sense',
     state,

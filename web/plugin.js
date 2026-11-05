@@ -6012,6 +6012,9 @@ function fixSuggestions(s) {
   if (s.prop && s.prop.over) {
     push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
   }
+  if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
+    push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
+  }
   if (s.grip && !s.grip.ok) {
     push('fail', `Fix grip: ${s.grip.blockKg}kg test mass beats ${s.grip.holdKg.toFixed(2)}kg hold — bigger servo/pinion or lighter test piece`)
   }
@@ -6038,6 +6041,7 @@ function gripBenchTris() {
   _gripTris.push(...deskBoxTris(GRIP_BENCH.pos[0], GRIP_BENCH.pos[1], GRIP_BENCH.pos[2], ...GRIP_BENCH.size, GRIP_BENCH.mat, 'grip-testmass'))
   return _gripTris
 }
+
 
 // ── sensor stimulus bench: inject the environment, watch the readings ────────
 // IoT nodes have no joints — the honest teleop is stimulus, not motion.
@@ -6071,6 +6075,7 @@ function createSensorTeleop(design) {
   }
   // OLED line: whichever real sensor exists leads the display
   const lead = sensors.find((k) => k !== 'display') || sensors[0]
+  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
   const alerts = () => {
     const out = []
     for (const sk of sensors) {
@@ -6080,7 +6085,6 @@ function createSensorTeleop(design) {
     }
     return out
   }
-  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
   return {
     kind: 'sense',
     state,
@@ -8608,6 +8612,7 @@ const GLOBAL_CSS = `
   [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
+  [data-rf="viewbar"] { flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 28px); }
   [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(430px, 1fr) auto; }
   [data-rf="spec"] { grid-column: 1 / -1; max-height: 32vh; border-top: 1px solid #1E2A35; }
   [data-rf="view"] { min-height: 46vh; }
@@ -8642,7 +8647,9 @@ const GLOBAL_CSS = `
 @media (max-width: 700px) {
   /* the viewer toolbar has nine controls; it may wrap, may not push the page
      sideways, and its targets have to be tappable with a thumb */
-  [data-rf="viewbar"] { left: 8px; right: 8px; flex-wrap: wrap; row-gap: 4px; padding: 6px; }
+  /* the bar carries camera presets, display toggles and a live power badge;
+     at any width it must wrap rather than push the page sideways */
+  [data-rf="viewbar"] { left: 8px; right: 8px; flex-wrap: wrap; row-gap: 4px; padding: 6px; max-width: calc(100% - 16px); }
   [data-rf="viewbar"] button { min-height: 30px; min-width: 34px; }
   [data-rf="view"] { min-height: 50vh; }
   /* inline style says nowrap; on a phone the caption should wrap instead of
@@ -10338,7 +10345,7 @@ function Studio() {
       if (powerRef.current) {
         const drv = driveRef.current
         const motorA = drv ? Math.abs(drv.state.throttle) * motorARef.current : 0
-        powerRef.current.step(dt, sim.state, motorA)
+        powerRef.current.step(dt * timeWarpRef.current, sim.state, motorA)
         sim.state.thermal = powerRef.current.state.cut
       }
       raf = requestAnimationFrame(tick)
@@ -10456,8 +10463,13 @@ function Studio() {
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
   const [, setSenseTick] = useState(0)
+  const [timeWarp, setTimeWarp] = useState(1)
+  const timeWarpRef = useRef(1)
+  timeWarpRef.current = timeWarp
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
+  const rumbleRef = useRef({})
+  const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
 
   useEffect(() => {
@@ -10483,11 +10495,16 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
     const gait = gaitRef.current
     const grip = gripRef.current
+    const sense = senseRef.current
+    benchStatsRef.current = {
+      seconds: 0, maxV: 0, bumps: 0, stallMs: 0, slipMs: 0,
+      minSoc: 100, maxTemp: 0, cutouts: 0, ikErr: null, mode: teleopKind,
+    }
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
@@ -10546,6 +10563,51 @@ function Studio() {
         const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
         if (desired) setPose(desired)
       }
+      // bench stats: everything the test report needs, accumulated live
+      const bs = benchStatsRef.current
+      if (bs) {
+        bs.seconds += dt
+        if (drive) {
+          bs.maxV = Math.max(bs.maxV, Math.abs(drive.state.v))
+          bs.stallMs += drive.state.stall ? dt * 1000 : 0
+          bs.slipMs += drive.state.slip ? dt * 1000 : 0
+          bs.bumps = Math.max(bs.bumps, drive.state.bumps || 0)
+        }
+        if (ik && ik.state && ik.state.ready) bs.ikErr = Math.max(bs.ikErr || 0, ik.state.err || 0)
+        const ps = powerRef.current && powerRef.current.state
+        if (ps) {
+          bs.minSoc = Math.min(bs.minSoc, ps.soc)
+          const tmax = ps.temps && ps.temps.length ? Math.max(...ps.temps) : 0
+          bs.maxTemp = Math.max(bs.maxTemp, tmax)
+          bs.cutouts = Math.max(bs.cutouts, (ps.cut || []).filter(Boolean).length)
+        }
+      }
+      // haptics: edge-triggered rumble — stall, wheelspin, bumps, joint stall,
+      // dead pack, sensor alert. One buzz per event, not a continuous scream.
+      if (gp && gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+        const bumpN = (drive && drive.state.bumps) || 0
+        const jstall = !!(simRef.current && simRef.current.state.stalled && simRef.current.state.stalled.some(Boolean))
+        const sal = sense ? sense.hud().alerts.length : 0
+        const now2 = {
+          stall: !!(drive && drive.state.stall),
+          slip: !!(drive && drive.state.slip),
+          bump: bumpN,
+          jstall,
+          dead: !!pwrDead,
+          sense: sal > 0,
+        }
+        const prev = rumbleRef.current
+        const buzz = (sMag, wMag, ms) => {
+          try { gp.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: sMag, weakMagnitude: wMag }) } catch { /* pad went away */ }
+        }
+        if (now2.stall && !prev.stall) buzz(0.7, 0.5, 220)
+        else if (now2.slip && !prev.slip) buzz(0.35, 0.35, 120)
+        if (now2.bump > prev.bump) buzz(0.9, 0.2, 140)
+        if (now2.jstall && !prev.jstall) buzz(0.6, 0.6, 200)
+        if (now2.dead && !prev.dead) buzz(1, 1, 400)
+        if (now2.sense && !prev.sense) buzz(0.3, 0.5, 150)
+        rumbleRef.current = now2
+      }
       spaceEdgeRef.current = false
       raf = requestAnimationFrame(tick)
     }
@@ -10562,7 +10624,7 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset(); senseRef.current && senseRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
@@ -10652,8 +10714,37 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, power: powerHud }),
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud }),
     [benchLive, driveHud, propHud, gripHud, powerHud])
+
+  // Field-test report: everything the bench logged, as a markdown file the
+  // builder can attach to the print pack or paste into a build log.
+  const downloadReport = useCallback(() => {
+    const bs = benchStatsRef.current || {}
+    const modeName = { drive: 'DRIVE', ik: 'REACH', gait: 'WALK', grip: 'GRIP', sense: 'SENSE' }[bs.mode] || 'MANUAL'
+    const md = [
+      '# RigForge field-test report',
+      '',
+      `- **machine:** ${design.title || design.subtitle || 'untitled'}`,
+      `- **mode:** ${modeName} · **duration:** ${((bs.seconds || 0)).toFixed(0)}s sim`,
+      bs.maxV ? `- **top speed:** ${bs.maxV.toFixed(2)} m/s` : null,
+      bs.bumps ? `- **obstacle hits:** ${bs.bumps}` : null,
+      (bs.stallMs || bs.slipMs) ? `- **stall time:** ${(bs.stallMs / 1000).toFixed(1)}s · **slip time:** ${(bs.slipMs / 1000).toFixed(1)}s` : null,
+      bs.ikErr != null ? `- **worst IK error:** ${bs.ikErr.toFixed(1)} mm` : null,
+      `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
+      bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
+      `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      '',
+      '_Generated by RigForge test bench — numbers are simulated, not measured._',
+    ].filter(Boolean).join('\n')
+    try {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }))
+      a.download = 'rigforge-test-report.md'
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch { /* SSR / no DOM */ }
+  }, [design, fixes])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -11394,7 +11485,18 @@ function Studio() {
               'aria-pressed': !!cam.ortho,
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
-            }, 'ORTHO')),
+            }, 'ORTHO'),
+            h('button', {
+              style: timeWarp === 10 ? S.viewChipOn : S.viewChip,
+              'aria-pressed': timeWarp === 10,
+              title: 'endurance time warp — battery drains and servos heat 10× faster',
+              onClick: () => setTimeWarp((w) => (w === 1 ? 10 : 1)),
+            }, `TIME ${timeWarp}×`),
+            h('button', {
+              style: S.viewChip,
+              title: 'download the field-test report (markdown) — stats the bench logged this session',
+              onClick: downloadReport,
+            }, 'REPORT')),
           driveAvail ? h('div', { style: S.viewSep }) : null,
           driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'bench teleop' },
             h('button', {

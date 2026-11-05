@@ -456,6 +456,23 @@ check('living-room course: obstacles stop the chassis and count bumps', () => {
   return `centre pinned at x=${d.state.x.toFixed(2)} (${d.state.bumps} bumps), wide lane x=${d2.state.x.toFixed(2)}`
 })
 
+// ── 25c. sensor bench: fitted sensors read injected stimulus, alerts fire ──
+check('sensor bench: stimulus drives readings and threshold alerts', () => {
+  const iot = A.PRESETS.find((p) => p.id === 'iot')
+  const { design } = A.composeDesign({ ...iot.brief, mission: 'a plant sensor that reports soil moisture and temperature' })
+  const t = A.createSensorTeleop(design)
+  assert(t, 'iot design offers no sensor teleop')
+  assert(t.fields.length >= 3, `expected temp+humid+soil fields, got ${t.fields.length}`)
+  t.set('humid', 96)
+  t.set('soil', 12)
+  const h = t.hud()
+  assert(h.alerts.length >= 2, `expected humidity+soil alerts, got ${h.alerts.length}: ${h.alerts}`)
+  assert(/\d/.test(h.oled) && !/node/.test(h.oled), `oled line should lead with a sensor reading: ${h.oled}`)
+  t.reset()
+  assert(t.hud().alerts.length === 0, 'reset should clear alerts')
+  return `${t.fields.length} stimulus fields, alerts: ${h.alerts.join('; ')}`
+})
+
 // ── 26. gait: legs cycle within joint limits, diagonal pairs phase-locked ───
 check('gait: quadruped trot moves all legs inside limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })

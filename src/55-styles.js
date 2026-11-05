@@ -57,6 +57,7 @@ const GLOBAL_CSS = `
   [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
+  [data-rf="viewbar"] { flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 28px); }
   [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(430px, 1fr) auto; }
   [data-rf="spec"] { grid-column: 1 / -1; max-height: 32vh; border-top: 1px solid #1E2A35; }
   [data-rf="view"] { min-height: 46vh; }
@@ -91,7 +92,9 @@ const GLOBAL_CSS = `
 @media (max-width: 700px) {
   /* the viewer toolbar has nine controls; it may wrap, may not push the page
      sideways, and its targets have to be tappable with a thumb */
-  [data-rf="viewbar"] { left: 8px; right: 8px; flex-wrap: wrap; row-gap: 4px; padding: 6px; }
+  /* the bar carries camera presets, display toggles and a live power badge;
+     at any width it must wrap rather than push the page sideways */
+  [data-rf="viewbar"] { left: 8px; right: 8px; flex-wrap: wrap; row-gap: 4px; padding: 6px; max-width: calc(100% - 16px); }
   [data-rf="viewbar"] button { min-height: 30px; min-width: 34px; }
   [data-rf="view"] { min-height: 50vh; }
   /* inline style says nowrap; on a phone the caption should wrap instead of
