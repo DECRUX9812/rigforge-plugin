@@ -419,6 +419,12 @@ function gripAutotest(grip) {
       if (edge) pulses++
       if (t >= 9.2) {
         pushResult(st, 'jaw', 'JAW', toggles >= 5, `${toggles} jaw transitions`)
+        // HOLD: the jaw must close on the bench's 1kg test mass — the rating
+        // comes from real jaw force × pad friction ÷ pinion geometry
+        const holdKg = grip.holdKg || 0
+        const need = 1
+        pushResult(st, 'hold', 'HOLD', holdKg >= need,
+          holdKg >= need ? `holds ${need}kg test mass (rated ${holdKg.toFixed(2)}kg)` : `rated ${holdKg.toFixed(2)}kg < ${need}kg test mass — jaw slips`)
         st.running = false; st.done = true; st.phase = null
       }
       return { grip: false, gripEdge: !!edge }
