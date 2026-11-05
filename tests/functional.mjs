@@ -12,8 +12,13 @@ page.on('pageerror', (e) => errs.push(e.message))
 await page.goto('http://127.0.0.1:18734/preview.html')
 await page.waitForTimeout(700)
 
+// the page now carries gallery thumbnails + the viewport — shoot the biggest one
 const shot = async (name) => {
-  const buf = await page.locator('canvas').first().screenshot()
+  const b64 = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('canvas')].sort((a, b) => b.width * b.height - a.width * a.height)[0]
+    return c.toDataURL('image/png').split(',')[1]
+  })
+  const buf = Buffer.from(b64, 'base64')
   writeFileSync(join(here, 'tmp', name), buf)
   return buf
 }
