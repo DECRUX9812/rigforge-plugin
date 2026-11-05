@@ -648,6 +648,9 @@ function Studio() {
       ? [['Centroid / CPL .csv (for assembly)', () => download(`${fileBase}-cpl.csv`, toCentroidCsv(design), 'text/csv')]]
       : []),
     ['Firmware .ino', () => download(`${fileBase}.ino`, design.firmware, 'text/plain')],
+    // a real simulator loads these: URDF for ROS/Isaac/Drake/PyBullet, MJCF for MuJoCo
+    ['URDF (ROS · Gazebo · Isaac)', () => download(`${fileBase}.urdf`, toURDF(design, analysis), 'application/xml')],
+    ['MJCF (MuJoCo dynamics)', () => download(`${fileBase}.xml`, toMJCF(design, analysis), 'application/xml')],
     ['Spec JSON (for Hermes)', async () => {
       const json = JSON.stringify({ brief, design: design.title, metrics: design.metrics, checks: analysis.checks, parts: design.parts }, null, 2)
       try {

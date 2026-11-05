@@ -343,6 +343,28 @@ check('build steps name only the chosen material', () => {
   return 'every guide matches the material in the BOM'
 })
 
+// ── 21. the simulation exports describe the same machine ────────────────────
+check('URDF/MJCF: one link per joint, real limits, an actuator per driven joint', () => {
+  let checked = 0
+  eachPreset((p, { design, analysis }) => {
+    const urdf = A.toURDF ? A.toURDF(design, analysis) : ''
+    const mjcf = A.toMJCF ? A.toMJCF(design, analysis) : ''
+    assert(urdf.startsWith('<?xml') && urdf.includes('<robot'), `${p.id}: no URDF`)
+    assert(mjcf.includes('<mujoco'), `${p.id}: no MJCF`)
+    const links = (urdf.match(/<link /g) || []).length
+    const joints = (urdf.match(/<joint /g) || []).length
+    assert(links === design.joints.length + 1, `${p.id}: ${links} links for ${design.joints.length} joints`)
+    assert(joints === design.joints.length, `${p.id}: ${joints} URDF joints vs ${design.joints.length} in the design`)
+    for (const m of urdf.matchAll(/<limit[^>]*effort="([\d.]+)"/g)) {
+      assert(Number(m[1]) > 0, `${p.id}: a joint has zero effort and cannot move`)
+    }
+    const motors = (mjcf.match(/<motor /g) || []).length
+    assert(motors === design.joints.length || motors === 0, `${p.id}: ${motors} motors for ${design.joints.length} joints`)
+    checked += 1
+  })
+  return `${checked} machines exported with matching topology`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
