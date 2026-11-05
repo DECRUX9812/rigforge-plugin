@@ -9360,7 +9360,7 @@ const GLOBAL_CSS = `
   /* the bar carries camera presets, display toggles and a live power badge; it
      wraps rather than pushing the page sideways */
   [data-rf="viewbar"], [role="toolbar"] { flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 28px); }
-  [data-rf="strip"] { display: none; }
+  [data-rf="strip"] { display: none !important; }
 }
 @media (max-width: 900px) {
   /* one document that scrolls, instead of three panes fighting for height */
@@ -9378,7 +9378,7 @@ const GLOBAL_CSS = `
   [data-rf="codeInput"]::placeholder { color: #6F8493; opacity: 1; }
   [data-rf="tagline"] { display: none; }
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
-  [data-rf="strip"] { display: none; }
+  [data-rf="strip"] { display: none !important; }
 }
 @media (max-width: 900px) {
   /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
@@ -9614,7 +9614,7 @@ const S = {
     display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 9px',
     borderRadius: '10px', border: `1px solid ${C.line}`, background: 'rgba(11,16,21,0.86)',
     backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 28px)',
-    // The bar carries camera presets, eight display toggles, the time warp, the
+    // The bar carries camera presets, nine display toggles, the time warp, the
     // report and the power badge. At 1600px that is 827px of content in a 620px
     // box, so 'REPORT' rendered as 'REPO' and the power badge vanished off the
     // right edge. Wrapping costs one row and hides nothing.
