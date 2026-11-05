@@ -216,6 +216,7 @@ function buildFullRobot(brief) {
     payloadKg: payload,
     massKg,
     wheelD,
+    trackMm: track,
     motor,
     speedMps: (mp.speed * Math.PI * (wheelD / 1000)) / 60,
     torquePerWheel: needPerWheel,

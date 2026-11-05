@@ -592,6 +592,108 @@ function Studio() {
     [posedDesign, analysis],
   )
 
+  // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
+  const driveRef = useRef(null)
+  const [driveAvail, setDriveAvail] = useState(false)
+  const [driveOn, setDriveOn] = useState(false)
+  const [chassis, setChassis] = useState(null)
+  const keysRef = useRef({})
+
+  useEffect(() => {
+    driveRef.current = createDrive(design, analysis)
+    setDriveAvail(!!driveRef.current)
+    setChassis(null)
+  }, [design, analysis])
+
+  useEffect(() => {
+    if (!driveOn || !driveRef.current) return undefined
+    const drive = driveRef.current
+    let raf = 0
+    let last = performance.now()
+    const tick = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000)
+      last = now
+      const k = keysRef.current
+      let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+      let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+      const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
+      const gp = gps && gps[0]
+      if (gp) {
+        const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
+        const gx = dz(gp.axes[0] || 0)
+        const gy = dz(gp.axes[1] || 0)
+        if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
+      }
+      drive.step({ throttle, steer }, dt)
+      setChassis({ ...drive.state })
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [driveOn])
+
+  useEffect(() => {
+    if (!driveOn) return undefined
+    const dn = (e) => {
+      const key = e.key.toLowerCase()
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+        keysRef.current[key === ' ' ? 'space' : key] = true
+        e.preventDefault()
+      }
+      if (key === 'r') driveRef.current && driveRef.current.reset()
+    }
+    const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
+    window.addEventListener('keydown', dn)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up) }
+  }, [driveOn])
+
+  // The displayed mesh: same tri objects, transformed verts — the array
+  // identity stays stable so the renderer's topology/tint cache still hits.
+  const xfRef = useRef(null)
+  const viewMesh = useMemo(() => {
+    if (!chassis) return mesh
+    let xf = xfRef.current
+    if (!xf || xf.src !== mesh) {
+      xf = { src: mesh, orig: [], out: [] }
+      for (const t of mesh) {
+        xf.orig.push(t.pts.map((p) => [p[0], p[1], p[2]]))
+        xf.out.push({ ...t, pts: t.pts.map((p) => [p[0], p[1], p[2]]) })
+      }
+      xfRef.current = xf
+    }
+    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    for (let i = 0; i < xf.out.length; i++) {
+      const op = xf.orig[i]
+      const tp = xf.out[i].pts
+      for (let k = 0; k < 3; k++) {
+        const px = op[k][0], py = op[k][1]
+        tp[k][0] = px * c - py * sn + chassis.x
+        tp[k][1] = px * sn + py * c + chassis.y
+        tp[k][2] = op[k][2]
+      }
+    }
+    return xf.out
+  }, [mesh, chassis])
+
+  // The overlay rides the machine: transform its world-space segments too.
+  const benchOvWorld = useMemo(() => {
+    if (!benchOv || !chassis) return benchOv
+    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    const d = benchOv.data
+    const out = new Float32Array(d.length)
+    for (let i = 0; i < d.length; i += 6) {
+      const px = d[i], py = d[i + 1]
+      out[i] = px * c - py * sn + chassis.x
+      out[i + 1] = px * sn + py * c + chassis.y
+      out[i + 2] = d[i + 2]
+      out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
+    }
+    return { data: out, verts: benchOv.verts }
+  }, [benchOv, chassis])
+
+  const driveHud = driveOn && chassis ? driveRef.current.hud() : null
+
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
   }, [])
@@ -1129,7 +1231,19 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh, cam, setCam, opts, design, analysis, overlay: benchOv }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts, design, analysis, overlay: benchOvWorld }),
+        driveHud ? h('div', {
+          style: {
+            position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10.5px', color: C.cyan,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '5px 9px', pointerEvents: 'none',
+            display: 'flex', gap: '10px', alignItems: 'center',
+          },
+        },
+          h('span', {}, `v ${driveHud.speed.toFixed(2)} m/s`),
+          h('span', {}, `hdg ${driveHud.yawDeg}°`),
+          h('span', { style: { color: C.faint } }, 'WASD drive · R reset · gamepad ok')) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
@@ -1160,7 +1274,15 @@ function Studio() {
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
             }, 'ORTHO')),
-          ),
+          driveAvail ? h('div', { style: S.viewSep }) : null,
+          driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'drive mode' },
+            h('button', {
+              style: driveOn ? S.viewChipOn : S.viewChip,
+              'aria-pressed': driveOn,
+              title: 'drive mode — WASD or gamepad: W/S throttle, A/D steer, R reset',
+              onClick: () => setDriveOn((o) => !o),
+            }, 'DRIVE')) : null,
+        ),
 
         h('div', { style: S.jointBar },
           // A pose rack, not a spreadsheet: fixed controls on the left, and the

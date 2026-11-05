@@ -122,6 +122,7 @@ function buildRover(brief) {
   Object.assign(d.metrics, {
     massKg,
     wheelD,
+    trackMm: track,
     speedMps: speed,
     runtimeMin,
     torquePerWheel: needPerWheel,
