@@ -4868,12 +4868,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
       onWheel,
     }),
     // corner HUD
-    h('div', { style: S.hudTL },
+    h('div', { style: S.hudTL, 'data-rf': 'hud' },
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'DIMS'), h('span', { style: S.hudVal }, `${dims.join(' × ')} mm`)),
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'MASS'), h('span', { style: S.hudVal }, `${Math.round(analysis?.mass.totalG || 0)} g`)),
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
-    h('div', { style: S.viewTitle }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
   )
 }
 
@@ -5103,18 +5103,25 @@ const S = {
   // ── viewport ────────────────────────────────────────────────────────────
   viewWrap: { position: 'relative', flex: '1 1 auto', minHeight: 0, overflow: 'hidden', background: '#080b0e' },
   canvas: { display: 'block', width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' },
+  // The HUD used to be raw text floating over a bright render: unreadable the
+  // moment a light part passed behind it. A small panel guarantees contrast.
   hudTL: {
-    position: 'absolute', top: '14px', left: '16px', display: 'flex', flexDirection: 'column',
-    gap: '4px', pointerEvents: 'none',
+    position: 'absolute', top: '12px', left: '14px', display: 'flex', flexDirection: 'column',
+    gap: '3px', pointerEvents: 'none', padding: '8px 10px', borderRadius: '9px',
+    border: `1px solid ${C.line}`, background: 'rgba(9,13,18,0.78)', backdropFilter: 'blur(8px)',
+    minWidth: '132px',
   },
-  hudRow: { display: 'flex', gap: '8px', alignItems: 'baseline' },
-  hudKey: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.13em', color: C.faint, width: '34px' },
-  hudVal: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim },
+  hudRow: { display: 'flex', gap: '10px', alignItems: 'baseline', justifyContent: 'space-between' },
+  hudKey: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.13em', color: C.faint },
+  hudVal: {
+    fontFamily: C.mono, fontSize: '11.5px', color: C.text, fontVariantNumeric: 'tabular-nums',
+  },
   hudTR: { position: 'absolute', top: '14px', right: '16px', pointerEvents: 'none' },
   hudHint: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.04em' },
   viewTitle: {
-    position: 'absolute', bottom: '16px', left: '92px', fontSize: '12.5px',
+    position: 'absolute', bottom: '16px', left: '126px', right: '24px', fontSize: '12.5px',
     color: C.dim, pointerEvents: 'none', fontFamily: C.sans, letterSpacing: '0.01em',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   viewSub: { color: C.faint },
   viewTools: {
@@ -5123,11 +5130,13 @@ const S = {
   },
   // A viewer toolbar is one horizontal instrument, not nine floating buttons:
   // camera presets are a radio group, display options are checkboxes.
+  // Sits top-right: the object's numbers live top-left, the controls that act
+  // on the view live on the other side, and neither fights the model.
   viewBar: {
-    position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)',
-    display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 10px',
+    position: 'absolute', top: '12px', right: '14px',
+    display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 9px',
     borderRadius: '10px', border: `1px solid ${C.line}`, background: 'rgba(11,16,21,0.86)',
-    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 220px)',
+    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 210px)',
   },
   viewGroup: { display: 'flex', alignItems: 'center', gap: '2px', padding: '2px', borderRadius: '7px', background: 'transparent' },
   viewSep: { width: '1px', height: '18px', background: C.line, flex: '0 0 auto' },
@@ -6509,8 +6518,8 @@ function Studio() {
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
             }, 'ORTHO')),
-          h('div', { style: S.viewSep }),
-          h('span', { style: S.viewHint }, 'drag to orbit · scroll to zoom')),
+          ),
+
         h('div', { style: S.jointBar },
           // A pose rack, not a spreadsheet: fixed controls on the left, and the
           // joints themselves in a wrapped grid so 23 of them occupy two rows

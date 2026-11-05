@@ -826,8 +826,8 @@ function Studio() {
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
             }, 'ORTHO')),
-          h('div', { style: S.viewSep }),
-          h('span', { style: S.viewHint }, 'drag to orbit · scroll to zoom')),
+          ),
+
         h('div', { style: S.jointBar },
           // A pose rack, not a spreadsheet: fixed controls on the left, and the
           // joints themselves in a wrapped grid so 23 of them occupy two rows
