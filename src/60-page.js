@@ -281,7 +281,7 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -301,6 +301,12 @@ function SimplePanel({ design, analysis, exports, onEngineer }) {
       design.pcb
         ? big('JOINTS', `${design.pcb.joints || 0}`, `${(design.pcb.placed || []).length} placements`, C.cyan)
         : big('WEIGHT', `${Math.round(analysis.mass.totalG)} g`, 'finished machine', C.cyan)),
+    h('button', {
+      style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10px', margin: '0 0 12px' },
+      onClick: onAudit,
+      title: 'every number here is a sum you can check',
+      'aria-label': 'Show the working behind these numbers',
+    }, '⌁ how these numbers are made'),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -407,6 +413,7 @@ function Studio() {
   const [jointGroup, setJointGroup] = useState('all')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -628,6 +635,7 @@ function Studio() {
     for (const [label, fn] of exports) {
       list.push({ id: 'export-' + label, group: 'EXPORT', label, run: fn })
     }
+    list.push({ id: 'act-audit', group: 'ACTION', label: 'Show the working — audit every number', run: () => setAuditOpen(true) })
     list.push({ id: 'act-share', group: 'ACTION', label: 'Copy a build code to share this design', run: copyBuildCode })
     list.push({ id: 'act-open-code', group: 'ACTION', label: 'Open a build code', run: () => setCodeOpen(true) })
     list.push({ id: 'act-build', group: 'ACTION', label: 'Build this machine', hint: '⏎', run: onBuild })
@@ -1055,7 +1063,7 @@ function Studio() {
       // right rail: the spec
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
-          h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
           : h('div', { style: S.tabs, role: 'tablist' },
           TABS.map(([id, label]) => {
             // a badge is information scent: how much sits behind the tab
@@ -1080,6 +1088,7 @@ function Studio() {
           h('span', { style: { marginLeft: 'auto', fontFamily: C.mono, fontSize: '14px', fontWeight: 600, color: C.accent } }, money(analysis.cost)))),
     ),
     h(CommandPalette, { open: paletteOpen, commands, onClose: () => setPaletteOpen(false) }),
+    h(AuditDialog, { open: auditOpen, onClose: () => setAuditOpen(false), design, analysis }),
     h(BuildCodeDialog, {
       open: codeOpen,
       onOpen: (b) => { setBrief({ ...DEFAULT_BRIEF, ...b }); setMission(b.mission || ''); setSimple(false) },
