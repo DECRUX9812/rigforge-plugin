@@ -17,13 +17,17 @@ function buildRover(brief) {
   const chassisH = 34
   const z0 = wheelD / 2
 
-  rbox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', bed, { print: true })
   for (const sx of [-1, 1]) {
-    box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 'shell', { print: true })
-    wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}`, [16, track * 0.9, 22], [sx * (wheelbase / 2 + 6), 0, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
+    splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 0.8, 'shell', bed, { print: true })
+    // two half-bumpers instead of one 288mm wedge: each fits a small bed
+    for (const side of [-1, 1]) {
+      wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}-${side > 0 ? 'r' : 'l'}`, [16, track * 0.44, 22], [sx * (wheelbase / 2 + 6), side * track * 0.23, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
+    }
   }
   for (const sx of [-1, 1]) {
-    rbox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', { print: true })
+    splitBox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', bed, { print: true })
     for (const fx of [-1, 1]) {
       bolt(d, `rail-bolt-${sx}${fx}`, [fx * (wheelbase / 2 - 8), sx * (track / 2 + 6.5), z0 + chassisH + 4], 'y', 8, { flip: sx < 0 })
     }

@@ -244,26 +244,26 @@ function TabPower({ analysis }) {
 function TabPrint({ design, analysis }) {
   const nodes = design.nodes.filter((n) => n.print)
   const rows = nodes
-    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
+    .map((n) => ({ id: n.id, name: prettyPart(n.id), kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
   return [
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
-      h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts` })),
+      h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts · largest ${Math.round(analysis.printFit ? analysis.printFit.worst.largest : 0)}mm on a ${analysis.printFit ? analysis.printFit.bed : 256}mm bed` })),
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
         h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'))),
       h('tbody', {}, rows.map((r) => h('tr', { key: r.id },
-        h('td', { style: { ...S.td, color: C.text } }, r.id),
+        h('td', { style: { ...S.td, color: C.text } }, r.name),
         h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
         h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)))))),
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'print advice'),
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
       `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
-      `Anything over 200mm should be split with dovetails or bolted flanges; heat-set inserts beat printed threads every time.`),
+      `Parts longer than your bed are split automatically with joiner plates — check the STEPS tab for which seams to glue. Heat-set inserts beat printed threads every time.`),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },

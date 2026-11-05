@@ -47,6 +47,54 @@ function box(d, id, size, pos, mat, extra) {
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
+/**
+ * Print-bed aware box: anything longer or wider than the bed becomes a grid of
+ * pieces with seams and joiner plates. A design that cannot be printed is not a
+ * design, so the geometry splits itself rather than leaving a 410mm part and a
+ * warning the user cannot act on.
+ */
+function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
+  const usable = Math.max(60, (bed || 256) - 16)
+  const gap = 2
+  const nA = Math.max(1, Math.ceil(size[0] / usable))
+  const nB = Math.max(1, Math.ceil(size[1] / usable))
+  if (nA === 1 && nB === 1) {
+    rbox(d, base, size, pos, fillet, mat, extra)
+    return 1
+  }
+  const segX = (size[0] - gap * (nA - 1)) / nA
+  const segY = (size[1] - gap * (nB - 1)) / nB
+  let count = 0
+  for (let i = 0; i < nA; i += 1) {
+    for (let j = 0; j < nB; j += 1) {
+      count += 1
+      const ps = [
+        pos[0] - size[0] / 2 + segX / 2 + i * (segX + gap),
+        pos[1] - size[1] / 2 + segY / 2 + j * (segY + gap),
+        pos[2],
+      ]
+      rbox(d, `${base}-${i + 1}x${j + 1}of${nA}x${nB}`, [segX, segY, size[2]], ps, fillet, mat, extra)
+    }
+  }
+  // joiner bars across every seam, on the underside
+  for (let i = 1; i < nA; i += 1) {
+    rbox(d, `${base}-joinX-${i}`, [26, Math.min(size[1] * 0.7, 60), 2.6], [
+      pos[0] - size[0] / 2 + i * segX + (i - 0.5) * gap,
+      pos[1], pos[2] - size[2] / 2 - 1.4,
+    ], 0.8, mat, { print: true })
+  }
+  for (let j = 1; j < nB; j += 1) {
+    rbox(d, `${base}-joinY-${j}`, [Math.min(size[0] * 0.7, 60), 26, 2.6], [
+      pos[0], pos[1] - size[1] / 2 + j * segY + (j - 0.5) * gap,
+      pos[2] - size[2] / 2 - 1.4,
+    ], 0.8, mat, { print: true })
+  }
+  if (d.notes) {
+    d.notes.push(`${base} prints in ${count} pieces (${Math.round(segX)}×${Math.round(segY)}mm) with joiner plates — glue or bolt the seams.`)
+  }
+  return count
+}
+
 function rbox(d, id, size, pos, r, mat, extra) {
   d.nodes.push({ id, kind: 'rbox', size, pos, r: r || 1.5, mat, ...extra })
 }

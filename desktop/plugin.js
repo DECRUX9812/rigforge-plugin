@@ -698,6 +698,54 @@ function box(d, id, size, pos, mat, extra) {
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
+/**
+ * Print-bed aware box: anything longer or wider than the bed becomes a grid of
+ * pieces with seams and joiner plates. A design that cannot be printed is not a
+ * design, so the geometry splits itself rather than leaving a 410mm part and a
+ * warning the user cannot act on.
+ */
+function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
+  const usable = Math.max(60, (bed || 256) - 16)
+  const gap = 2
+  const nA = Math.max(1, Math.ceil(size[0] / usable))
+  const nB = Math.max(1, Math.ceil(size[1] / usable))
+  if (nA === 1 && nB === 1) {
+    rbox(d, base, size, pos, fillet, mat, extra)
+    return 1
+  }
+  const segX = (size[0] - gap * (nA - 1)) / nA
+  const segY = (size[1] - gap * (nB - 1)) / nB
+  let count = 0
+  for (let i = 0; i < nA; i += 1) {
+    for (let j = 0; j < nB; j += 1) {
+      count += 1
+      const ps = [
+        pos[0] - size[0] / 2 + segX / 2 + i * (segX + gap),
+        pos[1] - size[1] / 2 + segY / 2 + j * (segY + gap),
+        pos[2],
+      ]
+      rbox(d, `${base}-${i + 1}x${j + 1}of${nA}x${nB}`, [segX, segY, size[2]], ps, fillet, mat, extra)
+    }
+  }
+  // joiner bars across every seam, on the underside
+  for (let i = 1; i < nA; i += 1) {
+    rbox(d, `${base}-joinX-${i}`, [26, Math.min(size[1] * 0.7, 60), 2.6], [
+      pos[0] - size[0] / 2 + i * segX + (i - 0.5) * gap,
+      pos[1], pos[2] - size[2] / 2 - 1.4,
+    ], 0.8, mat, { print: true })
+  }
+  for (let j = 1; j < nB; j += 1) {
+    rbox(d, `${base}-joinY-${j}`, [Math.min(size[0] * 0.7, 60), 26, 2.6], [
+      pos[0], pos[1] - size[1] / 2 + j * segY + (j - 0.5) * gap,
+      pos[2] - size[2] / 2 - 1.4,
+    ], 0.8, mat, { print: true })
+  }
+  if (d.notes) {
+    d.notes.push(`${base} prints in ${count} pieces (${Math.round(segX)}×${Math.round(segY)}mm) with joiner plates — glue or bolt the seams.`)
+  }
+  return count
+}
+
 function rbox(d, id, size, pos, r, mat, extra) {
   d.nodes.push({ id, kind: 'rbox', size, pos, r: r || 1.5, mat, ...extra })
 }
@@ -1182,13 +1230,17 @@ function buildRover(brief) {
   const chassisH = 34
   const z0 = wheelD / 2
 
-  rbox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'chassis-deck', [wheelbase, track, 5], [0, 0, z0 + chassisH - 2], 2, 'shell', bed, { print: true })
   for (const sx of [-1, 1]) {
-    box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 'shell', { print: true })
-    wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}`, [16, track * 0.9, 22], [sx * (wheelbase / 2 + 6), 0, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
+    splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 8], [sx * (wheelbase / 2 - 3), 0, z0 + chassisH / 2 - 2], 0.8, 'shell', bed, { print: true })
+    // two half-bumpers instead of one 288mm wedge: each fits a small bed
+    for (const side of [-1, 1]) {
+      wedge(d, `bumper-${sx > 0 ? 'f' : 'b'}-${side > 0 ? 'r' : 'l'}`, [16, track * 0.44, 22], [sx * (wheelbase / 2 + 6), side * track * 0.23, z0 + 8], sx > 0 ? 'nx' : 'px', 'accent', { print: true })
+    }
   }
   for (const sx of [-1, 1]) {
-    rbox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', { print: true })
+    splitBox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 10, 7, chassisH + 10], [0, sx * (track / 2 + 3), z0 + 2], 1.5, 'accent', bed, { print: true })
     for (const fx of [-1, 1]) {
       bolt(d, `rail-bolt-${sx}${fx}`, [fx * (wheelbase / 2 - 8), sx * (track / 2 + 6.5), z0 + chassisH + 4], 'y', 8, { flip: sx < 0 })
     }
@@ -1303,8 +1355,9 @@ function buildQuadruped(brief) {
   d.subtitle = `${Math.round(bodyLen)}mm body · ${payload}kg carried`
 
   const z0 = legLen * 1.35
-  rbox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', { print: true })
-  box(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 'accent', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', bed, { print: true })
+  splitBox(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 1, 'accent', bed, { print: true })
   rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
@@ -1630,15 +1683,16 @@ function buildFullRobot(brief) {
   d.subtitle = `${payload}kg payload · ${Math.round(track)}×${Math.round(wheelbase)}mm footprint · ${mat.name}`
 
   // ── drive base ───────────────────────────────────────────────────────────
-  rbox(d, 'deck', [wheelbase, track, 5], [0, 0, deckZ - 2], 2, 'shell', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'deck', [wheelbase, track, 5], [0, 0, deckZ - 2], 2, 'shell', bed, { print: true })
   for (const sx of [-0.28, 0.12]) {
-    box(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 'shell', { print: true })
+    splitBox(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 0.6, 'shell', bed, { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 8, 4, 40], [0, sx * (track / 2 + 2), z0 + chassisH / 2 - 2], 'accent', { print: true })
+    splitBox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 8, 4, 40], [0, sx * (track / 2 + 2), z0 + chassisH / 2 - 2], 0.6, 'accent', bed, { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 'shell', { print: true })
+    splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
@@ -2751,6 +2805,33 @@ function autoFasteners(design) {
 }
 
 /** Everything the UI and every export reads. Pure: design in, numbers out. */
+/**
+ * Will each printed part fit the printer? The old check compared the whole
+ * machine's bounding box to 256mm, which is wrong for anything built from
+ * pieces: a 400mm rover prints fine, and a 300mm single part does not.
+ */
+/** "rail-r-1x1of2x1" is a machine's name for a part; people need another. */
+function prettyPart(id) {
+  const tokens = String(id).split('-').filter((t) => t && !/^\d+x\d+of\d+x\d+$/.test(t) && !/^joiner$/.test(t) && !/^\d+$/.test(t))
+  const words = { f: 'front', b: 'rear', l: 'left', r: 'right', x: 'x', y: 'y' }
+  return tokens.map((t) => words[t] || t.replace(/_/g, ' ')).join(' ')
+}
+
+function printFit(design, bedMm) {
+  const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
+  const margin = 8 // you cannot print edge to edge
+  const usable = bed - margin
+  const printed = design.nodes.filter((n) => n.print || n.mat === 'shell')
+  const rows = printed.map((n) => {
+    const b = boundsOf([n])
+    const dims = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]].map((v) => Math.round(v * 10) / 10)
+    const largest = Math.max(...dims)
+    return { id: n.id, name: prettyPart(n.id), dims, largest, fits: largest <= usable, over: Math.round(largest - usable) }
+  }).sort((a, b) => b.largest - a.largest)
+  const worst = rows[0] || null
+  return { bed, usable, rows, worst, fitsAll: rows.every((r) => r.fits), count: rows.length }
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
@@ -2798,14 +2879,21 @@ function analyze(design) {
   if (printGrams > 900) {
     checks.push({ level: 'warn', msg: `${Math.round(printGrams)}g of filament — that is most of a spool and ${fmt(printHours, 0)}h of printing.` })
   }
-  if (dims.some((x) => x > 256)) {
-    checks.push({ level: 'warn', msg: `Longest dimension ${Math.round(Math.max(...dims))}mm: split the print or check your bed (256mm is typical).` })
+  const fit = printFit(design, design.brief && design.brief.bedMm)
+  if (fit.count && fit.worst && !fit.worst.fits) {
+    checks.push({
+      level: 'warn',
+      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Split it, or set your bed size under MORE OPTIONS.`,
+    })
+  } else if (fit.count) {
+    checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
 
   return {
+    printFit: fit,
     pins,
     power,
     cost,
@@ -3927,7 +4015,7 @@ function boundsOf(nodes) {
 // opens it gets the same machine — with their own live prices, not a snapshot.
 
 const RF_CODE = 'RF1'
-const BRIEF_KEYS = ['archetype', 'mission', 'payloadKg', 'reachMm', 'battery', 'mcu', 'material', 'energy', 'drive', 'gripper', 'spanX', 'scale']
+const BRIEF_KEYS = ['archetype', 'mission', 'payloadKg', 'reachMm', 'battery', 'mcu', 'material', 'energy', 'drive', 'gripper', 'spanX', 'scale', 'bedMm']
 
 function b64uEncode(str) {
   const bytes = new TextEncoder().encode(str)
@@ -3985,6 +4073,7 @@ const DEFAULT_BRIEF = {
   mcu: 'esp32s3',
   battery: 'pack3s',
   wheelMm: 100,
+  bedMm: 256,
 }
 
 const PRESETS = [
@@ -5908,26 +5997,26 @@ function TabPower({ analysis }) {
 function TabPrint({ design, analysis }) {
   const nodes = design.nodes.filter((n) => n.print)
   const rows = nodes
-    .map((n) => ({ id: n.id, kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
+    .map((n) => ({ id: n.id, name: prettyPart(n.id), kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
   return [
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
-      h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts` })),
+      h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts · largest ${Math.round(analysis.printFit ? analysis.printFit.worst.largest : 0)}mm on a ${analysis.printFit ? analysis.printFit.bed : 256}mm bed` })),
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
         h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'))),
       h('tbody', {}, rows.map((r) => h('tr', { key: r.id },
-        h('td', { style: { ...S.td, color: C.text } }, r.id),
+        h('td', { style: { ...S.td, color: C.text } }, r.name),
         h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
         h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)))))),
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'print advice'),
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
       `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
-      `Anything over 200mm should be split with dovetails or bolted flanges; heat-set inserts beat printed threads every time.`),
+      `Parts longer than your bed are split automatically with joiner plates — check the STEPS tab for which seams to glue. Heat-set inserts beat printed threads every time.`),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },
@@ -7239,6 +7328,18 @@ function Studio() {
               ],
               hint: 'battery pack, or plug it into the wall',
               onChange: (v) => applyBrief({ battery: v }),
+            }),
+            h(Select, {
+              label: 'PRINTER BED', value: String(brief.bedMm || 256),
+              options: [
+                { value: '180', label: '180mm · Prusa MINI' },
+                { value: '220', label: '220mm · Ender 3' },
+                { value: '256', label: '256mm · P1S / X1C' },
+                { value: '300', label: '300mm · large format' },
+                { value: '350', label: '350mm · Voron 350' },
+              ],
+              hint: 'every printed part is checked against this — parts, not the whole machine',
+              onChange: (v) => applyBrief({ bedMm: Number(v) }),
             }))
           : null,
 

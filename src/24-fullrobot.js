@@ -34,15 +34,16 @@ function buildFullRobot(brief) {
   d.subtitle = `${payload}kg payload · ${Math.round(track)}×${Math.round(wheelbase)}mm footprint · ${mat.name}`
 
   // ── drive base ───────────────────────────────────────────────────────────
-  rbox(d, 'deck', [wheelbase, track, 5], [0, 0, deckZ - 2], 2, 'shell', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'deck', [wheelbase, track, 5], [0, 0, deckZ - 2], 2, 'shell', bed, { print: true })
   for (const sx of [-0.28, 0.12]) {
-    box(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 'shell', { print: true })
+    splitBox(d, `deck-rib-${sx}`, [10, track - 12, 16], [wheelbase * sx, 0, deckZ - 12], 0.6, 'shell', bed, { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 8, 4, 40], [0, sx * (track / 2 + 2), z0 + chassisH / 2 - 2], 'accent', { print: true })
+    splitBox(d, `rail-${sx > 0 ? 'l' : 'r'}`, [wheelbase + 8, 4, 40], [0, sx * (track / 2 + 2), z0 + chassisH / 2 - 2], 0.6, 'accent', bed, { print: true })
   }
   for (const sx of [-1, 1]) {
-    box(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 'shell', { print: true })
+    splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')

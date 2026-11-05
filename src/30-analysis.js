@@ -217,6 +217,33 @@ function autoFasteners(design) {
 }
 
 /** Everything the UI and every export reads. Pure: design in, numbers out. */
+/**
+ * Will each printed part fit the printer? The old check compared the whole
+ * machine's bounding box to 256mm, which is wrong for anything built from
+ * pieces: a 400mm rover prints fine, and a 300mm single part does not.
+ */
+/** "rail-r-1x1of2x1" is a machine's name for a part; people need another. */
+function prettyPart(id) {
+  const tokens = String(id).split('-').filter((t) => t && !/^\d+x\d+of\d+x\d+$/.test(t) && !/^joiner$/.test(t) && !/^\d+$/.test(t))
+  const words = { f: 'front', b: 'rear', l: 'left', r: 'right', x: 'x', y: 'y' }
+  return tokens.map((t) => words[t] || t.replace(/_/g, ' ')).join(' ')
+}
+
+function printFit(design, bedMm) {
+  const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
+  const margin = 8 // you cannot print edge to edge
+  const usable = bed - margin
+  const printed = design.nodes.filter((n) => n.print || n.mat === 'shell')
+  const rows = printed.map((n) => {
+    const b = boundsOf([n])
+    const dims = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]].map((v) => Math.round(v * 10) / 10)
+    const largest = Math.max(...dims)
+    return { id: n.id, name: prettyPart(n.id), dims, largest, fits: largest <= usable, over: Math.round(largest - usable) }
+  }).sort((a, b) => b.largest - a.largest)
+  const worst = rows[0] || null
+  return { bed, usable, rows, worst, fitsAll: rows.every((r) => r.fits), count: rows.length }
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
@@ -264,14 +291,21 @@ function analyze(design) {
   if (printGrams > 900) {
     checks.push({ level: 'warn', msg: `${Math.round(printGrams)}g of filament — that is most of a spool and ${fmt(printHours, 0)}h of printing.` })
   }
-  if (dims.some((x) => x > 256)) {
-    checks.push({ level: 'warn', msg: `Longest dimension ${Math.round(Math.max(...dims))}mm: split the print or check your bed (256mm is typical).` })
+  const fit = printFit(design, design.brief && design.brief.bedMm)
+  if (fit.count && fit.worst && !fit.worst.fits) {
+    checks.push({
+      level: 'warn',
+      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Split it, or set your bed size under MORE OPTIONS.`,
+    })
+  } else if (fit.count) {
+    checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
 
   return {
+    printFit: fit,
     pins,
     power,
     cost,

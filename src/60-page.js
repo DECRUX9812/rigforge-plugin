@@ -964,6 +964,18 @@ function Studio() {
               ],
               hint: 'battery pack, or plug it into the wall',
               onChange: (v) => applyBrief({ battery: v }),
+            }),
+            h(Select, {
+              label: 'PRINTER BED', value: String(brief.bedMm || 256),
+              options: [
+                { value: '180', label: '180mm · Prusa MINI' },
+                { value: '220', label: '220mm · Ender 3' },
+                { value: '256', label: '256mm · P1S / X1C' },
+                { value: '300', label: '300mm · large format' },
+                { value: '350', label: '350mm · Voron 350' },
+              ],
+              hint: 'every printed part is checked against this — parts, not the whole machine',
+              onChange: (v) => applyBrief({ bedMm: Number(v) }),
             }))
           : null,
 

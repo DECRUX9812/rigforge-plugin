@@ -10,6 +10,7 @@ const DEFAULT_BRIEF = {
   mcu: 'esp32s3',
   battery: 'pack3s',
   wheelMm: 100,
+  bedMm: 256,
 }
 
 const PRESETS = [

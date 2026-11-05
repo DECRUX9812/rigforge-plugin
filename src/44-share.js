@@ -4,7 +4,7 @@
 // opens it gets the same machine — with their own live prices, not a snapshot.
 
 const RF_CODE = 'RF1'
-const BRIEF_KEYS = ['archetype', 'mission', 'payloadKg', 'reachMm', 'battery', 'mcu', 'material', 'energy', 'drive', 'gripper', 'spanX', 'scale']
+const BRIEF_KEYS = ['archetype', 'mission', 'payloadKg', 'reachMm', 'battery', 'mcu', 'material', 'energy', 'drive', 'gripper', 'spanX', 'scale', 'bedMm']
 
 function b64uEncode(str) {
   const bytes = new TextEncoder().encode(str)

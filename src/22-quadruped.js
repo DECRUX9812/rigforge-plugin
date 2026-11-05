@@ -14,8 +14,9 @@ function buildQuadruped(brief) {
   d.subtitle = `${Math.round(bodyLen)}mm body · ${payload}kg carried`
 
   const z0 = legLen * 1.35
-  rbox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', { print: true })
-  box(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 'accent', { print: true })
+  const bed = brief.bedMm || 256
+  splitBox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', bed, { print: true })
+  splitBox(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 1, 'accent', bed, { print: true })
   rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
