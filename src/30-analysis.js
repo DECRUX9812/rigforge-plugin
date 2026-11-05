@@ -441,6 +441,13 @@ function analyze(design) {
   } else {
     checks.push({ level: 'ok', msg: 'Overhang check: every printed face has material or the bed underneath — no support needed.' })
   }
+  if (overhang.brim && overhang.brim.length) {
+    const names = overhang.brim.slice(0, 3).map((p) => `${prettyPart(p.id)} (${Math.round(p.contact * 100)}%)`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
+    })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
