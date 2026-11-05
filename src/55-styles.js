@@ -45,7 +45,9 @@ const GLOBAL_CSS = `
 [data-rf="root"] textarea:focus-visible,
 [data-rf="root"] select:focus-visible,
 [data-rf="root"] [role="button"]:focus-visible {
-  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+  /* inline styles in a few fields say outline:none; the ring has to win, or a
+     keyboard user cannot see where they are */
+  outline: 2px solid #FF6A1A !important; outline-offset: 2px; border-radius: 8px;
 }
 [data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
@@ -55,9 +57,12 @@ const GLOBAL_CSS = `
   [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
-  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }
-  [data-rf="spec"] { grid-column: 1 / -1; max-height: 44vh; border-top: 1px solid #1E2A35; }
-  [data-rf="view"] { min-height: 38vh; }
+  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(430px, 1fr) auto; }
+  [data-rf="spec"] { grid-column: 1 / -1; max-height: 32vh; border-top: 1px solid #1E2A35; }
+  [data-rf="view"] { min-height: 46vh; }
+  /* the bar carries camera presets, display toggles and a live power badge; it
+     wraps rather than pushing the page sideways */
+  [data-rf="viewbar"], [role="toolbar"] { flex-wrap: wrap; row-gap: 4px; max-width: calc(100% - 28px); }
   [data-rf="strip"] { display: none; }
 }
 @media (max-width: 900px) {
@@ -68,14 +73,28 @@ const GLOBAL_CSS = `
     grid-auto-rows: min-content;
     overflow-y: auto;
   }
-  [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
-  [data-rf="view"] { min-height: 62vh; }
-  [data-rf="spec"] { max-height: none; }
+  /* the machine goes first: on a tablet the 3D view *is* the product, and
+     having to scroll past the chooser to see it is backwards */
+  [data-rf="view"] { order: 1; min-height: 54vh; }
+  [data-rf="rail"] { order: 2; max-height: none !important; overflow: visible !important; }
+  [data-rf="spec"] { order: 3; max-height: none; }
   [data-rf="codeInput"]::placeholder { color: #6F8493; opacity: 1; }
   [data-rf="tagline"] { display: none; }
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 780px) {
+  /* the drawing title block and the HUD are sheet niceties; on a narrow screen
+     they sit on top of the machine, so the machine wins */
+  [data-rf="titleblock"] { display: none; }
+  [data-rf="hud"] { display: none; }
+  [data-rf="view"] { min-height: 50vh; }
+  [data-rf="viewbar"], [role="toolbar"] { left: 8px; right: 8px; padding: 6px; max-width: calc(100% - 16px); }
+  [data-rf="viewbar"] button, [role="toolbar"] button { min-height: 30px; min-width: 34px; }
+  /* inline style says nowrap; the caption should wrap, not trail off */
+  [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-rf="root"] * { transition: none !important; animation: none !important; }
 }
