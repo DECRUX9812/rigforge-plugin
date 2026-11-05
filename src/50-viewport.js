@@ -1144,6 +1144,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   return h('div', { style: S.viewWrap },
     h('canvas', {
       ref,
+      // A canvas is a picture of a machine, not a widget: give it a name and a
+      // description so a screen reader announces it instead of skipping it, and
+      // say where the accessible controls live.
+      role: 'img',
+      'aria-label': `3D view of ${design.title}`,
+      'aria-describedby': 'rf-view-desc',
       style: S.canvas,
       onPointerDown: onDown,
       onPointerMove: onMove,
@@ -1166,6 +1172,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       picked.joint ? h('div', {}, `on joint ${picked.joint}`) : null,
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
+    h('span', {
+      id: 'rf-view-desc',
+      style: {
+        position: 'absolute', width: '1px', height: '1px', margin: '-1px',
+        padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+      },
+    }, `${design.subtitle}. Drag to orbit, scroll to zoom. Click a part to inspect it. Pose it with the joint sliders below the view.`),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a

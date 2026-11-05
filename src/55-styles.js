@@ -45,7 +45,9 @@ const GLOBAL_CSS = `
 [data-rf="root"] textarea:focus-visible,
 [data-rf="root"] select:focus-visible,
 [data-rf="root"] [role="button"]:focus-visible {
-  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+  /* inline styles in a few fields say outline:none; the ring has to win, or a
+     keyboard user cannot see where they are */
+  outline: 2px solid #FF6A1A !important; outline-offset: 2px; border-radius: 8px;
 }
 [data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }

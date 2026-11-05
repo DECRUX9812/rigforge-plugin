@@ -2389,6 +2389,8 @@ function buildIot(brief) {
     printedG: Math.round(printedVolume(d.nodes) / 1000 * (MATERIALS[brief.material] || MATERIALS.petg).density),
   })
   d.checks.push({ level: 'ok', msg: 'One board, one sensor, one printed shell — this is a first build, not a project.' })
+  // which stimuli this node can actually sense — the bench drives these
+  d.metrics.sensors = ['air', 'motion', 'soil', 'weight', 'display'].filter((k) => wants[k])
   return d
 }
 
@@ -6037,6 +6039,72 @@ function gripBenchTris() {
   return _gripTris
 }
 
+// ── sensor stimulus bench: inject the environment, watch the readings ────────
+// IoT nodes have no joints — the honest teleop is stimulus, not motion.
+// Sliders set the physical world (temp, humidity, light, soil moisture,
+// weight, motion, button); hud() reports what each fitted sensor would read
+// and which thresholds alert. Nothing animates that isn't sensed.
+
+const SENSOR_DEFS = {
+  air:     { label: 'BME280 air', fields: [
+    { k: 'tempC', label: 'TEMP', min: -10, max: 50, unit: '°C', def: 22, alert: (v) => v > 30 || v < 5 },
+    { k: 'humid', label: 'RHUM', min: 5, max: 100, unit: '%', def: 45, alert: (v) => v > 70 || v < 20 },
+  ]},
+  motion:  { label: 'PIR motion', fields: [
+    { k: 'motion', label: 'PRESENCE', min: 0, max: 1, unit: '', def: 0, alert: (v) => v > 0.5, bool: true },
+  ]},
+  soil:    { label: 'soil probe', fields: [
+    { k: 'soil', label: 'MOIST', min: 0, max: 100, unit: '%', def: 55, alert: (v) => v < 30 },
+  ]},
+  weight:  { label: 'HX711 scale', fields: [
+    { k: 'weightG', label: 'LOAD', min: 0, max: 5000, unit: 'g', def: 0, alert: () => false },
+  ]},
+  display: { label: 'SSD1306 OLED', fields: [] }, // shows the primary reading
+}
+
+function createSensorTeleop(design) {
+  const sensors = (design.metrics && design.metrics.sensors) || []
+  if (!sensors.length) return null
+  const state = {}
+  for (const sk of sensors) {
+    for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) state[f.k] = f.def
+  }
+  // OLED line: whichever real sensor exists leads the display
+  const lead = sensors.find((k) => k !== 'display') || sensors[0]
+  const alerts = () => {
+    const out = []
+    for (const sk of sensors) {
+      for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) {
+        if (f.alert && f.alert(state[f.k])) out.push(`${SENSOR_DEFS[sk].label} ${f.label} ${fmt1(state[f.k])}${f.unit}`)
+      }
+    }
+    return out
+  }
+  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
+  return {
+    kind: 'sense',
+    state,
+    fields: sensors.flatMap((sk) => (SENSOR_DEFS[sk] || { fields: [] }).fields.map((f) => ({ ...f, sensor: sk, sensorLabel: SENSOR_DEFS[sk].label }))),
+    /** Sliders write straight into state — sensors respond instantly. */
+    set(key, value) { if (key in state) state[key] = value },
+    step() { return null },
+    reset() { for (const sk of sensors) for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) state[f.k] = f.def },
+    hud() {
+      const lines = []
+      for (const sk of sensors) {
+        const def = SENSOR_DEFS[sk]
+        if (!def || !def.fields.length) continue
+        lines.push(`${def.label}: ${def.fields.map((f) => `${f.label} ${fmt1(state[f.k])}${f.unit}`).join(' · ')}`)
+      }
+      const al = alerts()
+      const oled = lead && lead !== 'display'
+        ? `${SENSOR_DEFS[lead].label.split(' ')[0]} ${SENSOR_DEFS[lead].fields.map((f) => `${fmt1(state[f.k])}${f.unit}`).join(' ')}`
+        : 'rigforge node'
+      return { kind: 'sense', lines, alerts: al, oled, ok: !al.length }
+    },
+  }
+}
+
 // ── endurance power: battery SoC, bus sag, servo thermals ──────────────────
 // The bench runs for minutes, not milliseconds — so the pack actually drains
 // and the servos actually cook. SoC integrates the joint sim's live bus
@@ -7484,6 +7552,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   return h('div', { style: S.viewWrap },
     h('canvas', {
       ref,
+      // A canvas is a picture of a machine, not a widget: give it a name and a
+      // description so a screen reader announces it instead of skipping it, and
+      // say where the accessible controls live.
+      role: 'img',
+      'aria-label': `3D view of ${design.title}`,
+      'aria-describedby': 'rf-view-desc',
       style: S.canvas,
       onPointerDown: onDown,
       onPointerMove: onMove,
@@ -7506,6 +7580,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       picked.joint ? h('div', {}, `on joint ${picked.joint}`) : null,
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
+    h('span', {
+      id: 'rf-view-desc',
+      style: {
+        position: 'absolute', width: '1px', height: '1px', margin: '-1px',
+        padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
+      },
+    }, `${design.subtitle}. Drag to orbit, scroll to zoom. Click a part to inspect it. Pose it with the joint sliders below the view.`),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
@@ -8515,7 +8596,9 @@ const GLOBAL_CSS = `
 [data-rf="root"] textarea:focus-visible,
 [data-rf="root"] select:focus-visible,
 [data-rf="root"] [role="button"]:focus-visible {
-  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+  /* inline styles in a few fields say outline:none; the ring has to win, or a
+     keyboard user cannot see where they are */
+  outline: 2px solid #FF6A1A !important; outline-offset: 2px; border-radius: 8px;
 }
 [data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
@@ -10364,6 +10447,7 @@ function Studio() {
   const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
+  const senseRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
@@ -10371,6 +10455,7 @@ function Studio() {
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
+  const [, setSenseTick] = useState(0)
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
   const gpBtnRef = useRef(false)
@@ -10380,7 +10465,8 @@ function Studio() {
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
     gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
     gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
-    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : null
+    senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
+    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
     setDriveAvail(!!kind)
     setChassis(null)
@@ -10476,7 +10562,7 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset(); senseRef.current && senseRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
@@ -10541,7 +10627,7 @@ function Studio() {
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current
+  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -11148,6 +11234,14 @@ function Studio() {
                 }, `${gripHud.ok ? 'HOLD' : 'SLIP'} ${gripHud.blockKg}kg/${gripHud.holdKg.toFixed(1)}kg`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, 'Space toggles'),
               ]
+            : driveHud.kind === 'sense'
+            ? [
+                h('span', { key: 'a' }, `OLED ${driveHud.oled}`),
+                ...(driveHud.lines || []).map((ln, i) => h('span', { key: `s${i}`, style: { color: C.faint } }, ln)),
+                driveHud.alerts && driveHud.alerts.length
+                  ? h('span', { key: 'al', style: { color: C.amber } }, `⚠ ${driveHud.alerts[0]}${driveHud.alerts.length > 1 ? ` +${driveHud.alerts.length - 1}` : ''}`)
+                  : h('span', { key: 'ok', style: { color: C.green } }, 'all readings nominal'),
+              ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
                 h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
@@ -11244,6 +11338,33 @@ function Studio() {
               title: `shove test — ${n}N lateral impulse`,
             }, `SHOVE ${n}N`))),
         ) : null,
+        driveOn && teleopKind === 'sense' && senseRef.current ? h('div', {
+          style: {
+            position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10px', color: C.dim,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '7px 10px', width: '188px',
+            display: 'flex', flexDirection: 'column', gap: '6px',
+          },
+        },
+          (senseRef.current.fields || []).map((f) => h('label', {
+            key: f.k,
+            style: { display: 'flex', alignItems: 'center', gap: '7px' },
+          },
+            h('span', { style: { width: '52px', color: C.faint } }, `${f.sensorLabel.split(' ')[0]} ${f.label}`),
+            h('input', {
+              type: 'range', min: f.min, max: f.max, step: f.bool ? 1 : (f.max - f.min) / 100,
+              value: senseRef.current.state[f.k],
+              onChange: (e) => {
+                senseRef.current.set(f.k, f.bool ? Number(e.target.value) > 0.5 : Number(e.target.value))
+                setSenseTick((t) => t + 1)
+              },
+              style: { flex: 1, accentColor: C.cyan },
+              'aria-label': `stimulus ${f.k}`,
+            }),
+            h('span', { style: { width: '34px', textAlign: 'right', color: C.cyan } },
+              `${f.bool ? (senseRef.current.state[f.k] ? 'YES' : 'no') : `${senseRef.current.state[f.k]}${f.unit}`}`))),
+        ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options', 'data-rf': 'viewbar' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
@@ -11285,9 +11406,11 @@ function Studio() {
                 ? 'gait mode — W walks (treadmill), release to stand, gamepad left stick'
                 : teleopKind === 'grip'
                 ? 'jaw mode — Space opens/closes the gripper'
+                : teleopKind === 'sense'
+                ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE')) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',
