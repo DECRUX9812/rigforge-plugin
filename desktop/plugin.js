@@ -10437,6 +10437,8 @@ uniform vec3 uRimColor;
 uniform vec3 uSkyColor;
 uniform vec3 uGroundColor;
 uniform sampler2D uShadow;
+uniform sampler2D uEnv;
+uniform float uUseEnv;
 uniform float uShadowTexel;
 uniform float uHasShadow;
 
@@ -10557,7 +10559,12 @@ void main() {
   // Ambient is a fill, not the light: too much of it desaturates every filament
   // toward white and the machine reads as clay again.
   float up = n.z * 0.5 + 0.5;
-  vec3 ambient = mix(uGroundColor, uSkyColor, up) * albedo * (0.22 + 0.26 * shade);
+  vec3 skyTerm = mix(uGroundColor, uSkyColor, up);
+  if (uUseEnv > 0.5) {
+    vec2 auv = vec2(atan(n.y, n.x) / 6.2831853 + 0.5, acos(clamp(n.z, -1.0, 1.0)) / 3.1415927);
+    skyTerm = textureLod(uEnv, auv, 7.0).rgb;
+  }
+  vec3 ambient = skyTerm * albedo * (0.22 + 0.26 * shade);
 
   float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
   vec3 sheen = mix(uSkyColor, vec3(0.8), 0.35) * fres * (0.55 - 0.35 * rough) * (1.0 - metal);
@@ -10568,14 +10575,28 @@ void main() {
     + uFillColor * spec(n, uFillDir, v, rough) * fill * (0.25 + 0.4 * metal)
     + uRimColor * rim * (0.25 + 0.75 * metal) * 0.9;
 
-  // environment: a studio gradient plus one large softbox, sampled along the
-  // reflection vector. Metal without a reflection looks like painted plaster.
+  // environment: an equirectangular studio probe, sampled along the reflection
+  // vector with a mip chosen from roughness. That is what makes a rough plastic
+  // pick up a soft sheen and a polished bolt pick up the softbox as a shape,
+  // instead of both getting the same analytic blob.
   vec3 R = reflect(-v, n);
-  float sky = smoothstep(-0.55, 0.75, R.z);
-  vec3 env = mix(uGroundColor * 1.7, uSkyColor * 3.4, sky);
-  env += uKeyColor * pow(max(dot(R, uKeyDir), 0.0), 120.0) * 4.2;
-  env += uRimColor * pow(max(dot(R, uRimDir), 0.0), 26.0) * 1.4;
-  vec3 reflection = env * mix(0.07, 1.35, metal) * (1.0 - rough * 0.7);
+  vec2 ruv = vec2(atan(R.y, R.x) / 6.2831853 + 0.5, acos(clamp(R.z, -1.0, 1.0)) / 3.1415927);
+  float lod = clamp(rough * 7.0, 0.0, 7.0);
+  vec3 env = textureLod(uEnv, ruv, lod).rgb;
+  if (uUseEnv < 0.5) {
+    float sky = smoothstep(-0.55, 0.75, R.z);
+    env = mix(uGroundColor * 1.7, uSkyColor * 3.4, sky);
+  }
+  // a small analytic kicker on top of the probe: the probe is 256 px wide, so a
+  // crisp highlight on a bolt has to be added rather than sampled
+  env += uKeyColor * pow(max(dot(R, uKeyDir), 0.0), 120.0) * 1.6;
+  // The probe is painted in sRGB and it is a *light source*, so decode it and
+  // give it radiance. Dielectrics reflect through Fresnel (almost nothing head
+  // on, a lot at grazing angles), metals reflect everything — that curve is what
+  // puts a real edge highlight on a silhouette.
+  vec3 envLin = pow(max(env, vec3(0.0)), vec3(2.2)) * 6.0;
+  float fresnelEnv = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  vec3 reflection = envLin * mix(fresnelEnv, 1.0, metal) * (1.0 - rough * 0.55);
 
   // Bounce: the floor throws light back up at everything, tinted by what the
   // machine is made of. Without it the underside of every part is dead black and
@@ -10609,6 +10630,8 @@ in vec3 vWorld;
 in vec4 vLightPos;
 uniform vec3 uEye;
 uniform sampler2D uShadow;
+uniform sampler2D uEnv;
+uniform float uUseEnv;
 uniform float uShadowTexel;
 uniform float uHasShadow;
 uniform vec3 uPlateColor;
@@ -10718,6 +10741,67 @@ vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
 }
 void main() { fragColor = vec4(toSRGB(aces(vCol * 1.5)), 0.9); }`
+
+/**
+ * A studio environment probe, painted once into an equirectangular canvas and
+ * uploaded with mipmaps. Two soft boxes, a cool rim strip, a warm floor bounce
+ * and a gradient sky: enough that reflections carry a *shape*, which is the
+ * difference between "shiny" and "reflective". No external HDRI to download,
+ * which also keeps the plugin offline.
+ */
+function studioEnv(gl) {
+  const W = 256
+  const H = 128
+  const cv = document.createElement('canvas')
+  cv.width = W
+  cv.height = H
+  const g = cv.getContext('2d')
+
+  // sky → horizon → floor
+  const sky = g.createLinearGradient(0, 0, 0, H)
+  sky.addColorStop(0.0, '#8fa2b8')
+  sky.addColorStop(0.45, '#5b6b80')
+  sky.addColorStop(0.52, '#2a3543')
+  sky.addColorStop(1.0, '#12171d')
+  g.fillStyle = sky
+  g.fillRect(0, 0, W, H)
+
+  // key soft box: broad, warm, upper left
+  const key = g.createRadialGradient(W * 0.30, H * 0.22, 2, W * 0.30, H * 0.22, W * 0.24)
+  key.addColorStop(0, 'rgba(255,246,232,1)')
+  key.addColorStop(0.45, 'rgba(255,238,214,0.55)')
+  key.addColorStop(1, 'rgba(255,236,210,0)')
+  g.fillStyle = key
+  g.fillRect(0, 0, W, H)
+
+  // fill soft box: cooler, wider, right
+  const fill = g.createRadialGradient(W * 0.72, H * 0.30, 2, W * 0.72, H * 0.30, W * 0.28)
+  fill.addColorStop(0, 'rgba(198,224,255,0.85)')
+  fill.addColorStop(0.5, 'rgba(170,205,240,0.30)')
+  fill.addColorStop(1, 'rgba(160,200,240,0)')
+  g.fillStyle = fill
+  g.fillRect(0, 0, W, H)
+
+  // rim strip behind the machine: a thin cool band, which is what draws an edge
+  // highlight along a silhouette
+  const strip = g.createLinearGradient(W * 0.44, 0, W * 0.52, 0)
+  strip.addColorStop(0, 'rgba(120,200,230,0)')
+  strip.addColorStop(0.5, 'rgba(140,215,240,0.75)')
+  strip.addColorStop(1, 'rgba(120,200,230,0)')
+  g.fillStyle = strip
+  g.fillRect(W * 0.44, H * 0.22, W * 0.08, H * 0.30)
+
+  const tex = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv)
+  gl.generateMipmap(gl.TEXTURE_2D)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  return tex
+}
 
 function compile(gl, type, src) {
   const sh = gl.createShader(type)
@@ -10859,6 +10943,9 @@ function createGLRenderer(canvas) {
     return { ok: false, draw() {}, dispose() {}, error: e.message }
   }
   globalThis.__rfGL = 'ok'
+
+  let envTex = null
+  try { envTex = studioEnv(gl) } catch (e) { envTex = null }
 
   const vao = gl.createVertexArray()
   const vbo = gl.createBuffer()
@@ -11126,6 +11213,14 @@ function createGLRenderer(canvas) {
       gl.uniform1i(uni(meshProg, 'uShadow'), 0)
       gl.uniform1f(uni(meshProg, 'uShadowTexel'), 1 / SHADOW)
       gl.uniform1f(uni(meshProg, 'uHasShadow'), 1)
+      if (envTex) {
+        gl.activeTexture(gl.TEXTURE4)
+        gl.bindTexture(gl.TEXTURE_2D, envTex)
+        gl.uniform1i(uni(meshProg, 'uEnv'), 4)
+        gl.uniform1f(uni(meshProg, 'uUseEnv'), 1)
+      } else {
+        gl.uniform1f(uni(meshProg, 'uUseEnv'), 0)
+      }
       gl.bindVertexArray(vao)
       gl.drawArrays(gl.TRIANGLES, 0, count)
       gl.bindVertexArray(null)
