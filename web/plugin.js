@@ -2968,6 +2968,14 @@ function analyze(design) {
   const checks = [...(design.checks || [])]
   // Anything the agent layer had to change on the way in is visible here, not
   // buried in its logs: the studio judges the design it was actually given.
+  // A brief that named no machine gets a plain sentence, not a silent build.
+  if (design.brief && design.brief.archetypeMatched === false) {
+    const said = String(design.brief.mission || '').trim()
+    checks.push({
+      level: 'warn',
+      msg: `Your words did not name a machine I build${said ? ` ("${said.slice(0, 40)}")` : ''} — so this is a small enclosure, the simplest thing that fits. Name the kind: rover, arm, quadruped, humanoid, gripper, board, gantry.`,
+    })
+  }
   const adjusted = design.brief && Array.isArray(design.brief._adjusted) ? design.brief._adjusted : []
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
@@ -5784,8 +5792,14 @@ function matchArchetype(text) {
     ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
     ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
   ]
-  for (const [id, re] of rules) if (re.test(t)) return { id, confident: true }
-  return { id: 'gadget', confident: false }
+  for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
+  // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
+  // load carrier: catching it here beats building an enclosure and calling it a
+  // misunderstanding
+  if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
+    return { id: 'rover', archetype: 'rover', confident: true, matched: true }
+  }
+  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false }
 }
 
 function detectArchetype(text) {
@@ -5804,7 +5818,13 @@ function detectArchetype(text) {
 
 /** Pull numbers out of prose. "a 1.2kg payload with 500mm reach, 6 dof". */
 function parseBrief(text) {
-  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: detectArchetype(text) }
+  const verdict = matchArchetype(text)
+  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: verdict.archetype }
+  // Whether the words actually named a machine. Nonsense used to fall through to
+  // the smallest enclosure and build it without a word, which reads as "it
+  // understood me" when it did not.
+  out.archetypeMatched = verdict.matched
+  if (!verdict.matched && out.mission.length < 4) out.archetypeMatched = true
   const kg = text.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilo)/i)
   if (kg) out.payloadKg = parseFloat(kg[1].replace(',', '.'))
   const g = text.match(/(\d{2,4})\s*g(?:ram)?\b/i)
@@ -9325,7 +9345,15 @@ const PRESET_BLURBS = {
 }
 
 /** One honest sentence anybody can read — the tables below carry the detail. */
-function plainVerdict(checks) {
+function plainVerdict(checks, match) {
+  // A brief that named nothing must not collect a green tick just because the
+  // checks pass on a machine nobody asked for.
+  if (match && match.confident === false) {
+    return {
+      icon: '!', color: C.amber,
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+    }
+  }
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
@@ -10092,7 +10120,11 @@ function Studio() {
             }, `${ex.label} — ${ex.why}`)))
           : null,
 
-        (() => { const v = plainVerdict(analysis.checks); return h('div', {
+        (() => {
+          // the brief itself carries whether the words named a machine, set when
+          // it was parsed — no reaching into a local of another IIFE
+          const v = plainVerdict(analysis.checks, brief && brief.archetypeMatched === false ? { confident: false } : null)
+          return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
         },
           h('span', { style: { fontFamily: C.mono, fontWeight: 700, color: v.color, flex: '0 0 auto' } }, v.icon),

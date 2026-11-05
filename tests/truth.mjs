@@ -480,6 +480,27 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
 })
 
+// ── 28. a brief that names no machine says so ──────────────────────────────
+check('unmatched briefs warn instead of building silently; load-carrying prose lands on a rover', () => {
+  const cases = [
+    ['asdkjhaskjd qwpoeiru zxcv', 'gadget', false],
+    ['a superyacht with a helipad', 'gadget', false],
+    ['a rover that maps my room', 'rover', true],
+    ['12-servo quadruped that trots', 'quadruped', true],
+    ['a robot that carries 500 kg of soil', 'rover', true],
+    ['a cart that hauls 40kg of bricks', 'rover', true],
+  ]
+  for (const [text, archetype, matched] of cases) {
+    const brief = A.parseBrief(text)
+    assert(brief.archetype === archetype, `"${text}" → ${brief.archetype}, expected ${archetype}`)
+    assert(brief.archetypeMatched === matched, `"${text}" matched=${brief.archetypeMatched}, expected ${matched}`)
+    const { analysis } = A.composeDesign(brief)
+    const told = analysis.checks.some((c) => /did not name a machine/i.test(c.msg))
+    assert(told === !matched, `"${text}" warning=${told}, expected ${!matched}`)
+  }
+  return '6 briefs classified, and every unmatched one is told to the user'
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
