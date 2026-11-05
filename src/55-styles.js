@@ -271,6 +271,17 @@ const S = {
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   viewSub: { color: C.faint },
+  // The inspector that opens when you click a part: it appears where the
+  // pointer left off, so the label sits next to the thing it describes.
+  partChip: {
+    position: 'absolute', zIndex: 4, minWidth: '168px', maxWidth: '240px',
+    padding: '8px 10px', borderRadius: '9px', border: `1px solid ${C.line}`,
+    background: 'rgba(11,16,21,0.94)', boxShadow: '0 8px 22px rgba(0,0,0,0.45)',
+    backdropFilter: 'blur(6px)', fontFamily: C.mono, fontSize: '9.5px',
+    letterSpacing: '0.03em', color: C.dim, lineHeight: 1.6, pointerEvents: 'none',
+  },
+  chipTitle: { color: C.text, fontFamily: C.sans, fontSize: '12px', marginBottom: '3px', letterSpacing: '0' },
+  chipHint: { color: C.faint, marginTop: '4px', fontSize: '8.5px', letterSpacing: '0.06em', textTransform: 'uppercase' },
   viewTools: {
     position: 'absolute', top: '46px', right: '16px', display: 'flex', flexDirection: 'column',
     gap: '5px',

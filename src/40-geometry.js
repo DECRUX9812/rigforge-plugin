@@ -389,7 +389,8 @@ function nodeTriangles(design, node, chain, shift) {
     w = applyChain(chain, w)
     return shift ? [w[0] + shift[0], w[1] + shift[1], w[2] + shift[2]] : w
   }
-  const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat })
+  // `node` rides along so the viewport can pick a part by clicking it
+  const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat, node: node.id })
 
   let local = []
   switch (node.kind) {

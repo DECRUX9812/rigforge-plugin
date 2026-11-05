@@ -308,6 +308,40 @@ const M4 = {
     return o
   },
 }
+M4.inverse = (m) => {
+  const o = new Float32Array(16)
+  const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3]
+  const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7]
+  const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11]
+  const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15]
+  const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10
+  const b02 = a00 * a13 - a03 * a10, b03 = a01 * a12 - a02 * a11
+  const b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12
+  const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30
+  const b08 = a20 * a33 - a23 * a30, b09 = a21 * a32 - a22 * a31
+  const b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32
+  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
+  if (!det) return M4.ident()
+  det = 1 / det
+  o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det
+  o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det
+  o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det
+  o[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det
+  o[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det
+  o[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det
+  o[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det
+  o[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det
+  o[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det
+  o[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det
+  o[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det
+  o[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det
+  o[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det
+  o[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det
+  o[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det
+  o[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det
+  return o
+}
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -384,6 +418,7 @@ function createGLRenderer(canvas) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
 
   const uni = (p, name) => gl.getUniformLocation(p, name)
+  let lastFrame = null
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -637,12 +672,58 @@ function createGLRenderer(canvas) {
         if (probe[i] + probe[i + 1] + probe[i + 2] > 0) nz += 1
         maxv = Math.max(maxv, probe[i], probe[i + 1], probe[i + 2])
       }
+      lastFrame = { eye, viewProj, invViewProj: M4.inverse(viewProj), w, h, dist }
       globalThis.__rfGLStats = {
         draws: ((globalThis.__rfGLStats || {}).draws || 0) + 1,
         tris: count / 3, eye, dist, size, stripNonZero: nz, stripMax: maxv,
         albedos: uniqueAlbedos,
         firstAlb: null,
       }
+    },
+    /**
+     * Ray pick in screen pixels. Unprojects the pointer back to a world ray and
+     * tests every triangle the STL would contain, so what you click is exactly
+     * what you would print. Returns the nearest hit and the triangle index.
+     */
+    pick(mesh, px, py) {
+      if (!lastFrame || !mesh || !mesh.length) return null
+      const { invViewProj, w, h } = lastFrame
+      const ndcX = (px / w) * 2 - 1
+      const ndcY = 1 - (py / h) * 2
+      const unproject = (z) => {
+        const v = [
+          invViewProj[0] * ndcX + invViewProj[4] * ndcY + invViewProj[8] * z + invViewProj[12],
+          invViewProj[1] * ndcX + invViewProj[5] * ndcY + invViewProj[9] * z + invViewProj[13],
+          invViewProj[2] * ndcX + invViewProj[6] * ndcY + invViewProj[10] * z + invViewProj[14],
+          invViewProj[3] * ndcX + invViewProj[7] * ndcY + invViewProj[11] * z + invViewProj[15],
+        ]
+        return [v[0] / v[3], v[1] / v[3], v[2] / v[3]]
+      }
+      const near = unproject(0)
+      const far = unproject(1)
+      const dir = norm(sub(far, near))
+
+      let best = null
+      for (let i = 0; i < mesh.length; i += 1) {
+        const t = mesh[i]
+        const [a, b, c] = t.pts
+        const e1 = sub(b, a)
+        const e2 = sub(c, a)
+        const pvec = cross(dir, e2)
+        const det = dot(e1, pvec)
+        if (Math.abs(det) < 1e-9) continue
+        const inv = 1 / det
+        const tvec = sub(near, a)
+        const u = dot(tvec, pvec) * inv
+        if (u < 0 || u > 1) continue
+        const qvec = cross(tvec, e1)
+        const vv = dot(dir, qvec) * inv
+        if (vv < 0 || u + vv > 1) continue
+        const dist = dot(e2, qvec) * inv
+        if (dist <= 0) continue
+        if (!best || dist < best.dist) best = { index: i, dist, node: t.node || null, mat: t.mat }
+      }
+      return best
     },
     dispose() {
       try {
