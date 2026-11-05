@@ -645,6 +645,27 @@ check('servo harness: runs measured from joint pivots, long leads flagged honest
   return `${rows} joint runs checked; arm wrist honestly flagged ~${wrist.run}mm > 300mm lead, ${ext.qty} extension leads in BOM`
 })
 
+// ── 29b. cable overlay: wires follow the pose, colours match verdicts ────────
+check('cable overlay: one run per joint, pose-aware, verdict colours', () => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const ov = A.wireOverlay(design, analysis.harness)
+  assert(ov && ov.verts > 0, 'arm should emit cable overlay verts')
+  // 5 joints, yaw+shoulder share a pivot → 3 zero-run skips → 3 wires × 3 segs
+  assert(ov.verts === 18, `expected 18 verts (3 wires), got ${ov.verts}`)
+  // pose the shoulder: downstream wire verts must move
+  const posed = { ...design, joints: design.joints.map((j) => ({ ...j, angle: j.id === 'shoulder' ? 45 : (j.angle || 0) })) }
+  const ov2 = A.wireOverlay(posed, analysis.harness)
+  let moved = 0
+  for (let i = 0; i < ov.data.length; i += 6) if (Math.abs(ov.data[i] - ov2.data[i]) > 0.5) moved += 1
+  assert(moved > 0, 'posed shoulder should drag the wrist cable verts')
+  // extend-verdict wires are red, stock are blue — colours must match the table
+  const isRed = (i) => Math.abs(ov.data[i + 3] - 0.95) < 0.02 && Math.abs(ov.data[i + 4] - 0.32) < 0.02
+  const reds = []
+  for (let i = 0; i < ov.data.length; i += 6) if (isRed(i)) reds.push(i)
+  assert(reds.length === 12, `expected 12 red verts (2 extend wires), got ${reds.length}`)
+  return `cable overlay live: ${ov.verts} verts, pose moves wires, ${reds.length / 2} segments flagged extend-red`
+})
+
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────
 const runAutotest = (env) => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })

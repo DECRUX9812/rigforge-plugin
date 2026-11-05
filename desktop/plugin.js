@@ -5064,6 +5064,57 @@ function benchOverlay(design, mat) {
   return { data: new Float32Array(arr), verts: arr.length / 6 }
 }
 
+/**
+ * Cable harness overlay: one catenary-ish run per driven joint, from the live
+ * joint pivot back to the electrical home. Colour is the harness verdict —
+ * blue stock, amber borderline, red needs an extension, violet TTL bus.
+ * Runs in design space (mm); the page's chassis transform carries it.
+ */
+function wireOverlay(design, harness) {
+  if (!harness || !harness.rows || !harness.rows.length) return null
+  const chains = chainsFor(design)
+  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const colFor = {
+    stock: [0.40, 0.60, 0.92],
+    check: [0.95, 0.70, 0.25],
+    extend: [0.95, 0.32, 0.28],
+    'daisy-chain': [0.62, 0.45, 0.92],
+    unknown: [0.50, 0.50, 0.50],
+  }
+  const home = harness.home
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  for (const r of harness.rows) {
+    const j = byId.get(r.id)
+    if (!j || !j.pivot) continue
+    // pivot is fixed to the parent link: ancestors rotate it, the joint's own
+    // angle spins about it and does not translate it
+    const chain = (chains.get(r.id) || []).slice(0, -1)
+    const start = applyChain(chain, j.pivot)
+    const col = colFor[r.lead] || colFor.unknown
+    const len = Math.hypot(start[0] - home[0], start[1] - home[1], start[2] - home[2])
+    if (len < 4) continue
+    const sag = Math.min(70, len * 0.14)
+    // quadratic bezier: control point droops below the chord midpoint
+    const cx = (start[0] + home[0]) / 2
+    const cy = (start[1] + home[1]) / 2
+    const cz = (start[2] + home[2]) / 2 - sag
+    const at = (t) => {
+      const u = 1 - t
+      return [
+        u * u * start[0] + 2 * u * t * cx + t * t * home[0],
+        u * u * start[1] + 2 * u * t * cy + t * t * home[1],
+        Math.max(3, u * u * start[2] + 2 * u * t * cz + t * t * home[2]),
+      ]
+    }
+    const q1 = at(1 / 3), q2 = at(2 / 3)
+    seg(start, q1, col)
+    seg(q1, q2, col)
+    seg(q2, home, col)
+  }
+  return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
+}
+
 // ── simulation export: URDF and MJCF ────────────────────────────────────────
 // The studio poses a kinematic chain; it does not pretend to be a physics
 // engine. What an engineer actually needs is the machine in a format a real
@@ -10912,7 +10963,7 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false })
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -11039,6 +11090,20 @@ function Studio() {
     () => benchOverlay(posedDesign, analysis.print && analysis.print.material),
     [posedDesign, analysis],
   )
+  // Cable harness: one run per driven joint, coloured by whether the stock
+  // servo lead reaches. Follows the live pose — wires drag with the arm.
+  const cableOv = useMemo(
+    () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
+    [posedDesign, analysis.harness, opts.cables],
+  )
+  const rawOv = useMemo(() => {
+    if (!benchOv) return cableOv
+    if (!cableOv) return benchOv
+    const d = new Float32Array(benchOv.data.length + cableOv.data.length)
+    d.set(benchOv.data, 0)
+    d.set(cableOv.data, benchOv.data.length)
+    return { data: d, verts: benchOv.verts + cableOv.verts }
+  }, [benchOv, cableOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -11359,10 +11424,10 @@ function Studio() {
     [opts, subjectR, machBounds, camFocus],
   )
   const benchOvWorld = useMemo(() => {
-    if (!benchOv || !chassis) return benchOv
+    if (!rawOv || !chassis) return rawOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
     const slope = benchEnv.slopeDeg
-    const d = benchOv.data
+    const d = rawOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
       // overlay verts are mm (design space); chassis state is metres
@@ -11373,8 +11438,8 @@ function Studio() {
       out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
-    return { data: out, verts: benchOv.verts }
-  }, [benchOv, chassis, benchEnv])
+    return { data: out, verts: rawOv.verts }
+  }, [rawOv, chassis, benchEnv])
 
   const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
@@ -12235,7 +12300,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
