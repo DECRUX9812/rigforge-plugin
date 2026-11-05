@@ -185,9 +185,13 @@ function reachAutotest(ik) {
     const top = p.pos[2] + p.size[2] / 2
     legs.push({ kind: 'lift', prop: p, wp: [p.pos[0] - 40, p.pos[1], top + 90], pose: null, t: 0, err: null })
   }
+  // LIMITS: the certification version of the manual SWEEP — every joint is
+  // commanded to 85% of both extremes through the real servo sim, then scored
+  // on where the joints actually got to, not where they were told to go.
+  legs.push({ kind: 'limitsweep', wp: null, pose: null, t: 0, err: null, errMin: null, errMax: null })
   let li = 0
 
-  const legLabel = (l) => (l.kind === 'home' ? 'HOME' : l.kind === 'lift' ? `LIFT ${l.prop.name}` : `REACH ${l.prop.name}`)
+  const legLabel = (l) => (l.kind === 'home' ? 'HOME' : l.kind === 'lift' ? `LIFT ${l.prop.name}` : l.kind === 'limitsweep' ? 'LIMITS' : `REACH ${l.prop.name}`)
 
   function liftVerdict(leg) {
     const d = ik.design
@@ -259,6 +263,32 @@ function reachAutotest(ik) {
       leg.t += dt
       st.phase.t = leg.t
       if (!st.seedAngles) st.seedAngles = (actual || []).slice()
+      if (leg.kind === 'limitsweep') {
+        const js = (ik.design && ik.design.joints) || []
+        const PH = 1.2
+        let pose
+        if (leg.t < PH) pose = js.map((j) => j.min * 0.85)
+        else if (leg.t < PH * 2) pose = js.map((j) => j.max * 0.85)
+        else pose = js.map(() => 0)
+        // snapshot shortfalls at each window's closing edge
+        if (actual && actual.length) {
+          if (leg.t >= PH && leg.t - dt < PH) leg.errMin = js.map((j, i) => Math.abs((actual[i] || 0) - j.min * 0.85))
+          if (leg.t >= PH * 2 && leg.t - dt < PH * 2) leg.errMax = js.map((j, i) => Math.abs((actual[i] || 0) - j.max * 0.85))
+        }
+        if (leg.t > PH * 2 + 1.0) {
+          let worst = null, worstRatio = 0
+          js.forEach((j, i) => {
+            const tol = Math.max(6, (j.max - j.min) * 0.15)
+            const r = Math.max(leg.errMin ? leg.errMin[i] : 999, leg.errMax ? leg.errMax[i] : 999) / tol
+            if (r > worstRatio) { worstRatio = r; worst = j.label || j.id }
+          })
+          const pass = worstRatio <= 1
+          pushResult(st, 'limits', 'LIMITS', pass,
+            pass ? `all ${js.length} joints reached both 85% extremes` : `${worst} fell ${(worstRatio * 100 - 100).toFixed(0)}% short of tolerance`)
+          if (!advance()) return { x: 0, y: 0, z: 0, pose }
+        }
+        return { x: 0, y: 0, z: 0, pose }
+      }
       if (leg.kind === 'home' && !leg.wp) {
         // home = wherever the tip started this run
         leg.wp = ik.tipPos ? ik.tipPos(st.seedAngles) : [0, 0, 150]
