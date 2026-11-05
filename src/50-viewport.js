@@ -938,6 +938,18 @@ function dwgNo(design) {
   return `DWG ${cls}-${String(h).padStart(3, '0')}`
 }
 
+/** Model bounds in mm, for the GPU camera and the light frustum. */
+function boundsOfMesh(mesh) {
+  if (!mesh || !mesh.length) return { min: [-100, 0, -100], max: [100, 200, 100] }
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const t of mesh) for (const p of t.pts) for (let i = 0; i < 3; i += 1) {
+    if (p[i] < min[i]) min[i] = p[i]
+    if (p[i] > max[i]) max[i] = p[i]
+  }
+  return { min, max }
+}
+
 /** What 1:1 would be on a sheet: the longest dimension against a 150mm field. */
 function scaleOf(dims) {
   const longest = Math.max(...(dims || [1]))
@@ -947,6 +959,8 @@ function scaleOf(dims) {
 
 function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
   const ref = useRef(null)
+  const glRef = useRef(null)
+  const fallback = useRef(false)
   const target = useMemo(() => {
     if (!mesh.length) return [0, 0, 120]
     const min = [Infinity, Infinity, Infinity]
@@ -962,8 +976,47 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
     const cv = ref.current
     if (!cv) return undefined
     let raf = 0
+    // GPU first: WebGL2 gives a shadow map, per-pixel roughness and MSAA, which
+    // is the difference between a CAD preview and a product photograph. The 2D
+    // canvas path stays as the fallback for a context the plugin cannot get.
     const paint = () => {
       raf = 0
+      if (!fallback.current) {
+        if (!glRef.current) glRef.current = createGLRenderer(cv)
+        const r = glRef.current
+        if (r && r.ok) {
+          const dpr = Math.min(2, window.devicePixelRatio || 1)
+          const w = cv.clientWidth
+          const h = cv.clientHeight
+          if (w && h && (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr))) {
+            cv.width = Math.round(w * dpr)
+            cv.height = Math.round(h * dpr)
+          }
+          const data = mesh.length ? meshData(mesh) : null
+          const tints = data && opts.colour !== false ? data.tints : null
+          // filament tints are 0-255 sRGB; mixing them into a linear albedo has
+          // to happen in linear light or every printed part turns flat grey
+          globalThis.__rfTints = tints ? tints.size : -1
+          const matOf = (t) => {
+            const m = MAT[t.mat] || MAT.shell
+            const tint = tints && t.mat === 'shell' ? tints.get(t.node) : null
+            if (!tint) return m
+            const k = 0.82
+            const tl = tint.map((c) => srgbToLin(c))
+            return {
+              alb: [
+                m.alb[0] * (1 - k) + tl[0] * k,
+                m.alb[1] * (1 - k) + tl[1] * k,
+                m.alb[2] * (1 - k) + tl[2] * k,
+              ],
+              rough: m.rough, metal: m.metal, glow: m.glow, spec: m.spec, shine: m.shine, printed: true,
+            }
+          }
+          r.draw(mesh, cam, opts, matOf, boundsOfMesh(mesh))
+          return
+        }
+        fallback.current = true
+      }
       drawScene(cv, mesh, cam, target, opts)
     }
     const schedule = () => {

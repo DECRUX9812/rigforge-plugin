@@ -12,15 +12,23 @@ page.on('pageerror', (e) => errs.push(e.message))
 await page.goto('http://127.0.0.1:18734/preview.html')
 await page.waitForTimeout(700)
 
-// the page now carries gallery thumbnails + the viewport — shoot the biggest one
+// the page now carries gallery thumbnails + the viewport — shoot the biggest one.
+// The viewport is a WebGL2 canvas, and a WebGL drawing buffer is cleared after
+// compositing unless preserveDrawingBuffer is on, so toDataURL() would return a
+// blank frame. Screenshot the element instead: that is the composited pixels,
+// which is what a person sees.
 const shot = async (name) => {
-  const b64 = await page.evaluate(() => {
-    const c = [...document.querySelectorAll('canvas')].sort((a, b) => b.width * b.height - a.width * a.height)[0]
-    return c.toDataURL('image/png').split(',')[1]
+  const index = await page.evaluate(() => {
+    const arr = [...document.querySelectorAll('canvas')]
+    let best = 0
+    for (let i = 0; i < arr.length; i += 1) {
+      if (arr[i].width * arr[i].height > arr[best].width * arr[best].height) best = i
+    }
+    return best
   })
-  const buf = Buffer.from(b64, 'base64')
-  writeFileSync(join(here, 'tmp', name), buf)
-  return buf
+  const path = join(here, 'tmp', name)
+  await page.locator('canvas').nth(index).screenshot({ path })
+  return readFileSync(path)
 }
 
 const before = await shot('pose-before.png')
