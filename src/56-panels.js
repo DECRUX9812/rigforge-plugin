@@ -144,7 +144,7 @@ function TabSpec({ design, analysis }) {
 }
 
 /** TEST: the pre-print bench. Would this machine stand, climb and hold? */
-function TabTest({ design, analysis }) {
+function TabTest({ design, analysis, certHistory }) {
   const [slope, setSlope] = useState(15)
   const r = useMemo(() => benchReport(design, analysis, { mat: analysis.print.material, slopeDeg: slope }), [design, analysis, slope])
   const worst = r.verdicts.some((v) => v.status === 'fail') ? 'fail' : r.verdicts.some((v) => v.status === 'warn') ? 'warn' : 'ok'
@@ -210,6 +210,22 @@ function TabTest({ design, analysis }) {
     h(KV, { k: 'flat margin', v: `${Math.round(r.flatMm)} mm`, accent: r.flatMm > 15 ? C.green : r.flatMm > 0 ? C.amber : C.red })))
   blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, marginTop: '10px' } },
     'Rigid-body statics at the current pose — CoM is mass-weighted over every node, the support polygon is the convex hull of ground contacts, and torque is exact r×F about each joint axis. It answers "will it stand, climb and hold?" before you spend filament.'))
+
+  const arch = design.archetype || (design.brief && design.brief.archetype)
+  const hist = (certHistory || []).filter((x) => x.arch === arch).slice(-8).reverse()
+  if (hist.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '16px' } }, 'autopilot certification history'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'RUN'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'SCORE'),
+        h('th', { style: S.th }, 'PHASES'))),
+      h('tbody', {}, hist.map((x, i) => h('tr', { key: i },
+        h('td', { style: { ...S.td, color: C.faint } }, `${x.mode} · ${new Date(x.ts).toLocaleDateString()}`),
+        h('td', { style: { ...S.tdNum, color: x.passes === x.total ? C.green : x.passes > x.total / 2 ? C.amber : C.red, fontWeight: 700 } }, `${x.passes}/${x.total}`),
+        h('td', { style: { ...S.td, color: C.faint, fontSize: '10px' } }, x.phases))))))
+    blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px' } },
+      'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped.'))
+  }
   return blocks
 }
 
