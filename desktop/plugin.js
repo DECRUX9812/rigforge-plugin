@@ -5724,49 +5724,40 @@ function Thumb({ archetype }) {
 }
 
 
-/** Live-price strip: what has a real supplier number, and what is still a guess. */
-function LivePrices({ design }) {
-  const [prices, setPrices] = useState(() => (CTX && CTX.storage.get('livePrices', null)) || null)
-  const [busy, setBusy] = useState(false)
-  const askPrices = async () => {
-    setBusy(true)
-    const prompt = [
-      'Get live prices for the build currently loaded in Rigforge and hand them back to the studio.',
-      `Build: ${design.title} — ${design.parts.length} line items.`,
-      'Call the rigforge_prices tool, then put its directive on its own line so the studio can render it.',
-      'Only report a price as live if it came from the supplier; estimates stay labelled as estimates.',
-    ].join('\n')
-    try {
-      const staged = await host.composer.setDraft(null, prompt)
-      host.composer.focus(null)
-      host.notify({ kind: staged ? 'success' : 'error', message: staged ? 'Price request handed to Hermes — press Enter' : 'Copied the price request instead' })
-      if (!staged) await navigator.clipboard?.writeText(prompt)
-    } catch {
-      host.notify({ kind: 'info', message: 'Ask Hermes for live prices (rigforge_prices tool)' })
-    }
-    setBusy(false)
+/**
+ * Ask Hermes for live prices. Shared by the PRICES note and the "what to buy"
+ * header, so there is one trigger and one wording.
+ */
+async function askPrices(design) {
+  const prompt = [
+    'Get live prices for the build currently loaded in Rigforge and hand them back to the studio.',
+    `Build: ${design.title} — ${design.parts.length} line items.`,
+    'Call the rigforge_prices tool, then put its directive on its own line so the studio can render it.',
+    'Only report a price as live if it came from the supplier; estimates stay labelled as estimates.',
+  ].join('\n')
+  try {
+    const staged = await host.composer.setDraft(null, prompt)
+    host.composer.focus(null)
+    host.notify({ kind: staged ? 'success' : 'error', message: staged ? 'Price request handed to Hermes — press Enter' : 'Copied the price request instead' })
+    if (!staged) await navigator.clipboard?.writeText(prompt)
+  } catch {
+    host.notify({ kind: 'info', message: 'Ask Hermes for live prices (rigforge_prices tool)' })
   }
-  const age = prices && prices.fetched ? Math.max(0, Math.round(Date.now() / 1000 - prices.fetched)) : null
-  const ageText = age == null ? '' : age < 90 ? 'just now' : age < 5400 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)}h ago`
-  return h('div', { style: { border: `1px solid ${C.line}`, borderRadius: '9px', padding: '9px 11px', marginBottom: '14px', background: C.panel } },
-    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } },
-      h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.14em', color: C.faint } }, 'PRICES'),
-      h('button', { style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px' }, onClick: askPrices, disabled: busy },
-        busy ? '…' : 'GET LIVE PRICES')),
-    prices
-      ? h('div', { style: { fontSize: '11.5px', color: C.text, marginTop: '6px', lineHeight: 1.5 } },
-        `${prices.liveLines} of ${prices.lines} lines priced live — $${(prices.liveTotal || 0).toFixed(2)}`,
-        h('span', { style: { color: C.faint } }, ` · ${(prices.estimateTotal || 0).toFixed(2)} still estimated · ${ageText}`))
-      : h('div', { style: { fontSize: '11px', color: C.faint, marginTop: '6px', lineHeight: 1.45 } },
-        'The totals here are catalogue estimates. Ask Hermes for live LCSC prices and they replace the guessed lines.'))
 }
 
+/** Live-price strip: what has a real supplier number, and what is still a guess. */
+function LivePrices({ design }) {
+  const [prices] = useState(() => (CTX && CTX.storage.get('livePrices', null)) || null)
+  const age = prices && prices.fetched ? Math.max(0, Math.round(Date.now() / 1000 - prices.fetched)) : null
+  const ageText = age == null ? '' : age < 90 ? 'just now' : age < 5400 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)}h ago`
+  return prices
+    ? h('div', { style: { fontSize: '11.5px', color: C.text, marginTop: '-4px', marginBottom: '12px', lineHeight: 1.5 } },
+      `${prices.liveLines} of ${prices.lines} lines priced live — $${(prices.liveTotal || 0).toFixed(2)}`,
+      h('span', { style: { color: C.faint } }, ` · $${(prices.estimateTotal || 0).toFixed(2)} still estimated · ${ageText}`))
+    : h('div', { style: { fontSize: '11px', color: C.faint, marginTop: '-4px', marginBottom: '12px', lineHeight: 1.45 } },
+      'Totals are catalogue estimates. Live prices come from the LCSC parts index when you ask for them.')
+}
 
-/**
- * ⌘K. A dense tool needs one door that reaches everything without hunting
- * through rails: every archetype, every tab, every export, and the three
- * actions that matter, all reachable by typing.
- */
 function CommandPalette({ open, commands, onClose }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -5877,7 +5868,13 @@ function SimplePanel({ design, analysis, exports, onEngineer }) {
             h('span', { style: { color: levelColor(c.level), flex: '0 0 auto', fontFamily: C.mono } }, c.level === 'fail' ? '✕' : '!'),
             h('span', {}, c.msg)))))
       : null),
-    h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '7px' } },
+      h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
+      h('button', {
+        style: { ...S.btn, height: '22px', padding: '0 8px', fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.04em' },
+        title: 'read real unit prices from the LCSC parts index (asks Hermes to run the price tool)',
+        onClick: () => askPrices(design),
+      }, '⌁ LIVE PRICES')),
     h('div', { style: { marginBottom: '14px' } }, rows.slice(0, 6).map((r) => h('div', { key: r.key, style: S.buyRow },
       h('span', { style: S.buyName }, r.part.name),
       h('span', { style: S.buyQty }, `×${r.qty}`),
@@ -6350,11 +6347,28 @@ function Studio() {
           ? h('div', {},
             h('div', { style: { ...S.sectionLabel, marginTop: '10px' } }, 'shelf'),
             shelf.map((s) => h('div', {
-              key: s.id, style: S.shelfRow,
-              onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...s.brief }); setMission(s.brief.mission) },
+              key: s.id, style: { ...S.shelfRow, alignItems: 'center' },
+              title: `Load ${s.title}`,
+              onMouseEnter: (e) => { e.currentTarget.style.borderColor = C.accentLine },
+              onMouseLeave: (e) => { e.currentTarget.style.borderColor = C.line },
             },
-              h('span', { style: { fontSize: '11px', color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.title),
-              h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint } }, money(s.cost)))))
+              h('button', {
+                style: { flex: '1 1 auto', minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' },
+                onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...s.brief }); setMission(s.brief.mission) },
+              },
+                h('span', { style: { fontSize: '11.5px', color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.title),
+                h('span', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint } }, `${money(s.cost)} · ${s.brief.archetype}`)),
+              h('button', {
+                style: { background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '2px 4px', flex: '0 0 auto' },
+                'aria-label': `Remove ${s.title} from the shelf`,
+                title: 'remove from shelf',
+                onClick: (e) => {
+                  e.stopPropagation()
+                  const next = shelf.filter((x) => x.id !== s.id)
+                  setShelf(next)
+                  if (CTX) CTX.storage.set('shelf', next)
+                },
+              }, '×'))))
           : null,
 
         h('div', { style: { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, fontSize: '10px', color: C.faint, lineHeight: 1.5 } },
