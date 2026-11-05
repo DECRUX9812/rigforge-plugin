@@ -491,6 +491,13 @@ function Studio() {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
       if (sim.step(dt, now)) setDispPose([...sim.state.angles])
+      // endurance: drain the pack, heat the servos, feed thermal cutoffs back
+      if (powerRef.current) {
+        const drv = driveRef.current
+        const motorA = drv ? Math.abs(drv.state.throttle) * motorARef.current : 0
+        powerRef.current.step(dt, sim.state, motorA)
+        sim.state.thermal = powerRef.current.state.cut
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -597,6 +604,8 @@ function Studio() {
   const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
+  const powerRef = useRef(null)
+  const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
   const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
@@ -616,6 +625,9 @@ function Studio() {
     if (ikRef.current) ikRef.current.reset()
     if (gaitRef.current) gaitRef.current.reset()
     if (gripRef.current) gripRef.current.reset()
+    powerRef.current = createPowerSim(design)
+    const mk = design.metrics && design.metrics.motor ? PARTS[design.metrics.motor] : null
+    motorARef.current = mk && mk.curr ? (mk.curr.typ || 0.5) * 2 : 0
   }, [design, analysis])
 
   useEffect(() => {
@@ -633,10 +645,12 @@ function Studio() {
     const tick = (now) => {
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
+      // a dead pack is a dead machine — honest cutoff, not a slowdown
+      const pwrDead = powerRef.current && powerRef.current.state.soc < 2
       const k = keysRef.current
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
-      if (drive) {
+      if (!pwrDead && drive) {
         let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
         if (gp) {
@@ -647,7 +661,7 @@ function Studio() {
         }
         drive.step({ throttle, steer }, dt)
         setChassis({ ...drive.state })
-      } else if (ik) {
+      } else if (!pwrDead && ik) {
         // WASD/arrows plane, R/F height; left stick plane, right stick height
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
@@ -664,7 +678,7 @@ function Studio() {
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
-      } else if (gait) {
+      } else if (!pwrDead && gait) {
         // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
         // planning, not just a yaw bias — honest omission, not fake steering)
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
@@ -677,7 +691,7 @@ function Studio() {
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = gait.step({ x: gx }, dt, actual)
         if (desired) setPose(desired)
-      } else if (grip) {
+      } else if (!pwrDead && grip) {
         const desired = grip.step({ grip: k.space }, dt)
         if (desired) setPose(desired)
       }
@@ -695,7 +709,7 @@ function Studio() {
         keysRef.current[key === ' ' ? 'space' : key] = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -754,6 +768,7 @@ function Studio() {
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
+  const powerHud = powerRef.current ? powerRef.current.hud() : null
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1328,7 +1343,19 @@ function Studio() {
                 driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · 0 reset'),
-              ]) : null,
+              ],
+          // endurance telemetry rides every teleop HUD — the pack drains and
+          // the servos cook whether you are driving, reaching or walking
+          powerHud ? [
+            h('span', { key: 'p1', style: { color: powerHud.dead ? C.red : powerHud.soc < 25 ? C.amber : C.faint } },
+              `⚡${powerHud.soc.toFixed(0)}%`),
+            h('span', { key: 'p2', style: { color: C.faint } }, `${powerHud.vbus.toFixed(1)}V`),
+            h('span', { key: 'p3', style: { color: powerHud.tempMax > 70 ? C.amber : C.faint } },
+              `🌡${powerHud.tempMax.toFixed(0)}°`),
+            powerHud.cuts ? h('span', { key: 'p4', style: { color: C.red } }, `${powerHud.cuts} CUT`) : null,
+            powerHud.dead ? h('span', { key: 'p5', style: { color: C.red } }, 'BATTERY DEAD — 0 swaps') : null,
+          ] : null,
+        ) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -1413,6 +1440,14 @@ function Studio() {
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
             }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : 'DRIVE')) : null,
+          powerHud ? h('span', {
+            style: {
+              fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',
+              color: powerHud.dead ? C.red : powerHud.soc < 25 ? C.amber : C.faint,
+              border: `1px solid ${C.line}`, borderRadius: '6px', padding: '3px 8px',
+            },
+            title: `bus ${powerHud.busA.toFixed(1)}A · ${powerHud.vbus.toFixed(1)}V · peak joint ${powerHud.tempMax.toFixed(0)}°C${powerHud.cuts ? ` · ${powerHud.cuts} thermal cutouts` : ''}`,
+          }, `⚡ ${powerHud.soc.toFixed(0)}%`) : null,
         ),
 
         h('div', { style: S.jointBar },

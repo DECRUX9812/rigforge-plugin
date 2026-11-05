@@ -459,6 +459,27 @@ check('gait: quadruped trot moves all legs inside limits', () => {
   return `${g.state.strides.toFixed(1)} strides, femur swing ${swing('femur-fl').toFixed(0)}°, all joints inside limits`
 })
 
+// ── 27. endurance: sustained load cooks servos to cutoff, pack drains ───────
+check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const pwr = A.createPowerSim(design)
+  assert(pwr, 'arm has a battery — power sim should exist')
+  const sim = A.createJointSim(design, analysis)
+  sim.snap(design.joints.map(() => design.joints[0].max * 0.85))
+  let soc0 = pwr.state.soc
+  for (let i = 0; i < 60 * 30; i++) {
+    sim.step(1 / 60, i * 16)
+    pwr.step(1 / 60, sim.state, 0)
+    sim.state.thermal = pwr.state.cut
+  }
+  const h = pwr.hud()
+  assert(h.cuts > 0, 'no servo hit thermal cutoff under 30s sustained load')
+  assert(h.tempMax >= 80, `peak joint temp ${h.tempMax.toFixed(0)}°C — cutoff should engage`)
+  assert(h.soc < soc0, `SoC did not drain: ${soc0} → ${h.soc}`)
+  assert(h.vbus < 12, `bus voltage did not sag: ${h.vbus.toFixed(1)}V`)
+  return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

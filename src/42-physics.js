@@ -94,7 +94,9 @@ function createJointSim(design, analysis) {
       const part = state.servoKey[i] ? PARTS[state.servoKey[i]] : null
       const stall = state.stallNm[i]
       const ratio = stall > 0 ? need / stall : 0
-      state.stalled[i] = ratio > 1.0
+      // thermal cutoff from the endurance sim ORs into the stall verdict —
+      // a cooked servo cannot hold position either
+      state.stalled[i] = ratio > 1.0 || !!(state.thermal && state.thermal[i])
       if (part && part.curr) {
         bus += (part.curr.idle || 0) + (part.curr.typ || 0) * Math.min(ratio, 1)
         if (ratio > 1) bus += (part.curr.peak || 0)
