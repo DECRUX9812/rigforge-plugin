@@ -480,6 +480,39 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
 })
 
+// ── 28. the fast transform is the same transform ────────────────────────────
+check('node transform: the affine matrix agrees with rotEuler + applyChain, rest and posed', () => {
+  let checked = 0
+  eachPreset((p, { design }) => {
+    // pose every joint somewhere odd, then compare the two paths point by point
+    design.joints.forEach((j, i) => {
+      const span = j.max - j.min
+      j.angle = Math.round(j.min + ((i * 37) % 100) / 100 * span)
+    })
+    const chains = A.chainsFor(design)
+    for (const node of design.nodes) {
+      if (!node.pos) continue
+      const chain = node.joint ? chains.get(node.joint) : null
+      const slide = A.slideDisp(design, node)
+      const { m, t } = A.nodeAffine(node, chain, slide, null)
+      for (const pt of [[0, 0, 0], [7.5, -3, 12], [-11, 4.25, 0.5]]) {
+        const fast = [
+          m[0] * pt[0] + m[1] * pt[1] + m[2] * pt[2] + t[0],
+          m[3] * pt[0] + m[4] * pt[1] + m[5] * pt[2] + t[1],
+          m[6] * pt[0] + m[7] * pt[1] + m[8] * pt[2] + t[2],
+        ]
+        const q = A.rotEuler(pt, node.rot)
+        const slow = A.applyChain(chain, [q[0] + node.pos[0] + slide[0], q[1] + node.pos[1] + slide[1], q[2] + node.pos[2] + slide[2]])
+        for (let i = 0; i < 3; i += 1) {
+          assert(Math.abs(fast[i] - slow[i]) < 1e-6, `${p.id}/${node.id}: transform drift ${fast[i]} vs ${slow[i]}`)
+        }
+        checked += 1
+      }
+    }
+  })
+  return `${checked} node points identical between the matrix and the reference path`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
