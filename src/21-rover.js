@@ -80,7 +80,12 @@ function buildRover(brief) {
   const v = motorPart.volts
   const battery = brief.battery && PARTS[brief.battery] ? brief.battery : v >= 11 ? 'pack3s' : 'pack2s'
   const bat = PARTS[battery]
-  addPart(d, battery === 'pack2s' && v >= 11 ? 'pack3s' : battery === 'pd5v' ? 'pd5v' : battery, 1, `${v}V motor rail`)
+  const asked = battery === 'pd5v' ? 'pd5v' : battery
+  const swapped = asked === 'pack2s' && v >= 11
+  addPart(d, swapped ? 'pack3s' : asked, 1, `${v}V motor rail`)
+  if (swapped) {
+    d.checks.push({ level: 'warn', msg: `2S chosen, but ${v}V motors need 3S — the BOM uses the 3S pack. Use a 2S motor (or a boost stage) if you want a lighter pack.` })
+  }
   addPart(d, 'buck5a', 1, '5V logic rail')
   // TB6612 tops out at 1.2A/channel — a bigger motor or a 3S pack wants the
   // BTS7960, and a BTS7960 is a single channel so it takes two for L/R drive.

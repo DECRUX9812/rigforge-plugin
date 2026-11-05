@@ -621,7 +621,12 @@ const WIRE_GAUGES = [
   { awg: 28, a: 0.4 }, { awg: 26, a: 0.8 }, { awg: 24, a: 1.4 }, { awg: 22, a: 2.4 },
   { awg: 20, a: 4 }, { awg: 18, a: 7 }, { awg: 16, a: 12 }, { awg: 14, a: 18 },
 ]
-const wireFor = (amps) => (WIRE_GAUGES.find((w) => w.a >= amps) || WIRE_GAUGES[WIRE_GAUGES.length - 1]).awg
+/** Smallest gauge that carries `amps`, or null when nothing in the table does. */
+const wireFor = (amps) => {
+  const w = WIRE_GAUGES.find((x) => x.a >= amps)
+  return w ? w.awg : null
+}
+const ampacityOf = (awg) => (WIRE_GAUGES.find((w) => w.awg === awg) || { a: 0 }).a
 
 // Standard automotive blade fuse values — pick the smallest that clears 1.4×
 // typical rail draw. The fuse protects the WIRE, not the board.
@@ -1323,7 +1328,12 @@ function buildRover(brief) {
   const v = motorPart.volts
   const battery = brief.battery && PARTS[brief.battery] ? brief.battery : v >= 11 ? 'pack3s' : 'pack2s'
   const bat = PARTS[battery]
-  addPart(d, battery === 'pack2s' && v >= 11 ? 'pack3s' : battery === 'pd5v' ? 'pd5v' : battery, 1, `${v}V motor rail`)
+  const asked = battery === 'pd5v' ? 'pd5v' : battery
+  const swapped = asked === 'pack2s' && v >= 11
+  addPart(d, swapped ? 'pack3s' : asked, 1, `${v}V motor rail`)
+  if (swapped) {
+    d.checks.push({ level: 'warn', msg: `2S chosen, but ${v}V motors need 3S — the BOM uses the 3S pack. Use a 2S motor (or a boost stage) if you want a lighter pack.` })
+  }
   addPart(d, 'buck5a', 1, '5V logic rail')
   // TB6612 tops out at 1.2A/channel — a bigger motor or a 3S pack wants the
   // BTS7960, and a BTS7960 is a single channel so it takes two for L/R drive.
@@ -1433,7 +1443,9 @@ function buildQuadruped(brief) {
   addPart(d, servoKey, 12, '12 joints (3 per leg)')
   addPart(d, 'pca9685', 2, '24 channels of PWM')
   addPart(d, 'buck5a', 2, 'split servo rails')
-  addPart(d, 'pack3s', 1, 'servo pack')
+  // Honour the ENERGY selector: hardcoding the pack meant the control did nothing.
+  const packKey = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'lipo3s')
+  addPart(d, packKey, packKey === 'pd5v' ? 1 : 1, packKey === 'pd5v' ? 'tethered supply' : 'servo pack')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'body attitude')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
@@ -1663,7 +1675,8 @@ function buildGadget(brief) {
 
   for (const [key, role] of chosen) addPart(d, key, 1, role)
   addPart(d, 'esp32s3', 1, 'controller')
-  addPart(d, 'pd5v', 1, 'USB-C power')
+  const gadgetPower = brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : (PARTS[brief.battery] ? brief.battery : 'pd5v')
+  addPart(d, gadgetPower, 1, gadgetPower === 'pd5v' ? 'USB-C power' : 'battery')
   addPart(d, 'jst_kit', 1, 'internal harness')
   addPart(d, 'hw_m3', 1, 'case screws')
   addPart(d, MATERIALS[brief.material] ? MATERIALS[brief.material].priceId : 'pla_kg', 1, 'printed case')
@@ -1850,7 +1863,8 @@ function buildFullRobot(brief) {
   addPart(d, motor, 4, 'drive')
   addPart(d, 'pca9685', 1, '6 arm servos')
   addPart(d, 'buck5a', 2, 'servo + logic rails')
-  addPart(d, 'pack3s', 1, 'drive + servo pack')
+  const packKey = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'lipo3s')
+  addPart(d, packKey, 1, packKey === 'pd5v' ? 'tethered supply' : 'drive + servo pack')
   addPart(d, 'wheel130', 4, 'drive wheels')
   addPart(d, mp.ampacity > 3 || mp.volts >= 11 ? 'bts7960' : 'tb6612', 1, 'motor driver')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
@@ -2160,7 +2174,8 @@ function buildHumanoid(brief) {
   addPart(d, 'bus_adapter', 2, 'leg bus + arm bus')
   addPart(d, 'bno085', 1, 'balance IMU')
   addPart(d, 'esp32s3', 1, 'controller')
-  addPart(d, 'lipo3s', 2, 'split packs: legs / arms')
+  const packKey = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'lipo3s')
+  addPart(d, packKey, packKey === 'pd5v' ? 1 : 2, packKey === 'pd5v' ? 'tethered supply' : 'split packs: legs / arms')
   addPart(d, 'buck5a', 3, '3 isolated rails')
   addPart(d, 'vl53l0x', 1, 'forward ranging')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
@@ -2462,7 +2477,13 @@ function buildGantry(brief) {
   addPart(d, 'fuse', 1, 'main protection')
   addPart(d, 'rocker', 1, 'power switch')
   addPart(d, 'cap1000', 1, 'motor rail')
-  const supply = PARTS[brief.battery] && PARTS[brief.battery].volts >= 11 ? brief.battery : 'pack3s'
+  // Steppers want 24V; a 5V or 7.4V supply is not quietly upgraded without a word
+  const askedSupply = brief.battery || null
+  const supplyOk = askedSupply && PARTS[askedSupply] && PARTS[askedSupply].volts >= 11
+  const supply = supplyOk ? askedSupply : 'pack3s'
+  if (askedSupply && !supplyOk) {
+    d.checks.push({ level: 'warn', msg: `${PARTS[askedSupply].name} at ${PARTS[askedSupply].volts}V cannot drive 24V steppers — the BOM uses a 3S pack instead. A 24V supply is the honest answer for this machine.` })
+  }
   addPart(d, supply, 1, 'machine power')
   addPart(d, 'hw_m3', 2, 'frame fasteners')
   addPart(d, 'm3_screws', 2, 'rail + carriage hardware')
@@ -2785,16 +2806,58 @@ function powerBudget(design) {
   // Wiring: the power rails are sized for the stall case, the logic rail for
   // what it actually draws. Fuse between them — it protects the WIRE.
   const railLabel = { '3V3': '3V3 logic', '5V': '6V servo', motor: 'motor' }
-  const wiring = Object.entries(rails)
-    .filter(([, v]) => v.peak > 0.01)
-    .map(([name, v]) => ({
-      rail: railLabel[name] || name,
-      amps: Math.max(v.typ, 0.05),
-      peak: v.peak,
-      awg: wireFor(name === '3V3' ? Math.max(v.typ, 0.1) : v.peak * 0.8),
-      fuse: name === '3V3' ? null : fuseFor(Math.max(v.typ, 0.1)),
-      conn: name === '3V3' ? 'JST-PH / Dupont' : v.peak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH',
-    }))
+  // Wire is sized for what the rail can PEAK at, not for its average: the stall
+  // case is the one that melts insulation. A rail beyond a single 14AWG lead is
+  // split into parallel feeds, the way a real power-distribution board does it.
+  // The fuse is then capped by its wire — a fuse bigger than its wire protects
+  // nothing.
+  const wiring = []
+  for (const [name, v] of Object.entries(rails)) {
+    if (v.peak <= 0.01) continue
+    const peak = v.peak
+    const typ = Math.max(v.typ, 0.05)
+    const feeds = Math.max(1, Math.ceil(peak / 18))
+    const perPeak = peak / feeds
+    const perTyp = typ / feeds
+    const awg = wireFor(perPeak)
+    const ampacity = awg == null ? 0 : ampacityOf(awg)
+    let fuse = null
+    if (name !== '3V3' && ampacity > 0) {
+      const want = fuseFor(Math.max(perTyp, 0.1))
+      const capped = FUSE_STEPS.filter((f) => f <= ampacity).pop()
+      fuse = Math.min(want, capped ?? want)
+    }
+    const conn = name === '3V3' ? 'JST-PH / Dupont' : perPeak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH'
+    for (let i = 0; i < feeds; i += 1) {
+      wiring.push({
+        rail: feeds > 1 ? `${railLabel[name] || name} · feed ${i + 1}/${feeds}` : (railLabel[name] || name),
+        amps: perTyp,
+        peak: perPeak,
+        awg: awg == null ? '>14' : awg,
+        ampacity,
+        fuse,
+        conn,
+        feeds,
+        over: awg == null,
+        split: feeds > 1,
+      })
+    }
+  }
+  const overWire = wiring.filter((w) => w.over)
+  if (overWire.length) {
+    design.checks = design.checks || []
+    design.checks.push({
+      level: 'fail',
+      msg: `${overWire.map((w) => w.rail).join(' + ')} peak above 18A even per feed — split further, use 10AWG with lugs, or fit a bus bar.`,
+    })
+  } else if (wiring.some((w) => w.split)) {
+    design.checks = design.checks || []
+    const n = Math.max(...wiring.map((w) => w.feeds))
+    design.checks.push({
+      level: 'ok',
+      msg: `Power is distributed over parallel feeds (up to ${n} per rail) with a fuse sized to each wire — one lead cannot carry the stall case.`,
+    })
+  }
 
   return { rails, wiring, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
 }
@@ -2897,6 +2960,13 @@ function analyze(design) {
   const checks = [...(design.checks || [])]
   if (power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
+  } else if (power.bat && power.peak > power.bat.maxA * 2) {
+    // Far beyond the pack's burst is not a caution, it is the wrong pack: the
+    // protection circuit trips or the cells sag before the machine moves.
+    checks.push({
+      level: 'fail',
+      msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
+    })
   } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }
@@ -4200,10 +4270,10 @@ const PRESETS = [
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 90mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 92, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
-  { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
+  { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400, battery: 'lipo3s' } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
-  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
-  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
+  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550, battery: 'lipo3s' } },
+  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
 ]
@@ -6094,12 +6164,13 @@ function TabPower({ analysis }) {
         h('table', { style: S.table },
           h('thead', {}, h('tr', {},
             h('th', { style: S.th }, 'RAIL'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'DRAW'),
-            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
+            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE (PEAK)'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
             h('th', { style: S.th }, 'CONNECTOR'))),
           h('tbody', {}, analysis.power.wiring.map((w) => h('tr', { key: w.rail },
             h('td', { style: S.td }, w.rail),
             h('td', { style: S.tdNum }, `${fmt(w.amps, 2)}A`),
-            h('td', { style: { ...S.tdNum, color: C.cyan } }, `${w.awg} AWG`),
+            h('td', { style: { ...S.tdNum, color: w.over ? C.red : C.cyan } },
+              w.over ? '>14 AWG' : `${w.awg} AWG · ${w.ampacity}A`),
             h('td', { style: { ...S.tdNum, color: w.fuse ? C.amber : C.faint } }, w.fuse ? `${w.fuse}A` : '—'),
             h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
       )
@@ -6114,7 +6185,7 @@ function TabPower({ analysis }) {
         ? h(KV, { k: 'runtime @ 80% DoD', v: `${Math.round(analysis.power.runtimeMin)} min`, accent: C.cyan })
         : null),
     h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '10px', lineHeight: 1.55 } },
-      'Green = typical draw, orange = worst case with every actuator at stall. Design the wiring for the orange bar, and the fuse between them.'),
+      'Green = typical draw, orange = worst case with every actuator at stall. The wire is sized for the orange bar (its ampacity is printed beside it) and the fuse never exceeds that ampacity — a fuse bigger than its wire protects nothing. A fuse below stall current is normal: it is protecting the wire, not the servo.'),
   ]
 }
 

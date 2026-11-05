@@ -200,7 +200,8 @@ function buildGadget(brief) {
 
   for (const [key, role] of chosen) addPart(d, key, 1, role)
   addPart(d, 'esp32s3', 1, 'controller')
-  addPart(d, 'pd5v', 1, 'USB-C power')
+  const gadgetPower = brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : (PARTS[brief.battery] ? brief.battery : 'pd5v')
+  addPart(d, gadgetPower, 1, gadgetPower === 'pd5v' ? 'USB-C power' : 'battery')
   addPart(d, 'jst_kit', 1, 'internal harness')
   addPart(d, 'hw_m3', 1, 'case screws')
   addPart(d, MATERIALS[brief.material] ? MATERIALS[brief.material].priceId : 'pla_kg', 1, 'printed case')

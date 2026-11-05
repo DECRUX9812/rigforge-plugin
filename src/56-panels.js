@@ -222,12 +222,13 @@ function TabPower({ analysis }) {
         h('table', { style: S.table },
           h('thead', {}, h('tr', {},
             h('th', { style: S.th }, 'RAIL'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'DRAW'),
-            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
+            h('th', { style: { ...S.th, textAlign: 'right' } }, 'WIRE (PEAK)'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'FUSE'),
             h('th', { style: S.th }, 'CONNECTOR'))),
           h('tbody', {}, analysis.power.wiring.map((w) => h('tr', { key: w.rail },
             h('td', { style: S.td }, w.rail),
             h('td', { style: S.tdNum }, `${fmt(w.amps, 2)}A`),
-            h('td', { style: { ...S.tdNum, color: C.cyan } }, `${w.awg} AWG`),
+            h('td', { style: { ...S.tdNum, color: w.over ? C.red : C.cyan } },
+              w.over ? '>14 AWG' : `${w.awg} AWG · ${w.ampacity}A`),
             h('td', { style: { ...S.tdNum, color: w.fuse ? C.amber : C.faint } }, w.fuse ? `${w.fuse}A` : '—'),
             h('td', { style: { ...S.td, color: C.faint, fontSize: '9.5px' } }, w.conn))))),
       )
@@ -242,7 +243,7 @@ function TabPower({ analysis }) {
         ? h(KV, { k: 'runtime @ 80% DoD', v: `${Math.round(analysis.power.runtimeMin)} min`, accent: C.cyan })
         : null),
     h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '10px', lineHeight: 1.55 } },
-      'Green = typical draw, orange = worst case with every actuator at stall. Design the wiring for the orange bar, and the fuse between them.'),
+      'Green = typical draw, orange = worst case with every actuator at stall. The wire is sized for the orange bar (its ampacity is printed beside it) and the fuse never exceeds that ampacity — a fuse bigger than its wire protects nothing. A fuse below stall current is normal: it is protecting the wire, not the servo.'),
   ]
 }
 

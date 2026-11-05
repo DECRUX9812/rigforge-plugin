@@ -587,7 +587,12 @@ const WIRE_GAUGES = [
   { awg: 28, a: 0.4 }, { awg: 26, a: 0.8 }, { awg: 24, a: 1.4 }, { awg: 22, a: 2.4 },
   { awg: 20, a: 4 }, { awg: 18, a: 7 }, { awg: 16, a: 12 }, { awg: 14, a: 18 },
 ]
-const wireFor = (amps) => (WIRE_GAUGES.find((w) => w.a >= amps) || WIRE_GAUGES[WIRE_GAUGES.length - 1]).awg
+/** Smallest gauge that carries `amps`, or null when nothing in the table does. */
+const wireFor = (amps) => {
+  const w = WIRE_GAUGES.find((x) => x.a >= amps)
+  return w ? w.awg : null
+}
+const ampacityOf = (awg) => (WIRE_GAUGES.find((w) => w.awg === awg) || { a: 0 }).a
 
 // Standard automotive blade fuse values — pick the smallest that clears 1.4×
 // typical rail draw. The fuse protects the WIRE, not the board.

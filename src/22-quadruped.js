@@ -62,7 +62,9 @@ function buildQuadruped(brief) {
   addPart(d, servoKey, 12, '12 joints (3 per leg)')
   addPart(d, 'pca9685', 2, '24 channels of PWM')
   addPart(d, 'buck5a', 2, 'split servo rails')
-  addPart(d, 'pack3s', 1, 'servo pack')
+  // Honour the ENERGY selector: hardcoding the pack meant the control did nothing.
+  const packKey = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'lipo3s')
+  addPart(d, packKey, packKey === 'pd5v' ? 1 : 1, packKey === 'pd5v' ? 'tethered supply' : 'servo pack')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'body attitude')
   addPart(d, 'hw_m3', 1, 'frame fasteners')

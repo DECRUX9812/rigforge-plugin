@@ -167,16 +167,58 @@ function powerBudget(design) {
   // Wiring: the power rails are sized for the stall case, the logic rail for
   // what it actually draws. Fuse between them — it protects the WIRE.
   const railLabel = { '3V3': '3V3 logic', '5V': '6V servo', motor: 'motor' }
-  const wiring = Object.entries(rails)
-    .filter(([, v]) => v.peak > 0.01)
-    .map(([name, v]) => ({
-      rail: railLabel[name] || name,
-      amps: Math.max(v.typ, 0.05),
-      peak: v.peak,
-      awg: wireFor(name === '3V3' ? Math.max(v.typ, 0.1) : v.peak * 0.8),
-      fuse: name === '3V3' ? null : fuseFor(Math.max(v.typ, 0.1)),
-      conn: name === '3V3' ? 'JST-PH / Dupont' : v.peak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH',
-    }))
+  // Wire is sized for what the rail can PEAK at, not for its average: the stall
+  // case is the one that melts insulation. A rail beyond a single 14AWG lead is
+  // split into parallel feeds, the way a real power-distribution board does it.
+  // The fuse is then capped by its wire — a fuse bigger than its wire protects
+  // nothing.
+  const wiring = []
+  for (const [name, v] of Object.entries(rails)) {
+    if (v.peak <= 0.01) continue
+    const peak = v.peak
+    const typ = Math.max(v.typ, 0.05)
+    const feeds = Math.max(1, Math.ceil(peak / 18))
+    const perPeak = peak / feeds
+    const perTyp = typ / feeds
+    const awg = wireFor(perPeak)
+    const ampacity = awg == null ? 0 : ampacityOf(awg)
+    let fuse = null
+    if (name !== '3V3' && ampacity > 0) {
+      const want = fuseFor(Math.max(perTyp, 0.1))
+      const capped = FUSE_STEPS.filter((f) => f <= ampacity).pop()
+      fuse = Math.min(want, capped ?? want)
+    }
+    const conn = name === '3V3' ? 'JST-PH / Dupont' : perPeak > 12 ? 'XT60 + ring or barrier' : 'XT30 / JST-XH'
+    for (let i = 0; i < feeds; i += 1) {
+      wiring.push({
+        rail: feeds > 1 ? `${railLabel[name] || name} · feed ${i + 1}/${feeds}` : (railLabel[name] || name),
+        amps: perTyp,
+        peak: perPeak,
+        awg: awg == null ? '>14' : awg,
+        ampacity,
+        fuse,
+        conn,
+        feeds,
+        over: awg == null,
+        split: feeds > 1,
+      })
+    }
+  }
+  const overWire = wiring.filter((w) => w.over)
+  if (overWire.length) {
+    design.checks = design.checks || []
+    design.checks.push({
+      level: 'fail',
+      msg: `${overWire.map((w) => w.rail).join(' + ')} peak above 18A even per feed — split further, use 10AWG with lugs, or fit a bus bar.`,
+    })
+  } else if (wiring.some((w) => w.split)) {
+    design.checks = design.checks || []
+    const n = Math.max(...wiring.map((w) => w.feeds))
+    design.checks.push({
+      level: 'ok',
+      msg: `Power is distributed over parallel feeds (up to ${n} per rail) with a fuse sized to each wire — one lead cannot carry the stall case.`,
+    })
+  }
 
   return { rails, wiring, typ, peak, battery: battery?.key || null, bat, runtimeMin: runtime }
 }
@@ -279,6 +321,13 @@ function analyze(design) {
   const checks = [...(design.checks || [])]
   if (power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
+  } else if (power.bat && power.peak > power.bat.maxA * 2) {
+    // Far beyond the pack's burst is not a caution, it is the wrong pack: the
+    // protection circuit trips or the cells sag before the machine moves.
+    checks.push({
+      level: 'fail',
+      msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
+    })
   } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }

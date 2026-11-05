@@ -90,7 +90,13 @@ function buildGantry(brief) {
   addPart(d, 'fuse', 1, 'main protection')
   addPart(d, 'rocker', 1, 'power switch')
   addPart(d, 'cap1000', 1, 'motor rail')
-  const supply = PARTS[brief.battery] && PARTS[brief.battery].volts >= 11 ? brief.battery : 'pack3s'
+  // Steppers want 24V; a 5V or 7.4V supply is not quietly upgraded without a word
+  const askedSupply = brief.battery || null
+  const supplyOk = askedSupply && PARTS[askedSupply] && PARTS[askedSupply].volts >= 11
+  const supply = supplyOk ? askedSupply : 'pack3s'
+  if (askedSupply && !supplyOk) {
+    d.checks.push({ level: 'warn', msg: `${PARTS[askedSupply].name} at ${PARTS[askedSupply].volts}V cannot drive 24V steppers — the BOM uses a 3S pack instead. A 24V supply is the honest answer for this machine.` })
+  }
   addPart(d, supply, 1, 'machine power')
   addPart(d, 'hw_m3', 2, 'frame fasteners')
   addPart(d, 'm3_screws', 2, 'rail + carriage hardware')

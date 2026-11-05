@@ -215,6 +215,56 @@ check('CPL: every placement has designator, layer and coordinates', () => {
   return `${rows} centroid rows`
 })
 
+// ── 13. wiring: the wire carries the stall case, the fuse never exceeds it ──
+check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table', () => {
+  let rows = 0
+  let splits = 0
+  eachPreset((p, { analysis }) => {
+    for (const w of analysis.power.wiring) {
+      rows += 1
+      if (w.split) splits += 1
+      assert(!w.over, `${p.id} ${w.rail}: rail beyond 14AWG`)
+      assert(w.ampacity > 0, `${p.id} ${w.rail}: no ampacity recorded`)
+      assert(w.peak <= w.ampacity + 1e-9, `${p.id} ${w.rail}: peak ${w.peak.toFixed(1)}A > ${w.ampacity}A wire`)
+      if (w.fuse != null) {
+        assert(w.fuse <= w.ampacity, `${p.id} ${w.rail}: fuse ${w.fuse}A on ${w.ampacity}A wire`)
+      }
+    }
+  })
+  return `${rows} rail feeds validated, ${splits} parallel feeds`
+})
+
+// ── 14. the machines we ship as presets are buildable as shown ──────────────
+check('every preset builds with zero failures', () => {
+  eachPreset((p, { analysis }) => {
+    const fails = analysis.checks.filter((c) => c.level === 'fail')
+    if (fails.length) assert(false, `${p.id}: ${fails[0].msg.slice(0, 90)}`)
+  })
+  return `${A.PRESETS.length} presets clean out of the box`
+})
+
+// ── 15. the ENERGY control actually changes the energy in the BOM ───────────
+check('choosing a battery changes the BOM, or says why it cannot', () => {
+  let changed = 0
+  let explained = 0
+  eachPreset((p) => {
+    const batOf = (r) => {
+      const e = r.design.parts.find((x) => A.PARTS[x.key]?.cat === 'battery')
+      return e ? e.key : 'none'
+    }
+    const base = A.composeDesign({ ...p.brief })
+    for (const choice of ['pack2s', 'lipo3s', 'pd5v']) {
+      if (choice === batOf(base)) continue
+      const alt = A.composeDesign({ ...p.brief, battery: choice })
+      if (batOf(alt) === choice) { changed += 1; continue }
+      const says = alt.analysis.checks.some((c) => c.level !== 'ok' && /pack|supply|3S|24V|tethered/i.test(c.msg))
+      assert(says, `${p.id}: asked for ${choice}, BOM has ${batOf(alt)}, and nothing explains the substitution`)
+      explained += 1
+    }
+  })
+  return `${changed} choices honoured, ${explained} substitutions explained`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

@@ -18,10 +18,10 @@ const PRESETS = [
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 90mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 92, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
-  { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
+  { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400, battery: 'lipo3s' } },
   { id: 'grip', label: 'Parallel gripper', brief: { archetype: 'gripper', mission: 'Servo gripper for a 60mm object, 1.5kg hold', reachMm: 80, payloadKg: 1.5 } },
-  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
-  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
+  { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550, battery: 'lipo3s' } },
+  { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
 ]
