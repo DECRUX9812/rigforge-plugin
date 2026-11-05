@@ -765,36 +765,38 @@ function Studio() {
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
         h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
-        h('div', { style: S.viewTools },
-          ['ISO', 'FRONT', 'SIDE', 'TOP'].map((v, i) => {
-            const views = [
-              { yaw: -0.62, pitch: 0.42 }, { yaw: -Math.PI / 2, pitch: 0.02 },
-              { yaw: 0, pitch: 0.02 }, { yaw: -Math.PI / 2, pitch: 1.44 },
-            ]
-            return h('button', {
-              key: v, style: S.tool, onClick: () => setCam((c) => ({ ...c, ...views[i] })),
-            }, v)
-          }),
-          h('button', {
-            style: opts.grid ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, grid: !o.grid })),
-          }, 'GRID'),
-          h('button', {
-            style: opts.dims ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, dims: !o.dims })),
-          }, 'DIMS'),
-          h('button', {
-            style: opts.wire ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, wire: !o.wire })),
-          }, 'WIRE'),
-          h('button', {
-            style: opts.explode ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, explode: !o.explode })),
-          }, 'EXPLODE'),
-          h('button', {
-            style: cam.ortho ? S.toolOn : S.tool,
-            onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
-          }, 'ORTHO')),
+        // one instrument: camera presets as a radio group, display as toggles
+        h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
+            VIEWS.map(([label, yaw, pitch]) => {
+              const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
+              return h('button', {
+                key: label,
+                style: on ? S.viewPickOn : S.viewPick,
+                'aria-pressed': on,
+                title: `${label.toLowerCase()} view`,
+                onClick: () => setCam((c) => ({ ...c, yaw, pitch })),
+              }, label)
+            })),
+          h('div', { style: S.viewSep }),
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+              key,
+              style: opts[key] ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!opts[key],
+              title: `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
+              onClick: () => setOpts((o) => ({ ...o, [key]: !o[key] })),
+            }, label))),
+          h('div', { style: S.viewSep }),
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'projection' },
+            h('button', {
+              style: cam.ortho ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!cam.ortho,
+              title: 'orthographic projection',
+              onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
+            }, 'ORTHO')),
+          h('div', { style: S.viewSep }),
+          h('span', { style: S.viewHint }, 'drag to orbit · scroll to zoom')),
         h('div', { style: S.jointBar },
           // 23 joints do not fit in one row: a group filter beats a scrollbar
           // nobody notices, and it is how you actually pose a humanoid.

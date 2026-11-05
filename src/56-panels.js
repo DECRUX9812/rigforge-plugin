@@ -1,5 +1,13 @@
 // ── the spec rail: seven tabs, each answering one build question ────────────
 
+// Camera presets, one source for the toolbar's radio group.
+const VIEWS = [
+  ['ISO', -0.62, 0.42],
+  ['FRONT', -Math.PI / 2, 0.02],
+  ['SIDE', 0, 0.02],
+  ['TOP', -Math.PI / 2, 1.44],
+]
+
 const TABS = [
   ['spec', 'SPEC'], ['parts', 'BOM'], ['pins', 'PINS'],
   ['power', 'POWER'], ['print', 'PRINT'], ['code', 'CODE'], ['steps', 'BUILD'],

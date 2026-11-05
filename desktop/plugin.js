@@ -4873,7 +4873,6 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'MASS'), h('span', { style: S.hudVal }, `${Math.round(analysis?.mass.totalG || 0)} g`)),
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
-    h('div', { style: S.hudTR }, h('span', { style: S.hudHint }, 'drag to orbit · scroll to zoom')),
     h('div', { style: S.viewTitle }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
   )
 }
@@ -5122,6 +5121,34 @@ const S = {
     position: 'absolute', top: '46px', right: '16px', display: 'flex', flexDirection: 'column',
     gap: '5px',
   },
+  // A viewer toolbar is one horizontal instrument, not nine floating buttons:
+  // camera presets are a radio group, display options are checkboxes.
+  viewBar: {
+    position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)',
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 10px',
+    borderRadius: '10px', border: `1px solid ${C.line}`, background: 'rgba(11,16,21,0.86)',
+    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 220px)',
+  },
+  viewGroup: { display: 'flex', alignItems: 'center', gap: '2px', padding: '2px', borderRadius: '7px', background: 'transparent' },
+  viewSep: { width: '1px', height: '18px', background: C.line, flex: '0 0 auto' },
+  viewPick: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewPickOn: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
+    color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+    fontWeight: 600,
+  },
+  viewChip: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewChipOn: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
+    color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
   // ── joint bar ───────────────────────────────────────────────────────────
   jointBar: {
@@ -5306,6 +5333,14 @@ function slug(text) {
 }
 
 // ── the spec rail: seven tabs, each answering one build question ────────────
+
+// Camera presets, one source for the toolbar's radio group.
+const VIEWS = [
+  ['ISO', -0.62, 0.42],
+  ['FRONT', -Math.PI / 2, 0.02],
+  ['SIDE', 0, 0.02],
+  ['TOP', -Math.PI / 2, 1.44],
+]
 
 const TABS = [
   ['spec', 'SPEC'], ['parts', 'BOM'], ['pins', 'PINS'],
@@ -6377,36 +6412,38 @@ function Studio() {
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
         h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
-        h('div', { style: S.viewTools },
-          ['ISO', 'FRONT', 'SIDE', 'TOP'].map((v, i) => {
-            const views = [
-              { yaw: -0.62, pitch: 0.42 }, { yaw: -Math.PI / 2, pitch: 0.02 },
-              { yaw: 0, pitch: 0.02 }, { yaw: -Math.PI / 2, pitch: 1.44 },
-            ]
-            return h('button', {
-              key: v, style: S.tool, onClick: () => setCam((c) => ({ ...c, ...views[i] })),
-            }, v)
-          }),
-          h('button', {
-            style: opts.grid ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, grid: !o.grid })),
-          }, 'GRID'),
-          h('button', {
-            style: opts.dims ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, dims: !o.dims })),
-          }, 'DIMS'),
-          h('button', {
-            style: opts.wire ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, wire: !o.wire })),
-          }, 'WIRE'),
-          h('button', {
-            style: opts.explode ? S.toolOn : S.tool,
-            onClick: () => setOpts((o) => ({ ...o, explode: !o.explode })),
-          }, 'EXPLODE'),
-          h('button', {
-            style: cam.ortho ? S.toolOn : S.tool,
-            onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
-          }, 'ORTHO')),
+        // one instrument: camera presets as a radio group, display as toggles
+        h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
+            VIEWS.map(([label, yaw, pitch]) => {
+              const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
+              return h('button', {
+                key: label,
+                style: on ? S.viewPickOn : S.viewPick,
+                'aria-pressed': on,
+                title: `${label.toLowerCase()} view`,
+                onClick: () => setCam((c) => ({ ...c, yaw, pitch })),
+              }, label)
+            })),
+          h('div', { style: S.viewSep }),
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+              key,
+              style: opts[key] ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!opts[key],
+              title: `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
+              onClick: () => setOpts((o) => ({ ...o, [key]: !o[key] })),
+            }, label))),
+          h('div', { style: S.viewSep }),
+          h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'projection' },
+            h('button', {
+              style: cam.ortho ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!cam.ortho,
+              title: 'orthographic projection',
+              onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
+            }, 'ORTHO')),
+          h('div', { style: S.viewSep }),
+          h('span', { style: S.viewHint }, 'drag to orbit · scroll to zoom')),
         h('div', { style: S.jointBar },
           // 23 joints do not fit in one row: a group filter beats a scrollbar
           // nobody notices, and it is how you actually pose a humanoid.

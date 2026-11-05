@@ -242,6 +242,34 @@ const S = {
     position: 'absolute', top: '46px', right: '16px', display: 'flex', flexDirection: 'column',
     gap: '5px',
   },
+  // A viewer toolbar is one horizontal instrument, not nine floating buttons:
+  // camera presets are a radio group, display options are checkboxes.
+  viewBar: {
+    position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)',
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 10px',
+    borderRadius: '10px', border: `1px solid ${C.line}`, background: 'rgba(11,16,21,0.86)',
+    backdropFilter: 'blur(8px)', zIndex: 4, maxWidth: 'calc(100% - 220px)',
+  },
+  viewGroup: { display: 'flex', alignItems: 'center', gap: '2px', padding: '2px', borderRadius: '7px', background: 'transparent' },
+  viewSep: { width: '1px', height: '18px', background: C.line, flex: '0 0 auto' },
+  viewPick: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewPickOn: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
+    color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+    fontWeight: 600,
+  },
+  viewChip: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewChipOn: {
+    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
+    color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
   // ── joint bar ───────────────────────────────────────────────────────────
   jointBar: {
