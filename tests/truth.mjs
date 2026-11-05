@@ -686,6 +686,32 @@ check('cable overlay: one run per joint, pose-aware, verdict colours', () => {
   return `cable overlay live: ${ov.verts} verts, pose moves wires, ${reds.length / 2} segments flagged extend-red`
 })
 
+// ── 29c. reach overlay: workspace sphere contains every reachable tip ────────
+check('reach overlay: sphere bound contains the live tip, quad gets none', () => {
+  const armP = A.PRESETS.find((p) => p.brief.archetype === 'arm')
+  const { design } = A.composeDesign({ ...armP.brief })
+  const ik = A.createArmTeleop(design)
+  assert(ik && ik.reachSphere, 'arm IK should expose a reach sphere')
+  const { c, r } = ik.reachSphere
+  assert(r > 200 && r < 1200, `arm reach bound ${r}mm outside sane range`)
+  // every reachable tip sits inside: rest pose and a swung pose must both fit
+  for (const ang of [0, 30, -40]) {
+    const angles = design.joints.map(() => ang)
+    const t = ik.tipPos(angles)
+    const d = Math.hypot(t[0] - c[0], t[1] - c[1], t[2] - c[2])
+    assert(d <= r + 1, `tip at ${d.toFixed(0)}mm escapes the ${r}mm bound`)
+  }
+  const ov = A.reachOverlay(ik.reachSphere, ik.tipPos(design.joints.map(() => 0)))
+  assert(ov && ov.verts === 126, `sphere+tip should be 63 segs = 126 verts, got ${ov && ov.verts}`)
+  const ovBare = A.reachOverlay(ik.reachSphere, null)
+  assert(ovBare.verts === 120, `sphere alone should be 60 segs = 120 verts, got ${ovBare.verts}`)
+  // ambiguous machines honestly get no IK → no sphere
+  const quadP = A.PRESETS.find((p) => p.brief.archetype === 'quadruped')
+  const { design: qd } = A.composeDesign({ ...quadP.brief })
+  assert(!A.createArmTeleop(qd), 'quadruped must not get a single-arm IK')
+  return `reach sphere r=${r}mm contains all sampled tips; ${ov.verts} overlay verts`
+})
+
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────
 const runAutotest = (env) => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })

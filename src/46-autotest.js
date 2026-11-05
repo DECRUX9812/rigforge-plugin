@@ -228,11 +228,15 @@ function reachAutotest(ik) {
   function scoreLeg() {
     const leg = legs[li]
     const err = leg.err == null ? 999 : leg.err
-    if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm`)
+    // leg.t is real sim-seconds under servo-speed slewing — the pace of the
+    // machine, not a timer fudge. Reach/home legs report it; lift legs are
+    // solver probes (no motion), limitsweep is a fixed window.
+    const secs = (leg.kind === 'home' || leg.kind === 'prop') ? ` · ${leg.t.toFixed(1)}s` : ''
+    if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm${secs}`)
     else if (leg.kind === 'lift') {
       const v = liftVerdict(leg)
       pushResult(st, `lift-${leg.prop.id}`, `LIFT ${leg.prop.name.toUpperCase()}`, v.pass, v.detail)
-    } else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm`)
+    } else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm${secs}`)
   }
   function advance() {
     li++

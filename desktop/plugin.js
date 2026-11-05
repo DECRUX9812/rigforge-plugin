@@ -5158,6 +5158,41 @@ function wireOverlay(design, harness) {
   return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
 }
 
+/**
+ * Reach-envelope overlay for IK machines: a wireframe sphere at the arm's
+ * base joint, radius = sum of link lengths + tool offset — the
+ * triangle-inequality bound, so every reachable tip point sits inside it.
+ * Plus a crosshair on the live tip so "you are here" reads against the bound.
+ * sphere: {c:[x,y,z], r} mm design space; tip: [x,y,z] mm or null.
+ */
+function reachOverlay(sphere, tip) {
+  if (!sphere || !(sphere.r > 0)) return null
+  const arr = []
+  const col = [0.45, 0.8, 1.0]
+  const tipCol = [1.0, 0.85, 0.3]
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const R = sphere.r, c = sphere.c, N = 20
+  const planes = [[[1, 0, 0], [0, 1, 0]], [[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]]]
+  for (const [u, v] of planes) {
+    for (let i = 0; i < N; i++) {
+      const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2
+      const pt = (a) => [
+        c[0] + R * (Math.cos(a) * u[0] + Math.sin(a) * v[0]),
+        c[1] + R * (Math.cos(a) * u[1] + Math.sin(a) * v[1]),
+        c[2] + R * (Math.cos(a) * u[2] + Math.sin(a) * v[2]),
+      ]
+      seg(pt(a0), pt(a1), col)
+    }
+  }
+  if (tip) {
+    const s = 14
+    seg([tip[0] - s, tip[1], tip[2]], [tip[0] + s, tip[1], tip[2]], tipCol)
+    seg([tip[0], tip[1] - s, tip[2]], [tip[0], tip[1] + s, tip[2]], tipCol)
+    seg([tip[0], tip[1], tip[2] - s], [tip[0], tip[1], tip[2] + s], tipCol)
+  }
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
 // ── simulation export: URDF and MJCF ────────────────────────────────────────
 // The studio poses a kinematic chain; it does not pretend to be a physics
 // engine. What an engineer actually needs is the machine in a format a real
@@ -6016,11 +6051,26 @@ function createArmTeleop(design) {
   const MOVE = 220 // mm/s at full deflection
   const ZONE = { x: 0.12, y: 0.12, z: 0.12 } // stick deadzone per axis
 
+  // Workspace bound for the REACH overlay: link lengths summed along the
+  // chain plus the tool offset is the triangle-inequality outer bound —
+  // every reachable tip point sits inside the sphere, none outside it.
+  const reachSphere = (() => {
+    const c = tipChain[0].pivot
+    const last = tipChain[tipChain.length - 1].pivot
+    let r = Math.hypot(tipNode.pos[0] - last[0], tipNode.pos[1] - last[1], tipNode.pos[2] - last[2])
+    for (let i = 0; i < tipChain.length - 1; i++) {
+      const a = tipChain[i].pivot, b = tipChain[i + 1].pivot
+      r += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    }
+    return { c: [c[0], c[1], c[2]], r: Math.round(r) }
+  })()
+
   return {
     kind: 'ik',
     state,
     design,          // read-only: autotest poses a clone for torque checks
     distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
+    reachSphere,     // {c,r} mm — outer bound of the arm's workspace
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
      * Returns desired joint angles (deg, design.joints order) or null.
@@ -7156,11 +7206,15 @@ function reachAutotest(ik) {
   function scoreLeg() {
     const leg = legs[li]
     const err = leg.err == null ? 999 : leg.err
-    if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm`)
+    // leg.t is real sim-seconds under servo-speed slewing — the pace of the
+    // machine, not a timer fudge. Reach/home legs report it; lift legs are
+    // solver probes (no motion), limitsweep is a fixed window.
+    const secs = (leg.kind === 'home' || leg.kind === 'prop') ? ` · ${leg.t.toFixed(1)}s` : ''
+    if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm${secs}`)
     else if (leg.kind === 'lift') {
       const v = liftVerdict(leg)
       pushResult(st, `lift-${leg.prop.id}`, `LIFT ${leg.prop.name.toUpperCase()}`, v.pass, v.detail)
-    } else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm`)
+    } else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm${secs}`)
   }
   function advance() {
     li++
@@ -11197,6 +11251,10 @@ function Studio() {
 
   const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 
+  // teleop handles + kind live above the overlay memos: REACH reads them.
+  const ikRef = useRef(null)
+  const [teleopKind, setTeleopKind] = useState(null)
+
   // Live bench overlay: support polygon + CoM plumb recomputed with the pose,
   // so the floor tells the stability story while joints move.
   const benchOv = useMemo(
@@ -11209,25 +11267,32 @@ function Studio() {
     () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
     [posedDesign, analysis.harness, opts.cables],
   )
+  // Reach envelope: workspace sphere at the arm's base + live tip crosshair.
+  // Pose-aware only through the tip — the sphere itself is a fixed bound.
+  const reachOv = useMemo(() => {
+    const t = teleopKind === 'ik' ? ikRef.current : null
+    if (!opts.reach || !t || !t.reachSphere) return null
+    return reachOverlay(t.reachSphere, t.tipPos(dispPose))
+  }, [opts.reach, teleopKind, design, dispPose])
   const rawOv = useMemo(() => {
-    if (!benchOv) return cableOv
-    if (!cableOv) return benchOv
-    const d = new Float32Array(benchOv.data.length + cableOv.data.length)
-    d.set(benchOv.data, 0)
-    d.set(cableOv.data, benchOv.data.length)
-    return { data: d, verts: benchOv.verts + cableOv.verts }
-  }, [benchOv, cableOv])
+    const parts = [benchOv, cableOv, reachOv].filter(Boolean)
+    if (!parts.length) return null
+    if (parts.length === 1) return parts[0]
+    const total = parts.reduce((s, p) => s + p.data.length, 0)
+    const d = new Float32Array(total)
+    let off = 0
+    for (const p of parts) { d.set(p.data, off); off += p.data.length }
+    return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
+  }, [benchOv, cableOv, reachOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
-  const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
   const senseRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
-  const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
@@ -12482,7 +12547,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
