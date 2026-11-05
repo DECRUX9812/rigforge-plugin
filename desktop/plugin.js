@@ -6163,16 +6163,24 @@ function CommandPalette({ open, commands, onClose }) {
   const inputRef = useRef(null)
 
   const scored = useMemo(() => {
-    const needle = q.trim().toLowerCase()
+    // People type what they read: "pick and place arm", not "pick & place arm".
+    // Normalise both sides so punctuation and "&" never decide a match.
+    const norm = (t) => String(t).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
+    const needle = norm(q)
     if (!needle) return commands
-    const rank = (text) => {
-      const t = text.toLowerCase()
+    const rank = (raw) => {
+      const t = norm(raw)
       if (t.startsWith(needle)) return 0
-      const i = t.indexOf(needle)
-      if (i >= 0) return 1
-      // subsequence: "ppe" should find "Pick & place arm"
+      if (t.includes(needle)) return 1
+      // every word of the query must appear somewhere, in any order
+      const words = needle.split(' ').filter(Boolean)
+      if (words.every((w) => t.includes(w))) return 2
+      // initials only: "ppe" → "Pick & place arm", but "cpl" must not land on
+      // it just because those letters appear somewhere in the label.
+      const initials = t.split(' ').filter(Boolean).map((w) => w[0]).join('')
       let k = 0
-      for (const ch of t) { if (ch === needle[k]) k += 1; if (k === needle.length) return 2 }
+      const bare = needle.replace(/ /g, '')
+      for (const ch of initials) { if (ch === bare[k]) k += 1; if (k === bare.length) return 3 }
       return -1
     }
     return commands
@@ -6247,10 +6255,15 @@ function SimplePanel({ design, analysis, exports, onEngineer }) {
 
   return h('div', { style: { padding: '14px 0 8px' } },
     h('div', { style: S.simpleHead }, 'Your machine, in plain words'),
+    // Three numbers, chosen for what this design actually costs the builder.
     h('div', { style: S.simpleGrid },
       big('COST', money(analysis.cost), 'parts, at hobby prices', C.accent),
-      big('PRINT TIME', `${fmt(analysis.print.hours, 0)} h`, `${Math.round(analysis.print.grams)}g of filament`, C.amber),
-      big('WEIGHT', `${Math.round(analysis.mass.totalG)} g`, 'finished machine', C.cyan)),
+      design.pcb
+        ? big('BOARD', `${Math.round(design.pcb.W)}×${Math.round(design.pcb.H)}`, 'mm · 2 layers', C.amber)
+        : big('PRINT TIME', `${fmt(analysis.print.hours, 0)} h`, `${Math.round(analysis.print.grams)}g of filament`, C.amber),
+      design.pcb
+        ? big('JOINTS', `${design.pcb.joints || 0}`, `${(design.pcb.placed || []).length} placements`, C.cyan)
+        : big('WEIGHT', `${Math.round(analysis.mass.totalG)} g`, 'finished machine', C.cyan)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -6279,13 +6292,23 @@ function SimplePanel({ design, analysis, exports, onEngineer }) {
       h('span', { style: S.buyQty }, `×${r.qty}`),
       h('span', { style: S.buyPrice }, money(r.part.price * r.qty)))),
       rows.length > 6 ? h('div', { style: S.buyMore }, `+ ${rows.length - 6} more line items`) : null),
-    h('div', { style: S.simpleLabel }, 'WHAT TO PRINT'),
-    h('div', { style: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim, lineHeight: 1.6, marginBottom: '16px' } },
-      `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
-      h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
-        'One file per part, already oriented and bed-checked.')),
+    // A board is not printed, so this block says what actually happens to it:
+    // the fab makes the PCB, you place the parts, or an assembly house does.
+    design.pcb
+      ? h('div', {},
+        h('div', { style: S.simpleLabel }, 'WHAT HAPPENS NOW'),
+        h('div', { style: { fontSize: '11.5px', color: C.dim, lineHeight: 1.7, marginBottom: '12px' } },
+          h('div', {}, `The board is fabricated: ${Math.round(design.pcb.W)}×${Math.round(design.pcb.H)}mm, 2 layers, 1.6mm.`),
+          h('div', {}, `Then ${(design.pcb.placed || []).length} parts go on — ${(design.pcb.joints || 0)} solder joints.`),
+          h('div', { style: { color: C.faint } }, 'Send the board files to a fab; send the parts to an assembly house if you would rather not solder.')))
+      : h('div', {},
+        h('div', { style: S.simpleLabel }, 'WHAT TO PRINT'),
+        h('div', { style: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim, lineHeight: 1.6, marginBottom: '16px' } },
+          `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
+          h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
+            'One file per part, already oriented and bed-checked.'))),
     h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
-      '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
+      design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
       onClick: onEngineer,
