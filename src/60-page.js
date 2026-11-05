@@ -283,10 +283,18 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
+  // The bench verdict in one sentence — "will it stand?" is the question a
+  // first-time builder actually has, and it belongs in plain words too.
+  const bench = useMemo(
+    () => benchReport(design, analysis, { mat: analysis.print && analysis.print.material, slopeDeg: 15 }),
+    [design, analysis],
+  )
+  const benchWorst = bench.verdicts.find((v) => v.status === 'fail') || bench.verdicts.find((v) => v.status === 'warn')
+  const benchOk = !benchWorst
   const big = (k, v, sub, color) => h('div', { style: S.bigCard },
     h('div', { style: S.bigKey }, k),
     h('div', { style: { ...S.bigVal, color: color || C.text } }, v),
@@ -315,6 +323,26 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
       title: 'did the last change actually make it better?',
       'aria-label': 'Compare this build with the previous one',
     }, '↔ what changed'),
+    h('button', {
+      style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10px', margin: '0 0 12px 6px' },
+      onClick: onTest,
+      title: 'the pre-print test bench: stability, ramp, joint torque',
+      'aria-label': 'Open the test bench tab',
+    }, '⚗ test bench'),
+    h('div', {
+      role: 'status',
+      style: {
+        display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '8px 10px',
+        borderRadius: '7px', marginBottom: '12px', fontSize: '11.5px', lineHeight: 1.45,
+        color: C.text, background: levelBg(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn'),
+        borderLeft: `3px solid ${levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn')}`,
+      },
+    },
+      h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
+        benchOk ? 'BENCH ✓' : 'BENCH !'),
+      h('span', {}, benchOk
+        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -1207,7 +1235,13 @@ function Studio() {
       // right rail: the spec
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
-          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onCompare: () => setCompareOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          h(SimplePanel, {
+            design, analysis, exports,
+            onAudit: () => setAuditOpen(true),
+            onCompare: () => setCompareOpen(true),
+            onTest: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('test') },
+            onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+          }))
           : h('div', {
             style: S.tabs, role: 'tablist',
             // arrow keys are what a tablist promises a keyboard user
