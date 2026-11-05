@@ -66,5 +66,28 @@ const header = stl.subarray(0, 30).toString('latin1')
 console.log('download:', download.suggestedFilename(), stl.length, 'bytes,', tris, 'triangles')
 console.log('stl header:', JSON.stringify(header))
 console.log('size math ok:', stl.length === 84 + 50 * tris)
+// The simple panel's primary button promises a print pack. It used to resolve
+// the export by index and hand back the whole-machine STL, which is not
+// printable as a pack — so this asserts the file is a real zip of per-part STLs.
+const packPromise = page.waitForEvent('download', { timeout: 25000 })
+await page.locator('button:has-text("PRINT PACK")').first().click()
+const packDl = await packPromise
+const packPath = join(here, 'tmp', packDl.suggestedFilename())
+await packDl.saveAs(packPath)
+const pack = readFileSync(packPath)
+const isZip = pack.subarray(0, 2).toString('latin1') === 'PK'
+const entries = isZip ? (() => {
+  // count local file headers without a zip library
+  let n = 0
+  for (let i = 0; i < pack.length - 4; i += 1) {
+    if (pack[i] === 0x50 && pack[i + 1] === 0x4b && pack[i + 2] === 0x03 && pack[i + 3] === 0x04) n += 1
+  }
+  return n
+})() : 0
+const stlOnly = pack.subarray(30, 34).toString('latin1') === 'sol' || pack.subarray(0, 5).toString('latin1') === 'solid'
+console.log('print pack:', packDl.suggestedFilename(), pack.length, 'bytes,', entries, 'entries, zip:', isZip, '| looks like a single STL:', stlOnly)
+if (!isZip || entries < 3) { errs.push('print pack is not a multi-part zip') }
+if (stlOnly) { errs.push('print pack returned the merged STL') }
+
 console.log(errs.length ? 'PAGE ERRORS: ' + errs.join(' | ') : 'no page errors')
 await browser.close()
