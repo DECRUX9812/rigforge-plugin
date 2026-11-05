@@ -495,6 +495,24 @@ function download(name, data, type) {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+// "iot" is our word, not the user's. Show the machine name they picked.
+function friendlyArchetype(id) {
+  const p = PRESETS.find((x) => x.brief.archetype === id)
+  if (p) return p.label.toLowerCase().replace(/ & /g, ' and ')
+  const a = (typeof ARCHETYPES !== 'undefined' ? ARCHETYPES : []).find((x) => x[0] === id)
+  return a ? a[1].toLowerCase() : id
+}
+
+function relTime(ts) {
+  const secs = Math.max(1, Math.round((Date.now() - ts) / 1000))
+  if (secs < 60) return 'just now'
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.round(hrs / 24)}d ago`
+}
+
 function slug(text) {
   return String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'build'
 }

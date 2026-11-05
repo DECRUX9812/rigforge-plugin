@@ -532,6 +532,7 @@ function Studio() {
       archetype: brief.archetype,
       cost: Math.round(analysis.cost * 100) / 100,
       brief,
+      code: encodeBuild(brief),
       at: Date.now(),
     }
     const next = [entry, ...shelf.filter((s) => s.title !== design.title)].slice(0, 8)
@@ -852,21 +853,40 @@ function Studio() {
             }))
           : null,
 
+        h('div', { style: { ...S.sectionLabel, marginTop: '12px' } },
+          shelf.length ? `shelf · ${shelf.length}` : 'shelf'),
         shelf.length
-          ? h('div', {},
-            h('div', { style: { ...S.sectionLabel, marginTop: '10px' } }, 'shelf'),
-            shelf.map((s) => h('div', {
-              key: s.id, style: { ...S.shelfRow, alignItems: 'center' },
-              title: `Load ${s.title}`,
+          ? shelf.map((s) => {
+            const code = s.code || encodeBuild(s.brief)
+            const age = s.at ? relTime(s.at) : ''
+            return h('div', {
+              key: s.id, style: S.shelfRow,
               onMouseEnter: (e) => { e.currentTarget.style.borderColor = C.accentLine },
               onMouseLeave: (e) => { e.currentTarget.style.borderColor = C.line },
             },
               h('button', {
                 style: { flex: '1 1 auto', minWidth: 0, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' },
-                onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...s.brief }); setMission(s.brief.mission) },
+                title: `Load ${s.title}`,
+                'aria-label': `Load ${s.title}`,
+                onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...s.brief }); setMission(s.brief.mission || '') },
               },
                 h('span', { style: { fontSize: '11.5px', color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.title),
-                h('span', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint } }, `${money(s.cost)} · ${s.brief.archetype}`)),
+                h('span', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                  `${money(s.cost)} · ${friendlyArchetype(s.brief.archetype)}${age ? ' · ' + age : ''}`)),
+              h('button', {
+                style: { background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '2px 5px', flex: '0 0 auto' },
+                'aria-label': `Copy build code for ${s.title}`,
+                title: 'copy its build code',
+                onClick: async (e) => {
+                  e.stopPropagation()
+                  try {
+                    await navigator.clipboard.writeText(code)
+                    host.notify({ kind: 'success', message: `Code for ${s.title} copied` })
+                  } catch {
+                    host.notify({ kind: 'info', message: 'Clipboard blocked' })
+                  }
+                },
+              }, '⧉'),
               h('button', {
                 style: { background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '2px 4px', flex: '0 0 auto' },
                 'aria-label': `Remove ${s.title} from the shelf`,
@@ -877,8 +897,10 @@ function Studio() {
                   setShelf(next)
                   if (CTX) CTX.storage.set('shelf', next)
                 },
-              }, '×'))))
-          : null,
+              }, '×'))
+          })
+          : h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, padding: '2px 0 4px' } },
+            'Nothing saved yet. Press SAVE and the build lands here with its own build code.'),
 
         h('div', { style: { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, fontSize: '10px', color: C.faint, lineHeight: 1.5 } },
           'Deterministic engine: torque, current, mass and print time are computed, not narrated. The agent redesigns; the maths here is yours.')),
