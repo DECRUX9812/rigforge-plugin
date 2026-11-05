@@ -69,6 +69,10 @@ for (let i = 0; i < labels.length; i += 1) {
 const problems = []
 // order matters: "Print pack · per-part STLs (zip)" contains "STL" too
 const expectExt = [
+  // 3MF arrived after this list was written, and its label contains "print
+  // pack" — so the zip rule claimed it and the gate failed on a correct
+  // download. Specific before general.
+  [/3mf/i, '.3mf'],
   [/print pack|board pack|fab \+ assembly/i, '.zip'],
   [/openscad/i, '.scad'],
   [/build spec/i, '.md'],
