@@ -70,7 +70,10 @@ console.log('size math ok:', stl.length === 84 + 50 * tris)
 // the export by index and hand back the whole-machine STL, which is not
 // printable as a pack — so this asserts the file is a real zip of per-part STLs.
 const packPromise = page.waitForEvent('download', { timeout: 25000 })
-await page.locator('button:has-text("PRINT PACK")').first().click()
+// click the button by its own hook: "has-text" also matches the menu entry with
+// a similar label, and that ambiguity once pointed the assertion at the wrong
+// control
+await page.locator('[data-rf="packcta"]').first().click()
 const packDl = await packPromise
 const packPath = join(here, 'tmp', packDl.suggestedFilename())
 await packDl.saveAs(packPath)

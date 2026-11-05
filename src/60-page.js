@@ -394,7 +394,7 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     // The primary call to action must not be an index into a list that other
     // features keep inserting into: this used to say "print pack" and download
     // the whole-machine STL because the STL entry moved to position 1.
-    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction },
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction, 'data-rf': 'packcta', 'data-pack': packEntry ? packEntry[0] : 'FALLBACK' },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
