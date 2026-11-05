@@ -8981,6 +8981,13 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 900px) {
+  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
+     window cut the last slider in half — a joint you cannot reach is worse than
+     one further down the page */
+  [data-rf="posegrid"] { max-height: 138px !important; }
+}
+
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
@@ -9142,7 +9149,7 @@ const S = {
     boxShadow: '0 0 0 1px rgba(255,106,26,0.22), 0 8px 20px rgba(0,0,0,0.32)',
   },
   cardTitle: { fontFamily: C.sans, fontSize: '11.5px', fontWeight: 650, color: C.text, letterSpacing: '0.01em' },
-  cardSub: { fontSize: '11px', color: C.faint, lineHeight: 1.35 },
+  cardSub: { fontSize: '11px', color: C.dim, lineHeight: 1.35 },
   thumb: {
     display: 'block', width: '100%', height: '62px', marginBottom: '3px',
     borderRadius: '7px', background: 'radial-gradient(circle at 50% 30%, #12202b, #0a1017 70%)',
@@ -9246,10 +9253,10 @@ const S = {
   },
   poseGrid: {
     flex: '1 1 auto', minWidth: 0, display: 'grid', gap: '6px 18px',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(238px, 1fr))',
     maxHeight: '78px', overflowY: 'auto', alignContent: 'start',
   },
-  poseRow: { display: 'grid', gridTemplateColumns: '1fr 84px 40px', alignItems: 'center', gap: '8px', minWidth: 0 },
+  poseRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 74px 46px', alignItems: 'center', gap: '7px', minWidth: 0 },
   poseName: {
     fontSize: '10.5px', color: C.dim, whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis', letterSpacing: '0.01em',
@@ -9362,13 +9369,13 @@ const S = {
     color: C.faint, textTransform: 'uppercase', marginBottom: '7px',
   },
   buyRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', alignItems: 'baseline',
+    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 66px', gap: '10px', alignItems: 'baseline',
     padding: '6px 0', borderBottom: `1px solid ${C.lineSoft}`,
   },
   buyName: { fontSize: '12px', color: C.text, lineHeight: 1.35 },
   buyQty: { fontFamily: C.mono, fontSize: '10px', color: C.faint },
   buyPrice: {
-    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap',
+    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap', textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
@@ -10475,6 +10482,11 @@ function CommandPalette({ open, commands, onClose }) {
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+  // The primary CTA is picked by meaning: the export list keeps growing, and
+  // selecting the "print pack" by index once shipped a whole-machine STL under a
+  // button that promised a zip.
+  const packEntry = exports.find(([label]) => /print pack|board pack|fab \+ assembly/i.test(label))
+  const packAction = (packEntry || exports[1])[1]
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -10577,7 +10589,10 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
           `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
           h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
             'One file per part: laid flat, centred on the bed, sitting on Z=0.'))),
-    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+    // The primary call to action must not be an index into a list that other
+    // features keep inserting into: this used to say "print pack" and download
+    // the whole-machine STL because the STL entry moved to position 1.
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
@@ -12097,7 +12112,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid },
+              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')

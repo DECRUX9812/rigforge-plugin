@@ -284,6 +284,11 @@ function CommandPalette({ open, commands, onClose }) {
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+  // The primary CTA is picked by meaning: the export list keeps growing, and
+  // selecting the "print pack" by index once shipped a whole-machine STL under a
+  // button that promised a zip.
+  const packEntry = exports.find(([label]) => /print pack|board pack|fab \+ assembly/i.test(label))
+  const packAction = (packEntry || exports[1])[1]
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -386,7 +391,10 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
           `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
           h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
             'One file per part: laid flat, centred on the bed, sitting on Z=0.'))),
-    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+    // The primary call to action must not be an index into a list that other
+    // features keep inserting into: this used to say "print pack" and download
+    // the whole-machine STL because the STL entry moved to position 1.
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
@@ -1906,7 +1914,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid },
+              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')
