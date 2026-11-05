@@ -707,6 +707,27 @@ check('autotest sense: stimulus sweep fires a real threshold alert', () => {
   return at.results[0].detail
 })
 
+// ── 34. the prescription has to work ─────────────────────────────────────────
+check('APPLY FIX: the wheel size it prescribes actually climbs the porch stairs', () => {
+  const base = { ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief }
+  const climb = (wheelMm) => {
+    const { design, analysis } = A.composeDesign({ ...base, wheelMm })
+    const drive = A.createDrive(design, analysis)
+    drive.setEnv({ surface: 'hardwood', slopeDeg: 0, course: 'stairs' })
+    for (let i = 0; i < 60 * 14; i++) drive.step({ throttle: 1, steer: 0 }, 1 / 60)
+    return drive.state
+  }
+  const blocked = climb(base.wheelMm || 100)
+  assert(blocked.stall, 'a 100mm rover should be stopped by 80mm risers')
+  const fixes = A.fixSuggestions({ brief: base, drive: { ...blocked, course: 'stairs' }, bench: null, power: null, prop: null })
+  const steps = fixes.find((f) => /steps/.test(f.msg))
+  assert(steps && steps.apply && steps.apply.wheelMm, `no wheel prescription offered: ${fixes.map((f) => f.msg).join(' | ')}`)
+  const after = climb(steps.apply.wheelMm)
+  assert(!after.stall, `prescribed ${steps.apply.wheelMm}mm wheels still stall — the advice cannot be followed`)
+  assert(!/undefined/.test(steps.msg), `advice text has a hole in it: ${steps.msg}`)
+  return `${steps.apply.wheelMm}mm wheels: blocked at x=${blocked.x.toFixed(2)} -> climbs to x=${after.x.toFixed(2)}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

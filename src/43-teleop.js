@@ -550,7 +550,11 @@ function fixSuggestions(s) {
   const drv = s.drive ? (s.drive.loco || s.drive) : null
   if (drv) {
     if (drv.stall || (drv.slide && drv.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+      // gradeDeg/surface are absent on a flat push in the stairs course, and
+      // 'undefined° undefined' is what that printed
+      const grade = Number.isFinite(drv.gradeDeg) ? `${drv.gradeDeg}° ` : ''
+      const surf = drv.surface || 'the ground'
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${grade}${surf} — more torque, lower grade, or shed payload`)
     } else if (drv.slip) {
       push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }

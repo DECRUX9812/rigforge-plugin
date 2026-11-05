@@ -1258,7 +1258,7 @@ function MAT_PART(material) {
 function buildRover(brief) {
   const d = newDesign('rover', brief)
   const payload = clampPayload(d, brief.payloadKg || 2, 0.2, 15)
-  const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 130) // wheel Ø, mm
+  const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 220) // wheel Ø, mm
   const track = clamp(Math.round(wheelD * 3.2), 150, 420)
   const wheelbase = clamp(Math.round(track * 1.25), 180, 520)
   const r = wheelD / 2 / 1000 // m
@@ -6109,7 +6109,11 @@ function fixSuggestions(s) {
   const drv = s.drive ? (s.drive.loco || s.drive) : null
   if (drv) {
     if (drv.stall || (drv.slide && drv.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+      // gradeDeg/surface are absent on a flat push in the stairs course, and
+      // 'undefined° undefined' is what that printed
+      const grade = Number.isFinite(drv.gradeDeg) ? `${drv.gradeDeg}° ` : ''
+      const surf = drv.surface || 'the ground'
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${grade}${surf} — more torque, lower grade, or shed payload`)
     } else if (drv.slip) {
       push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }
