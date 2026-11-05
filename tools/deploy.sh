@@ -23,13 +23,16 @@ if [ "$FORCE" != "--force" ]; then
     echo "gh not installed — cannot check CI. Re-run with --force to override." >&2
     exit 1
   fi
+  # A queued or in-progress run reports null conclusions. Calling that "red"
+  # would refuse a perfectly good commit for the minute it takes CI to start;
+  # it is "pending", and the answer is to wait rather than to override.
   STATUS=$(gh api "repos/{owner}/{repo}/commits/$SHA/check-runs" \
-    --jq '[.check_runs[] | select(.name=="engine claims (no browser)" or .name=="browser gates") | .conclusion] | if length == 0 then "none" elif all(. == "success") then "green" else "red" end' 2>/dev/null || echo unknown)
+    --jq '[.check_runs[] | select(.name=="engine claims (no browser)" or .name=="browser gates") | .conclusion] | if length == 0 then "pending" elif any(. == null) then "pending" elif all(. == "success") then "green" else "red" end' 2>/dev/null || echo unknown)
 
   case "$STATUS" in
     green) echo "CI on $SHORT is green" ;;
     red) echo "CI on $SHORT is red — refusing to deploy a red commit (--force to override)." >&2; exit 1 ;;
-    *) echo "No CI result for $SHORT yet. Wait a minute, or --force." >&2; exit 1 ;;
+    *) echo "CI on $SHORT is still running or has not started. Wait a minute, or --force." >&2; exit 1 ;;
   esac
 fi
 
