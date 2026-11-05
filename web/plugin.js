@@ -11023,6 +11023,13 @@ function Studio() {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
       if (sim.step(dt, now)) setDispPose([...sim.state.angles])
+      // joint telemetry: actual angles ~10Hz, ring of 80 (~8s) for the scope
+      telemetryRef.current.n += 1
+      if (telemetryRef.current.n % 6 === 0) {
+        const ts = telemetryRef.current
+        ts.samples.push(sim.state.angles.slice())
+        if (ts.samples.length > 80) ts.samples.shift()
+      }
       // endurance: drain the pack, heat the servos, feed thermal cutoffs back
       if (powerRef.current) {
         const drv = driveRef.current
@@ -11186,6 +11193,8 @@ function Studio() {
   // pose sweep: {active,t} — tick() walks every joint min→max→rest so the
   // servo sim (not a teleport) exercises the real limits
   const sweepRef = useRef({ active: false, t: 0 })
+  // joint telemetry ring: actual (not commanded) angles at ~10Hz for the scope
+  const telemetryRef = useRef({ samples: [], n: 0 })
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
@@ -12545,7 +12554,29 @@ function Studio() {
                       style: { ...S.poseVal, color: stalled ? C.red : loadRatio > 0.7 ? C.amber : undefined },
                     }, stalled ? 'STALL' : `${Math.round(dispPose[i] || 0)}${j.slide ? 'mm' : '°'}${loadRatio > 0.55 ? ` ·${Math.round(loadRatio * 100)}%` : ''}`))
                 })),
-              poseOverflows ? h('div', { style: S.poseFade }) : null)
+              poseOverflows ? h('div', { style: S.poseFade }) : null,
+            // live scope: actual joint angles over the last ~8s — oscillation,
+            // stalls and limit riding are visible as shapes, not just numbers
+            telemetryRef.current.samples.length > 2
+              ? h('div', { style: { marginTop: '10px' } },
+                h('div', { style: { ...S.sectionLabel, marginBottom: '4px' } }, `telemetry · last ${((telemetryRef.current.samples.length / 10) | 0)}s`),
+                design.joints.slice(0, 10).map((j, i) => {
+                  const ns = telemetryRef.current.samples.length - 1 || 1
+                  const pts = telemetryRef.current.samples
+                    .map((s, k) => {
+                      const a = s[i] || 0
+                      const n = j.max !== j.min ? (a - j.min) / (j.max - j.min) : 0.5
+                      return `${((k / ns) * 100).toFixed(1)},${(22 - Math.max(0, Math.min(1, n)) * 20).toFixed(1)}`
+                    }).join(' ')
+                  return h('div', { key: j.id, style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' } },
+                    h('span', { style: { width: '86px', flex: '0 0 auto', fontSize: '9px', color: C.faint, fontFamily: C.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, j.label),
+                    h('svg', { viewBox: '0 0 100 24', preserveAspectRatio: 'none', style: { flex: '1 1 auto', height: '18px', display: 'block' } },
+                      h('polyline', { points: pts, fill: 'none', stroke: C.cyan, strokeWidth: '1.2', vectorEffect: 'non-scaling-stroke' })))
+                }),
+                design.joints.length > 10
+                  ? h('div', { style: { fontSize: '9px', color: C.faint, marginTop: '2px' } }, `+${design.joints.length - 10} more joints — scope shows the first ten`)
+                  : null)
+              : null)
             : h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, padding: '8px 0' } },
               'no articulated joints — static assembly')),
       ),
