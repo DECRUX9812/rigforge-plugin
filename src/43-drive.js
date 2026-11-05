@@ -83,6 +83,13 @@ function muAt(x, env) {
   return (DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood).mu
 }
 
+// Course dressing (ramps, rooms, stairs) is authored in metres to match the
+// drive physics and terrainHeight(); the render space is mm — scale at the
+// boundary so tris land in the same space as the machine mesh.
+function courseTrisMm(tris) {
+  return tris.map((t) => ({ ...t, pts: t.pts.map((p) => [p[0] * 1000, p[1] * 1000, p[2] * 1000]) }))
+}
+
 // ── stairs course ───────────────────────────────────────────────────────────
 // A porch-stair run along +X: 4 risers of 80mm with 320mm treads. Whether a
 // chassis mounts a nosing is decided by wheel radius, not by torque — a rigid
@@ -103,7 +110,7 @@ function stairsTris() {
       STAIRS.x0 + (i + 0.5) * STAIRS.tread, 0, (i + 0.5) * STAIRS.stepH,
       STAIRS.tread, STAIRS.halfW * 2, STAIRS.stepH, 'metal', `stair-${i}`))
   }
-  return tris
+  return courseTrisMm(tris)
 }
 
 /**
@@ -147,7 +154,7 @@ function benchRampTris(slopeDeg) {
   }
   stripe(-W + 0.03, -W + 0.03)
   stripe(W - 0.03, W - 0.03)
-  return tris
+  return courseTrisMm(tris)
 }
 
 /** Returns null for machines with nothing to drive. */
@@ -325,10 +332,12 @@ function createDrive(design, analysis) {
  */
 function applyChassis(mesh, st, slopeDeg, out, course) {
   if (!st) return mesh
+  // chassis state and terrain courses are metres; mesh pts are mm
+  const mx = st.x * 1000, my = st.y * 1000
   const g = st.grade || 0
   const cp = Math.cos(-g), sp = Math.sin(-g)
   const c = Math.cos(st.yaw), sn = Math.sin(st.yaw)
-  const zBase = terrainHeight(st.x, slopeDeg || 0, course)
+  const zBase = terrainHeight(st.x, slopeDeg || 0, course) * 1000
   const res = out || new Array(mesh.length)
   for (let i = 0; i < mesh.length; i++) {
     const t = mesh[i]
@@ -344,8 +353,8 @@ function applyChassis(mesh, st, slopeDeg, out, course) {
       const px = p[0] * cp + p[2] * sp
       const pz = -p[0] * sp + p[2] * cp
       const py = p[1]
-      pts[k][0] = px * c - py * sn + st.x
-      pts[k][1] = px * sn + py * c + st.y
+      pts[k][0] = px * c - py * sn + mx
+      pts[k][1] = px * sn + py * c + my
       pts[k][2] = pz + zBase
     }
   }
@@ -357,8 +366,8 @@ function applyChassis(mesh, st, slopeDeg, out, course) {
 let _roomTris = null
 function livingRoomTris() {
   if (_roomTris) return _roomTris
-  _roomTris = []
-  const T = (a, b, c, mat, node) => _roomTris.push({ pts: [a, b, c], mat, node })
+  const raw = []
+  const T = (a, b, c, mat, node) => raw.push({ pts: [a, b, c], mat, node })
   // rug: thin padded rectangle under the high-mu zone
   const rug = { x0: ROOM.rug.x0 - 0.15, x1: ROOM.rug.x1 + 0.15, y: 1.25, t: 0.012 }
   const rz = rug.t / 2
@@ -375,7 +384,8 @@ function livingRoomTris() {
     const [sx, sy, sz] = pr.size
     const onRug = pr.c[0] >= ROOM.rug.x0 && pr.c[0] < ROOM.rug.x1
     const baseZ = (onRug ? rug.t : 0) + 0.001
-    _roomTris.push(...deskBoxTris(pr.c[0], pr.c[1], baseZ + sz / 2, sx, sy, sz, pr.mat, `room-${pr.id}`))
+    raw.push(...deskBoxTris(pr.c[0], pr.c[1], baseZ + sz / 2, sx, sy, sz, pr.mat, `room-${pr.id}`))
   }
+  _roomTris = courseTrisMm(raw)
   return _roomTris
 }

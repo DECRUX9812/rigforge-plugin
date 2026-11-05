@@ -851,6 +851,30 @@ function Studio() {
 
   // The overlay rides the machine in plan, but its points live ON the terrain:
   // yaw+translate in x/y, then each point takes the ramp height under it.
+  // camera chases the machine, not the course: course dressing can span
+  // metres while cam.dist is framed on the machine's own dimensions
+  const machBounds = useMemo(() => boundsOfMesh(mesh), [mesh])
+  const camFocus = useMemo(() => {
+    if (!chassis) return null
+    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    const cy = (machBounds.min[1] + machBounds.max[1]) / 2
+    const cz = (machBounds.min[2] + machBounds.max[2]) / 2
+    return [
+      cx * c - cy * sn + chassis.x * 1000,
+      cx * sn + cy * c + chassis.y * 1000,
+      terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
+    ]
+  }, [chassis, machBounds, benchEnv])
+  // floor contact-shadow radius tracks the machine, not the (possibly huge) course
+  const subjectR = useMemo(() => {
+    const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
+    return Math.min(1600, Math.max(160, Math.max(...d) * 0.8))
+  }, [machBounds])
+  const viewOpts = useMemo(
+    () => ({ ...opts, subjectR, subjectBounds: machBounds, focus: camFocus }),
+    [opts, subjectR, machBounds, camFocus],
+  )
   const benchOvWorld = useMemo(() => {
     if (!benchOv || !chassis) return benchOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
@@ -858,11 +882,12 @@ function Studio() {
     const d = benchOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
-      const wx = d[i] * c - d[i + 1] * sn + chassis.x
-      const wy = d[i] * sn + d[i + 1] * c + chassis.y
-      out[i] = wx
-      out[i + 1] = wy
-      out[i + 2] = terrainHeight(wx, slope, benchEnv.course)
+      // overlay verts are mm (design space); chassis state is metres
+      const wx = (d[i] * c - d[i + 1] * sn) / 1000 + chassis.x
+      const wy = (d[i] * sn + d[i + 1] * c) / 1000 + chassis.y
+      out[i] = wx * 1000
+      out[i + 1] = wy * 1000
+      out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
     return { data: out, verts: benchOv.verts }
@@ -1467,7 +1492,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts, design, analysis, overlay: benchOvWorld }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
