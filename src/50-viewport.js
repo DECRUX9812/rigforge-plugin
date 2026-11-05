@@ -939,11 +939,21 @@ function dwgNo(design) {
 }
 
 /** `coxa-fl` → `Coxa FL`: an id an engineer can read back in the parts table. */
+// Ids are machine names ('upper-arm', 'jaw-b', 'pcb-mount'). Uppercasing every
+// short word produced 'Upper ARM' and 'JAW B', which reads like shouting; only
+// real acronyms and single letters stay upper.
+const ACRONYMS = new Set(['pcb', 'led', 'ic', 'usb', 'imu', 'esc', 'stl', 'mcu', 'iot', 'rfid',
+  'gpio', 'pwm', 'uart', 'spi', 'dof', 'psu', 'lipo', 'bldc', 'cnc', 'pla', 'petg', 'abs', 'soc', 'som'])
 function humanNode(id) {
   const words = String(id).split(/[-_]/).filter(Boolean)
   if (!words.length) return String(id)
   return words
-    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
+    .map((w) => {
+      const low = w.toLowerCase()
+      if (w.length === 1) return w.toUpperCase()
+      if (ACRONYMS.has(low)) return low === 'dof' ? 'DoF' : low.toUpperCase()
+      return w[0].toUpperCase() + w.slice(1)
+    })
     .join(' ')
 }
 
