@@ -5469,6 +5469,17 @@ const S = {
     display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px',
     borderTop: `1px solid ${C.line}`, background: C.panel,
   },
+  firstRunCompact: {
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', marginBottom: '8px',
+    borderRadius: '8px', border: `1px solid ${C.line}`, background: C.panel2, flexWrap: 'wrap',
+  },
+  firstRunItem: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: C.dim },
+  chipBtn: {
+    display: 'inline-flex', alignItems: 'center', height: '22px', padding: '0 8px',
+    borderRadius: '11px', border: `1px solid ${C.line}`, background: C.panel2,
+    color: C.dim, fontSize: '10px', cursor: 'pointer', fontFamily: C.sans,
+    flex: '0 0 auto', whiteSpace: 'nowrap',
+  },
   shelfRow: {
     display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '7px 9px',
     border: `1px solid ${C.line}`, borderRadius: '7px', marginBottom: '5px',
@@ -6453,6 +6464,13 @@ function SimplePanel({ design, analysis, exports, onEngineer }) {
     }, '⌁ SHOW ME THE ENGINEERING'))
 }
 
+// Sentences a person can actually type, each of which the matcher resolves.
+const EXAMPLES = [
+  'a rover that maps my room',
+  'a gripper that sorts screws',
+  'a board with a screen and a sensor',
+]
+
 const ARCHETYPES = [
   ['iot', 'IoT'], ['gadget', 'ESP32'], ['gripper', 'GRIPPER'], ['arm', 'ARM'], ['rover', 'ROVER'],
   ['quadruped', 'QUAD'], ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['gantry', 'GANTRY'],
@@ -6462,6 +6480,7 @@ const ARCHETYPES = [
 // without ever typing a brief.
 const PRESET_BLURBS = {
   iot: 'one sensor, one case, one afternoon',
+  pcb: 'a real board, fab + assembly files',
   gantry: 'metre-scale, belts + rails',
   arm: 'lifts and sorts small parts',
   rover: 'a rolling robot that explores',
@@ -6488,6 +6507,7 @@ const MAT_OPTIONS = Object.entries(MATERIALS).map(([k, m]) => ({
 function Studio() {
   const [brief, setBrief] = useState(() => (CTX && CTX.storage.get('lastBrief', null)) || DEFAULT_BRIEF)
   const [mission, setMission] = useState(() => brief.mission)
+  const [missionDirty, setMissionDirty] = useState(false)
   const [tab, setTab] = useState('spec')
   const [simple, setSimple] = useState(() => (CTX && CTX.storage.get('simple', true)) !== false)
   const [guideOff, setGuideOff] = useState(false)
@@ -6707,7 +6727,7 @@ function Studio() {
     for (const p of PRESETS) {
       list.push({
         id: 'machine-' + p.id, group: 'MACHINE', label: p.label, hint: p.brief.archetype,
-        run: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
+        run: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission); setMissionDirty(false) },
       })
     }
     for (const [id, label] of TABS) {
@@ -6817,21 +6837,18 @@ function Studio() {
       // left rail: the brief
       h('div', { style: S.rail, 'data-rf': 'rail' },
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
-        (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRun },
-          h('div', { style: S.firstRunStep },
-            h('div', { style: S.firstRunNum }, 'STEP 1'),
-            h('div', { style: S.firstRunText }, 'Pick a machine. Each card is a real, buildable design.')),
-          h('div', { style: S.firstRunStep },
-            h('div', { style: S.firstRunNum }, 'STEP 2'),
-            h('div', { style: S.firstRunText }, 'Set one number — payload or reach. Everything rescales.')),
-          h('div', { style: S.firstRunStep },
-            h('div', { style: S.firstRunNum }, 'STEP 3'),
-            h('div', { style: S.firstRunText }, 'Press BUILD. You get parts, files and code.')),
+        // Three steps, one row: the guide must not push BUILD below the fold
+        // on an 800px window, which is where a laptop actually sits.
+        (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRunCompact },
+          [['1', 'pick or describe'], ['2', 'set one number'], ['3', 'press BUILD']].map(([n, t]) => h('span', { key: n, style: S.firstRunItem },
+            h('span', { style: S.firstRunNum }, n),
+            h('span', {}, t))),
           h('button', {
-            style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px', flex: '0 0 auto' },
-            'aria-label': 'Dismiss the guide',
+            style: { ...S.btn, height: '20px', padding: '0 7px', fontSize: '9.5px', flex: '0 0 auto' },
+            'aria-label': 'Hide this guide',
+            title: 'hide the guide — it never comes back',
             onClick: () => { if (CTX) { CTX.storage.set('seenFirstRun', true); setGuideOff(true) } },
-          }, 'GOT IT')),
+          }, 'HIDE')),
         h('div', { style: S.cards },
           (allMachines ? PRESETS : PRESETS.slice(0, 4)).map((p) => h('button', {
             key: p.id,
@@ -6859,14 +6876,14 @@ function Studio() {
           rows: 2, value: mission, style: { ...S.input, marginBottom: '8px' },
           placeholder: '…or describe the machine you want — "a robot car that maps my room"',
           'aria-label': 'Describe the machine to build',
-          onChange: (e) => setMission(e.target.value),
+          onChange: (e) => { setMission(e.target.value); setMissionDirty(true) },
           onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onBuild() } },
         }),
         // What the parser hears, before you commit to it. The matcher already
         // existed; hiding it behind BUILD meant people typed blind.
         (() => {
           const text = (mission || '').trim()
-          if (text.length < 4) return null
+          if (!missionDirty || text.length < 4) return null
           const match = matchArchetype(text)
           const guess = match.id
           const preset = PRESETS.find((x) => x.brief.archetype === guess)
@@ -6888,14 +6905,30 @@ function Studio() {
                 },
               }, 'use its numbers'))
         })(),
+        // No words yet? Three sentences that work, one click each.
+        (!missionDirty
+          ? h('div', { style: { display: 'flex', gap: '5px', flexWrap: 'nowrap', overflowX: 'auto', margin: '0 0 8px', paddingBottom: '2px' } },
+            EXAMPLES.map((ex) => h('button', {
+              key: ex,
+              style: { ...S.chipBtn },
+              title: `Build this: ${ex}`,
+              onClick: () => {
+                const b = { ...DEFAULT_BRIEF, ...brief, mission: ex, archetype: matchArchetype(ex).id }
+                const p2 = PRESETS.find((x) => x.brief.archetype === b.archetype)
+                setBrief(p2 ? { ...DEFAULT_BRIEF, ...p2.brief, mission: ex } : b)
+                setMission(ex)
+                setMissionDirty(true)
+              },
+            }, ex)))
+          : null),
         h('div', { style: { display: 'flex', gap: '6px' } },
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
           h('button', {
-            style: { ...S.btn, flex: '0 0 auto' },
-            title: 'roll a random machine',
-            'aria-label': 'Build a random machine',
+            style: { ...S.btn, flex: '0 0 auto', padding: '0 10px', gap: '6px' },
+            title: 'roll a random machine — useful when you have no preference',
+            'aria-label': 'Surprise me with a random machine',
             onClick: surprise,
-          }, '⚄')),
+          }, '⚄', h('span', { style: { fontSize: '10px', letterSpacing: '0.04em' } }, 'SURPRISE ME'))),
 
         (() => { const v = plainVerdict(analysis.checks); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },

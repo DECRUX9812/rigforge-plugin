@@ -373,6 +373,17 @@ const S = {
     display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px',
     borderTop: `1px solid ${C.line}`, background: C.panel,
   },
+  firstRunCompact: {
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px', marginBottom: '8px',
+    borderRadius: '8px', border: `1px solid ${C.line}`, background: C.panel2, flexWrap: 'wrap',
+  },
+  firstRunItem: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: C.dim },
+  chipBtn: {
+    display: 'inline-flex', alignItems: 'center', height: '22px', padding: '0 8px',
+    borderRadius: '11px', border: `1px solid ${C.line}`, background: C.panel2,
+    color: C.dim, fontSize: '10px', cursor: 'pointer', fontFamily: C.sans,
+    flex: '0 0 auto', whiteSpace: 'nowrap',
+  },
   shelfRow: {
     display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '7px 9px',
     border: `1px solid ${C.line}`, borderRadius: '7px', marginBottom: '5px',
