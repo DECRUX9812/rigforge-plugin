@@ -146,6 +146,54 @@ function LivePrices({ design }) {
       'Totals are catalogue estimates. Live prices come from the LCSC parts index when you ask for them.')
 }
 
+function BuildCodeDialog({ open, onOpen, onClose }) {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState('')
+  useEffect(() => { if (open) { setCode(''); setErr('') } }, [open])
+  if (!open) return null
+  const submit = () => {
+    try {
+      const b = decodeBuild(code)
+      onOpen(b)
+      onClose()
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
+  return h('div', {
+    style: S.paletteBackdrop,
+    onClick: (e) => { if (e.target === e.currentTarget) onClose() },
+  },
+  h('div', { style: { ...S.palette, maxHeight: 'none', width: 'min(560px, 92vw)', padding: 0 }, role: 'dialog', 'aria-label': 'Open a build code' },
+    h('div', { style: { padding: '16px 18px 0' } },
+      h('div', { style: { ...S.simpleLabel, margin: '0 0 4px' } }, 'open a build code'),
+      h('div', { style: { ...S.hint, marginBottom: '10px' } },
+        'A build code is the whole design in one line — send it to someone else and they get the same machine, priced with their own suppliers.')),
+    h('input', {
+      'data-rf': 'codeInput',
+      style: {
+        ...S.paletteInput,
+        fontFamily: C.mono, fontSize: '12px', height: '40px',
+        border: `1px solid ${err ? C.red : C.line}`,
+        margin: '0 18px', width: 'calc(100% - 36px)',
+      },
+      placeholder: 'paste the code someone sent you',
+      value: code,
+      autoFocus: true,
+      'aria-label': 'Build code',
+      onChange: (e) => { setCode(e.target.value); setErr('') },
+      onKeyDown: (e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose() },
+    }),
+    h('div', { style: { padding: '8px 18px 0', minHeight: '26px' } },
+      err
+        ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
+        : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
+          'One line, starts with RF1-. Pastes cleanly into chat, email or a README.')),
+    h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
+      h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
+      h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'OPEN IT'))))
+}
+
 function CommandPalette({ open, commands, onClose }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -349,6 +397,7 @@ function Studio() {
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [codeOpen, setCodeOpen] = useState(false)
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -507,8 +556,20 @@ function Studio() {
     }
   }
 
+  const copyBuildCode = async () => {
+    const code = encodeBuild(brief)
+    try {
+      await navigator.clipboard.writeText(code)
+      host.notify({ kind: 'success', message: `Build code copied — ${code.length} characters` })
+    } catch {
+      download(`${slug(design.title)}-code.txt`, code, 'text/plain')
+      host.notify({ kind: 'info', message: 'Clipboard blocked — saved as a file instead' })
+    }
+  }
+
   const fileBase = slug(design.title)
   const exports = [
+    ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
     ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
@@ -553,6 +614,8 @@ function Studio() {
     for (const [label, fn] of exports) {
       list.push({ id: 'export-' + label, group: 'EXPORT', label, run: fn })
     }
+    list.push({ id: 'act-share', group: 'ACTION', label: 'Copy a build code to share this design', run: copyBuildCode })
+    list.push({ id: 'act-open-code', group: 'ACTION', label: 'Open a build code', run: () => setCodeOpen(true) })
     list.push({ id: 'act-build', group: 'ACTION', label: 'Build this machine', hint: '⏎', run: onBuild })
     list.push({ id: 'act-hermes', group: 'ACTION', label: 'Ask Hermes to redesign it', run: askHermes })
     list.push({ id: 'act-save', group: 'ACTION', label: 'Save this build to the shelf', run: saveToShelf })
@@ -943,5 +1006,10 @@ function Studio() {
           h('span', { style: { marginLeft: 'auto', fontFamily: C.mono, fontSize: '14px', fontWeight: 600, color: C.accent } }, money(analysis.cost)))),
     ),
     h(CommandPalette, { open: paletteOpen, commands, onClose: () => setPaletteOpen(false) }),
+    h(BuildCodeDialog, {
+      open: codeOpen,
+      onOpen: (b) => { setBrief({ ...DEFAULT_BRIEF, ...b }); setMission(b.mission || ''); setSimple(false) },
+      onClose: () => setCodeOpen(false),
+    }),
   )
 }

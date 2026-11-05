@@ -71,6 +71,7 @@ const GLOBAL_CSS = `
   [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
   [data-rf="view"] { min-height: 62vh; }
   [data-rf="spec"] { max-height: none; }
+  [data-rf="codeInput"]::placeholder { color: #6F8493; opacity: 1; }
   [data-rf="tagline"] { display: none; }
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
