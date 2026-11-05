@@ -240,8 +240,23 @@ const S = {
   },
   hudTR: { position: 'absolute', top: '14px', right: '16px', pointerEvents: 'none' },
   hudHint: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.04em' },
+  // A drawing has a title block, bottom right, with the revision and the units
+  // on it. This is the single strongest signal that a viewport is a drawing and
+  // not a toy: it says what the sheet is, at what scale, and who signed it off.
+  titleBlock: {
+    position: 'absolute', right: '18px', bottom: '18px', zIndex: 3,
+    width: '312px', padding: '9px 11px 8px',
+    background: 'rgba(9,13,18,0.9)', border: `1px solid ${C.line}`, borderRadius: '3px',
+    backdropFilter: 'blur(6px)', pointerEvents: 'none',
+    fontFamily: C.mono, fontSize: '9.5px', letterSpacing: '0.04em', color: C.dim, lineHeight: 1.55,
+  },
+  tbHead: { color: C.text, fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', paddingBottom: '5px', borderBottom: `1px solid ${C.line}`, marginBottom: '5px' },
+  tbName: { color: C.text, fontFamily: C.sans, fontSize: '11.5px', letterSpacing: '0', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  tbRow: { display: 'flex', justifyContent: 'space-between', gap: '8px' },
+  tbKey: { color: C.faint },
+  tbVal: { color: C.text, textAlign: 'right' },
   viewTitle: {
-    position: 'absolute', bottom: '16px', left: '126px', right: '24px', fontSize: '12.5px',
+    position: 'absolute', bottom: '16px', left: '126px', right: '350px', fontSize: '12.5px',
     color: C.dim, pointerEvents: 'none', fontFamily: C.sans, letterSpacing: '0.01em',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },

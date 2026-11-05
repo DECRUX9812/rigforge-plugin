@@ -367,6 +367,13 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
 }
 
 // Sentences a person can actually type, each of which the matcher resolves.
+// Deterministic worked examples: a fixed brief, and why an engineer would use it.
+const WORKED_EXAMPLES = [
+  { label: 'Bench arm, 5-DoF', why: 'sorts 3D-printed parts', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
+  { label: 'Survey rover, 4WD', why: 'maps a room at walking pace', brief: { archetype: 'rover', mission: 'a rover that maps my room', payloadKg: 2, wheelMm: 100 } },
+  { label: 'Plant sensor, IoT case', why: 'STEM build, one afternoon', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', payloadKg: 0, battery: 'lipo2s' } },
+]
+
 const EXAMPLES = [
   'a rover that maps my room',
   'a gripper that sorts screws',
@@ -450,6 +457,7 @@ function Studio() {
   // now, and the first thing it shows is what it changed: an agent rewrite is a
   // proposal, so it gets the same before/after as your own edits.
   const [fromAgent, setFromAgent] = useState(false)
+  const [examplesOpen, setExamplesOpen] = useState(false)
   useEffect(() => {
     if (!CTX) return
     const pending = CTX.storage.get('pendingBrief', null)
@@ -563,6 +571,13 @@ function Studio() {
     // An empty brief is not an error — it is an invitation. Surprise them.
     const parsed = mission.trim() ? parseBrief(mission) : { ...PRESETS[Math.floor(Math.random() * PRESETS.length)].brief }
     applyBrief({ ...parsed, material: brief.material, mcu: brief.mcu, battery: brief.battery })
+  }
+
+  const loadWorkedExample = (ex) => {
+    const next = { ...DEFAULT_BRIEF, ...ex.brief }
+    setBrief(next)
+    setMission(next.mission || '')
+    setMissionDirty(true)
   }
 
   const surprise = () => {
@@ -879,10 +894,22 @@ function Studio() {
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
           h('button', {
             style: { ...S.btn, flex: '0 0 auto', padding: '0 10px', gap: '6px' },
-            title: 'roll a random machine — useful when you have no preference',
-            'aria-label': 'Surprise me with a random machine',
-            onClick: surprise,
-          }, '⚄', h('span', { style: { fontSize: '10px', letterSpacing: '0.04em' } }, 'SURPRISE ME'))),
+            title: 'load a worked example — deterministic, not a random draw',
+            'aria-label': 'Load a worked example build',
+            onClick: () => setExamplesOpen((v) => !v),
+            'aria-expanded': !!examplesOpen,
+          }, 'EXAMPLES ▾')),
+        // A dice that conjures a random design reads as a slot machine. An
+        // engineer wants a worked example they can check, and a child wants the
+        // same thing: a known-good machine to take apart.
+        examplesOpen
+          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', margin: '0 0 8px' } },
+            WORKED_EXAMPLES.map((ex) => h('button', {
+              key: ex.label,
+              style: { ...S.btn, height: '26px', justifyContent: 'flex-start', fontSize: '10.5px', padding: '0 9px' },
+              onClick: () => { setExamplesOpen(false); loadWorkedExample(ex) },
+            }, `${ex.label} — ${ex.why}`)))
+          : null,
 
         (() => { const v = plainVerdict(analysis.checks); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },

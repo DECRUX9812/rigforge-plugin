@@ -5382,6 +5382,30 @@ function drawScene(canvas, mesh, cam, target, opts) {
 }
 
 /** Orbitable viewport. Pure presentational: all state lives in the page. */
+/** Drawing revision: a stable letter per design, so two builds are comparable. */
+function revOf(design) {
+  const key = `${design.archetype}|${design.title}|${design.brief ? design.brief.mission : ''}`
+  let h = 0
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) % 100003
+  return String.fromCharCode(65 + (h % 26))
+}
+
+/** Drawing number: machine class, revision and a stable sheet number. */
+function dwgNo(design) {
+  const cls = { arm: 'ARM', rover: 'RVR', quadruped: 'QDP', humanoid: 'HUM', robot: 'RBT', gripper: 'GRP', gadget: 'GDG', iot: 'IOT', pcb: 'PCB', gantry: 'GAN' }[design.archetype] || 'MCH'
+  const key = `${design.title}|${design.archetype}`
+  let h = 0
+  for (let i = 0; i < key.length; i += 1) h = (h * 17 + key.charCodeAt(i)) % 997
+  return `DWG ${cls}-${String(h).padStart(3, '0')}`
+}
+
+/** What 1:1 would be on a sheet: the longest dimension against a 150mm field. */
+function scaleOf(dims) {
+  const longest = Math.max(...(dims || [1]))
+  const n = Math.max(1, Math.round(longest / 150))
+  return n === 1 ? '1:1' : `1:${n}`
+}
+
 function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
   const ref = useRef(null)
   const target = useMemo(() => {
@@ -5459,6 +5483,24 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    // Drawing title block, bottom right: drawing number, revision, scale,
+    // units and tolerance, material and the review state. This is what turns a
+    // viewport into a sheet an engineer can hand to a client.
+    h('div', { style: S.titleBlock, 'data-rf': 'titleblock' },
+      h('div', { style: { ...S.tbHead, display: 'flex', justifyContent: 'space-between' } },
+        h('span', {}, 'assembly drawing'),
+        h('span', {}, dwgNo(design))),
+      h('div', { style: S.tbName }, design.title),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'REV'), h('span', { style: S.tbVal }, revOf(design))),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      h('div', { style: S.tbRow },
+        h('span', { style: S.tbKey }, 'STATUS'),
+        h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
+          analysis ? `${analysis.checks.length - analysis.checks.filter((c) => c.level !== 'ok').length} pass · ${analysis.checks.filter((c) => c.level !== 'ok').length} open` : '—')),
+    ),
   )
 }
 
@@ -5704,8 +5746,23 @@ const S = {
   },
   hudTR: { position: 'absolute', top: '14px', right: '16px', pointerEvents: 'none' },
   hudHint: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.04em' },
+  // A drawing has a title block, bottom right, with the revision and the units
+  // on it. This is the single strongest signal that a viewport is a drawing and
+  // not a toy: it says what the sheet is, at what scale, and who signed it off.
+  titleBlock: {
+    position: 'absolute', right: '18px', bottom: '18px', zIndex: 3,
+    width: '312px', padding: '9px 11px 8px',
+    background: 'rgba(9,13,18,0.9)', border: `1px solid ${C.line}`, borderRadius: '3px',
+    backdropFilter: 'blur(6px)', pointerEvents: 'none',
+    fontFamily: C.mono, fontSize: '9.5px', letterSpacing: '0.04em', color: C.dim, lineHeight: 1.55,
+  },
+  tbHead: { color: C.text, fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', paddingBottom: '5px', borderBottom: `1px solid ${C.line}`, marginBottom: '5px' },
+  tbName: { color: C.text, fontFamily: C.sans, fontSize: '11.5px', letterSpacing: '0', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  tbRow: { display: 'flex', justifyContent: 'space-between', gap: '8px' },
+  tbKey: { color: C.faint },
+  tbVal: { color: C.text, textAlign: 'right' },
   viewTitle: {
-    position: 'absolute', bottom: '16px', left: '126px', right: '24px', fontSize: '12.5px',
+    position: 'absolute', bottom: '16px', left: '126px', right: '350px', fontSize: '12.5px',
     color: C.dim, pointerEvents: 'none', fontFamily: C.sans, letterSpacing: '0.01em',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
@@ -6978,6 +7035,13 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
 }
 
 // Sentences a person can actually type, each of which the matcher resolves.
+// Deterministic worked examples: a fixed brief, and why an engineer would use it.
+const WORKED_EXAMPLES = [
+  { label: 'Bench arm, 5-DoF', why: 'sorts 3D-printed parts', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
+  { label: 'Survey rover, 4WD', why: 'maps a room at walking pace', brief: { archetype: 'rover', mission: 'a rover that maps my room', payloadKg: 2, wheelMm: 100 } },
+  { label: 'Plant sensor, IoT case', why: 'STEM build, one afternoon', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', payloadKg: 0, battery: 'lipo2s' } },
+]
+
 const EXAMPLES = [
   'a rover that maps my room',
   'a gripper that sorts screws',
@@ -7061,6 +7125,7 @@ function Studio() {
   // now, and the first thing it shows is what it changed: an agent rewrite is a
   // proposal, so it gets the same before/after as your own edits.
   const [fromAgent, setFromAgent] = useState(false)
+  const [examplesOpen, setExamplesOpen] = useState(false)
   useEffect(() => {
     if (!CTX) return
     const pending = CTX.storage.get('pendingBrief', null)
@@ -7174,6 +7239,13 @@ function Studio() {
     // An empty brief is not an error — it is an invitation. Surprise them.
     const parsed = mission.trim() ? parseBrief(mission) : { ...PRESETS[Math.floor(Math.random() * PRESETS.length)].brief }
     applyBrief({ ...parsed, material: brief.material, mcu: brief.mcu, battery: brief.battery })
+  }
+
+  const loadWorkedExample = (ex) => {
+    const next = { ...DEFAULT_BRIEF, ...ex.brief }
+    setBrief(next)
+    setMission(next.mission || '')
+    setMissionDirty(true)
   }
 
   const surprise = () => {
@@ -7490,10 +7562,22 @@ function Studio() {
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
           h('button', {
             style: { ...S.btn, flex: '0 0 auto', padding: '0 10px', gap: '6px' },
-            title: 'roll a random machine — useful when you have no preference',
-            'aria-label': 'Surprise me with a random machine',
-            onClick: surprise,
-          }, '⚄', h('span', { style: { fontSize: '10px', letterSpacing: '0.04em' } }, 'SURPRISE ME'))),
+            title: 'load a worked example — deterministic, not a random draw',
+            'aria-label': 'Load a worked example build',
+            onClick: () => setExamplesOpen((v) => !v),
+            'aria-expanded': !!examplesOpen,
+          }, 'EXAMPLES ▾')),
+        // A dice that conjures a random design reads as a slot machine. An
+        // engineer wants a worked example they can check, and a child wants the
+        // same thing: a known-good machine to take apart.
+        examplesOpen
+          ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', margin: '0 0 8px' } },
+            WORKED_EXAMPLES.map((ex) => h('button', {
+              key: ex.label,
+              style: { ...S.btn, height: '26px', justifyContent: 'flex-start', fontSize: '10.5px', padding: '0 9px' },
+              onClick: () => { setExamplesOpen(false); loadWorkedExample(ex) },
+            }, `${ex.label} — ${ex.why}`)))
+          : null,
 
         (() => { const v = plainVerdict(analysis.checks); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },

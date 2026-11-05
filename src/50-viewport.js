@@ -921,6 +921,30 @@ function drawScene(canvas, mesh, cam, target, opts) {
 }
 
 /** Orbitable viewport. Pure presentational: all state lives in the page. */
+/** Drawing revision: a stable letter per design, so two builds are comparable. */
+function revOf(design) {
+  const key = `${design.archetype}|${design.title}|${design.brief ? design.brief.mission : ''}`
+  let h = 0
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) % 100003
+  return String.fromCharCode(65 + (h % 26))
+}
+
+/** Drawing number: machine class, revision and a stable sheet number. */
+function dwgNo(design) {
+  const cls = { arm: 'ARM', rover: 'RVR', quadruped: 'QDP', humanoid: 'HUM', robot: 'RBT', gripper: 'GRP', gadget: 'GDG', iot: 'IOT', pcb: 'PCB', gantry: 'GAN' }[design.archetype] || 'MCH'
+  const key = `${design.title}|${design.archetype}`
+  let h = 0
+  for (let i = 0; i < key.length; i += 1) h = (h * 17 + key.charCodeAt(i)) % 997
+  return `DWG ${cls}-${String(h).padStart(3, '0')}`
+}
+
+/** What 1:1 would be on a sheet: the longest dimension against a 150mm field. */
+function scaleOf(dims) {
+  const longest = Math.max(...(dims || [1]))
+  const n = Math.max(1, Math.round(longest / 150))
+  return n === 1 ? '1:1' : `1:${n}`
+}
+
 function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
   const ref = useRef(null)
   const target = useMemo(() => {
@@ -998,5 +1022,23 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
       h('div', { style: S.hudRow }, h('span', { style: S.hudKey }, 'TRIS'), h('span', { style: S.hudVal }, String(mesh.length))),
     ),
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    // Drawing title block, bottom right: drawing number, revision, scale,
+    // units and tolerance, material and the review state. This is what turns a
+    // viewport into a sheet an engineer can hand to a client.
+    h('div', { style: S.titleBlock, 'data-rf': 'titleblock' },
+      h('div', { style: { ...S.tbHead, display: 'flex', justifyContent: 'space-between' } },
+        h('span', {}, 'assembly drawing'),
+        h('span', {}, dwgNo(design))),
+      h('div', { style: S.tbName }, design.title),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'REV'), h('span', { style: S.tbVal }, revOf(design))),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      h('div', { style: S.tbRow },
+        h('span', { style: S.tbKey }, 'STATUS'),
+        h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
+          analysis ? `${analysis.checks.length - analysis.checks.filter((c) => c.level !== 'ok').length} pass · ${analysis.checks.filter((c) => c.level !== 'ok').length} open` : '—')),
+    ),
   )
 }
