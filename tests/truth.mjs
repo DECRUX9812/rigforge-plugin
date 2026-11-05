@@ -707,6 +707,23 @@ check('autotest sense: stimulus sweep fires a real threshold alert', () => {
   return at.results[0].detail
 })
 
+// ── 33. one machine, one mass ────────────────────────────────────────────────
+check('bench CoM: the stability line reports the same mass as the header', () => {
+  let checked = 0
+  eachPreset((p, { design, analysis }) => {
+    const rep = A.benchReport(design, analysis, {})
+    assert(Math.abs(rep.massG - analysis.mass.totalG) < 0.5,
+      `${p.id}: stability panel says ${Math.round(rep.massG)}g, header says ${Math.round(analysis.mass.totalG)}g`)
+    // the verdict is about geometry. Scaling the total must not move the margin,
+    // or the pass/fail depends on which mass model happened to run.
+    const dbl = A.benchReport(design, { ...analysis, mass: { ...analysis.mass, totalG: analysis.mass.totalG * 2 } }, {})
+    assert(Math.abs(dbl.flatMm - rep.flatMm) < 1e-6,
+      `${p.id}: CoM margin moved ${rep.flatMm} -> ${dbl.flatMm} when only the total mass changed`)
+    checked += 1
+  })
+  return `${checked} machines report one mass, and the margin ignores scale`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

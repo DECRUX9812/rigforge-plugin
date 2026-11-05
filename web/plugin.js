@@ -4471,11 +4471,20 @@ function boundsOf(nodes) {
 const BENCH_G = 9810 // mm/s²  (g in mm units — keeps torque in N·mm→N·m clean)
 
 /** Mass of one node in grams: bought part → catalog mass; printed → volume×density. */
+// Metals are modelled by volume like everything else, but at their own density:
+// treating a steel bearing race as PLA made every fastener a sixth of its weight.
+const NODE_MAT_DENSITY = { steel: 7.85, metal: 2.70, alu: 2.70 }
+
 function benchNodeMassG(design, node, mat) {
   const p = node.part ? PARTS[node.part] : null
   if (p) return (p.mass || 0) * (node.qty || 1)
-  const density = (mat && mat.density) || 1.24 // g/cm³
-  return (nodeVolume(node) / 1000) * density
+  const density = NODE_MAT_DENSITY[node.mat] || (mat && mat.density) || 1.24 // g/cm³
+  // A printed node is a shell, not a solid billet: use the same ~34%-solid
+  // volume the print estimate and the STL use. With the solid volume the bench
+  // CoM came out 1.6x heavier than the mass printed in the header of the very
+  // same screen — two masses for one machine is worse than either being wrong.
+  const v = node.print ? shellVolume(node) : nodeVolume(node)
+  return (v / 1000) * density
 }
 
 /** World position of a node centre under the current joint pose (mm). */
@@ -4660,7 +4669,14 @@ function benchTorqueMargins(design, mat, extra) {
 function benchReport(design, analysis, opts = {}) {
   const mat = opts.mat || (analysis && analysis.material) || PARTS.pla && null
   const slopeDeg = opts.slopeDeg != null ? opts.slopeDeg : 15
-  const { com, massG } = benchCoM(design, mat)
+  const bench = benchCoM(design, mat)
+  const com = bench.com
+  // Two masses on one screen is an honesty bug: the header prints the BOM mass
+  // and this panel printed a geometry mass, so a 1.2kg arm read 1.9kg right
+  // under a card saying 1.2kg. The distribution still comes from geometry (a
+  // uniform scale moves no centre of mass), the total comes from the BOM.
+  const bomG = analysis && analysis.mass && analysis.mass.totalG
+  const massG = bomG > 0 ? bomG : bench.massG
   const contacts = benchContacts2D(design)
   const hull = hull2D(contacts)
   const flatMm = benchHullMargin([com[0], com[1]], hull)
