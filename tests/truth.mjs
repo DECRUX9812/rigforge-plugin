@@ -495,6 +495,45 @@ check('gait: quadruped trot moves all legs inside limits', () => {
   return `${g.state.strides.toFixed(1)} strides, femur swing ${swing('femur-fl').toFixed(0)}°, all joints inside limits`
 })
 
+// ── 26b. locomotion: legs traverse the bench courses with honest limits ────
+check('locomotion: quadruped walks, derates on grade/ice, blocked by stairs', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
+  const g = A.createGaitTeleop(design)
+  assert(g && g.locomote, 'quadruped gait offers no locomotion')
+  let actual = design.joints.map(() => 0)
+  const run = (env, secs, cmd) => {
+    for (let i = 0; i < secs * 60; i++) {
+      const r = g.locomote(cmd || { x: 1 }, 1 / 60, actual, env)
+      if (r && r.pose) actual = r.pose
+    }
+    return { ...g.locomoteState } // snapshot — the live object keeps mutating
+  }
+  g.reset(); actual = design.joints.map(() => 0)
+  const flat = run({ surface: 'hardwood', slopeDeg: 0, course: 'rack' }, 3)
+  assert(flat.x > 0.8, `walked only ${flat.x.toFixed(2)}m in 3s`)
+  assert(Math.abs(flat.v - 0.39) < 0.08, `cruise ${flat.v.toFixed(2)} m/s — gait kinematics say ~0.39`)
+  const ice = run({ surface: 'ice', slopeDeg: 0, course: 'rack' }, 3)
+  assert(ice.slip && ice.v < flat.v * 0.6, `ice should slip and crawl: v=${ice.v.toFixed(2)} slip=${ice.slip}`)
+  g.reset(); actual = design.joints.map(() => 0)
+  const stairs = run({ surface: 'hardwood', slopeDeg: 0, course: 'stairs' }, 10)
+  assert(stairs.x < 1.8 && stairs.stall && stairs.bumps > 0, `small quad should be stopped by 80mm risers: x=${stairs.x.toFixed(2)} bumps=${stairs.bumps} stall=${stairs.stall}`)
+  return `flat ${flat.x.toFixed(2)}m @${flat.v.toFixed(2)}m/s · ice ${ice.v.toFixed(2)}m/s slip · stairs blocked @x=${stairs.x.toFixed(2)}`
+})
+
+check('locomotion: tall humanoid climbs porch stairs the quad cannot', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'humanoid').brief })
+  const g = A.createGaitTeleop(design)
+  assert(g && g.locomote, 'humanoid gait offers no locomotion')
+  let actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 12; i++) {
+    const r = g.locomote({ x: 1 }, 1 / 60, actual, { surface: 'hardwood', slopeDeg: 0, course: 'stairs' })
+    if (r && r.pose) actual = r.pose
+  }
+  const st = g.locomoteState
+  assert(st.x > 3.0, `humanoid should top the stair flight: x=${st.x.toFixed(2)}`)
+  return `topped stairs at x=${st.x.toFixed(2)} — leg reach decides, not motors`
+})
+
 // ── 27. endurance: sustained load cooks servos to cutoff, pack drains ───────
 check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })

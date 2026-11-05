@@ -714,23 +714,30 @@ function Studio() {
         const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
-        // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
-        // planning, not just a yaw bias — honest omission, not fake steering)
+        // W/S walk speed, A/D steer; gamepad left stick same
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let gx = want
+        const turn = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        let gx = want, gy = turn
         const at = autotestRef.current
         if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
-          const gy = dz(gp.axes[1] || 0)
-          if (Math.abs(gy) > 0.04) gx = -gy
+          const gx2 = dz(gp.axes[0] || 0)
+          const gy2 = dz(gp.axes[1] || 0)
+          if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
         if (at && at.running) {
           const c = at.tick(dt)
-          if (c) gx = c.x || 0
+          if (c) { gx = c.x || 0; gy = c.y || 0 }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = gait.step({ x: gx }, dt, actual)
-        if (desired) setPose(desired)
+        if (gait.locomote) {
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          if (r && r.pose) setPose(r.pose)
+          if (r && r.chassis) setChassis({ ...r.chassis })
+        } else {
+          const desired = gait.step({ x: gx }, dt, actual)
+          if (desired) setPose(desired)
+        }
       } else if (!pwrDead && grip) {
         const at = autotestRef.current
         const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
@@ -746,11 +753,12 @@ function Studio() {
       const bs = benchStatsRef.current
       if (bs) {
         bs.seconds += dt
-        if (drive) {
-          bs.maxV = Math.max(bs.maxV, Math.abs(drive.state.v))
-          bs.stallMs += drive.state.stall ? dt * 1000 : 0
-          bs.slipMs += drive.state.slip ? dt * 1000 : 0
-          bs.bumps = Math.max(bs.bumps, drive.state.bumps || 0)
+        const st = drive ? drive.state : (gait && gait.locomoteState) || null
+        if (st) {
+          bs.maxV = Math.max(bs.maxV, Math.abs(st.v))
+          bs.stallMs += st.stall ? dt * 1000 : 0
+          bs.slipMs += st.slip ? dt * 1000 : 0
+          bs.bumps = Math.max(bs.bumps, st.bumps || 0)
         }
         if (ik && ik.state && ik.state.ready) bs.ikErr = Math.max(bs.ikErr || 0, ik.state.err || 0)
         const ps = powerRef.current && powerRef.current.state
@@ -764,12 +772,13 @@ function Studio() {
       // haptics: edge-triggered rumble — stall, wheelspin, bumps, joint stall,
       // dead pack, sensor alert. One buzz per event, not a continuous scream.
       if (gp && gp.vibrationActuator && gp.vibrationActuator.playEffect) {
-        const bumpN = (drive && drive.state.bumps) || 0
+        const mob = drive ? drive.state : (gait && gait.locomoteState) || null
+        const bumpN = (mob && mob.bumps) || 0
         const jstall = !!(simRef.current && simRef.current.state.stalled && simRef.current.state.stalled.some(Boolean))
         const sal = sense ? sense.hud().alerts.length : 0
         const now2 = {
-          stall: !!(drive && drive.state.stall),
-          slip: !!(drive && drive.state.slip),
+          stall: !!(mob && mob.stall),
+          slip: !!(mob && mob.slip),
           bump: bumpN,
           jstall,
           dead: !!pwrDead,
@@ -821,7 +830,7 @@ function Studio() {
   // drive mode, the pick-place desk for reach mode. Identity-stable per
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
-    () => (driveOn && teleopKind === 'drive'
+    () => (driveOn && (teleopKind === 'drive' || teleopKind === 'gait')
       ? (benchEnv.course === 'room' ? livingRoomTris() : benchEnv.course === 'stairs' ? stairsTris() : benchRampTris(benchEnv.slopeDeg))
       : driveOn && teleopKind === 'ik' ? deskPropsTris()
       : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
@@ -829,7 +838,7 @@ function Studio() {
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
+    const rtSig = rtTris ? ((teleopKind === 'drive' || teleopKind === 'gait') ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -1515,9 +1524,15 @@ function Studio() {
               ]
             : driveHud.kind === 'gait'
             ? [
+                driveHud.loco ? h('span', { key: 'v' }, `v ${driveHud.loco.v.toFixed(2)} m/s`) : null,
                 h('span', { key: 'a' }, `gait ${driveHud.cadence}Hz`),
+                driveHud.loco && driveHud.loco.gradeDeg ? h('span', { key: 'g' }, `grade ${driveHud.loco.gradeDeg}°`) : null,
+                driveHud.loco ? h('span', { key: 'd', style: { color: C.faint } }, `${driveHud.loco.surface} μ${driveHud.loco.mu.toFixed(2)}`) : null,
+                driveHud.loco && driveHud.loco.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'SLIP') : null,
+                driveHud.loco && driveHud.loco.stall ? h('span', { key: 'g2', style: { color: C.red } }, 'STALL') : null,
+                driveHud.loco && driveHud.loco.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.loco.bumps}`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.strides} strides`),
-                h('span', { key: 'c', style: { color: C.faint } }, 'W walk · release to stand'),
+                h('span', { key: 'c', style: { color: C.faint } }, 'W walk · A/D steer · release to stand'),
               ]
             : driveHud.kind === 'grip'
             ? [
@@ -1725,7 +1740,7 @@ function Studio() {
               title: teleopKind === 'ik'
                 ? 'reach mode — WASD plane, R/F height, gamepad sticks, 0 re-anchors'
                 : teleopKind === 'gait'
-                ? 'gait mode — W walks (treadmill), release to stand, gamepad left stick'
+                ? 'gait mode — W walks the course, A/D steers, gamepad left stick'
                 : teleopKind === 'grip'
                 ? 'jaw mode — Space opens/closes the gripper'
                 : teleopKind === 'sense'

@@ -216,8 +216,12 @@ function createGaitTeleop(design) {
   const state = { phase: 0, speed: 0, strides: 0, armBase: null }
   const ARM_JOINTS = isHum ? ['shoulder-pitch', 'elbow'].flatMap((s) => [`l-${s}`, `r-${s}`]) : []
 
-  /** Desired joint angles (deg) for one gait instant. */
-  function poseAt(phase, speedNorm, actual) {
+  /** Desired joint angles (deg) for one gait instant.
+   *  `anchor` (optional) = {x, y, yaw} of the body origin in mm world space.
+   *  With an anchor, stance feet are world-locked: the IK target is the
+   *  planted foothold pulled back into body frame, so the leg reaches
+   *  backward as the body advances — real walking, not a treadmill. */
+  function poseAt(phase, speedNorm, actual, anchor) {
     for (let i = 0; i < joints.length; i++) scratch.joints[i].angle = actual[i] || 0
     // arm counter-swing is absolute, not additive: capture the pose the arms
     // had when the gait started so stopping never drifts them
@@ -230,6 +234,9 @@ function createGaitTeleop(design) {
     }
     const stride = GAIT.stride * speedNorm
     const clear = GAIT.clear * speedNorm
+    const anchorOn = anchor && speedNorm > 0.02
+    const ay = anchor ? Math.cos(anchor.yaw) : 1
+    const asy = anchor ? Math.sin(anchor.yaw) : 0
     for (const s of specs) {
       const ph = phase + s.offset
       const cyc = ((ph % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
@@ -238,8 +245,22 @@ function createGaitTeleop(design) {
       // stance: foot sweeps hip+stride/2 → hip-stride/2 at ground; swing: returns lifted
       const fx = s.rootPivot[0] + (swing ? -1 : 1) * stride * (0.5 - u)
       const fz = s.restZ + (swing ? clear * Math.sin(u * Math.PI) : 0)
-      const target = [fx, s.rootPivot[1], Math.max(20, fz)]
+      let target = [fx, s.rootPivot[1], Math.max(20, fz)]
+      if (anchorOn) {
+        if (swing) s.plant = null
+        else if (s.plant) {
+          // world→body: the plant stays fixed while the body walks over it
+          const dx = s.plant[0] - anchor.x, dy = s.plant[1] - anchor.y
+          target = [dx * ay + dy * asy, -dx * asy + dy * ay, Math.max(20, fz)]
+        }
+        // touchdown frame (no plant yet): aim with the sweep target below,
+        // then measure where the foot actually landed
+      }
       solveChainIK(scratch, s.chain, target, (d) => benchNodeWorld(d, scratchChains, s.foot), 4)
+      if (anchorOn && !swing && !s.plant) {
+        const fw = benchNodeWorld(scratch, scratchChains, s.foot)
+        s.plant = [anchor.x + fw[0] * ay - fw[1] * asy, anchor.y + fw[0] * asy + fw[1] * ay]
+      }
     }
     // humanoid arms counter-swing against their own leg
     if (isHum && state.armBase) {
@@ -255,6 +276,17 @@ function createGaitTeleop(design) {
     }
     return scratch.joints.map((j) => j.angle)
   }
+
+  // ── locomotion state ────────────────────────────────────────────────────
+  // Same shape as createDrive's state so setChassis/applyChassis consume it
+  // unchanged: x,y in metres, yaw/grade in radians.
+  const loco = { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0, stepHit: false, mu: 0, surf: '' }
+  // slip-free walk speed: a foot travels `stride` mm during half a cycle at
+  // freq·speedNorm Hz → body speed = 2·stride·freq·speedNorm m/s
+  const WALK_V = (2 * GAIT.stride * GAIT.freq) / 1000
+  // tallest riser the legs can mount: ~45% of leg extension, min over legs.
+  // An 80mm porch nosing stops a small quad honestly; a tall humanoid may pass.
+  const maxStepM = Math.max(0.005, Math.min(...specs.map((s) => Math.max(0, (s.rootPivot[2] - s.restZ) * 0.00045))))
 
   return {
     kind: 'gait',
@@ -272,13 +304,129 @@ function createGaitTeleop(design) {
       state.phase += Math.sign(state.speed) * GAIT.freq * sp * dt * Math.PI * 2
       return poseAt(state.phase, sp, actualAngles)
     },
-    reset() { state.phase = 0; state.speed = 0; state.strides = 0; state.armBase = null },
+    // ── locomotion: the treadmill becomes a walk ──────────────────────────
+    // locoStep integrates a body through the same bench courses the wheeled
+    // machines use. Walk speed is derived from the gait kinematics — a foot
+    // travels `stride` mm during half a cycle at freq·speedNorm, so the
+    // slip-free body speed is 2·stride·freq·speedNorm m/s. The bench does
+    // not get to pretend feet are glued down when the math says they slide.
+    locomote(cmd, dt, actualAngles, env) {
+      const e = env || {}
+      const course = e.course === 'room' ? 'room' : e.course === 'stairs' ? 'stairs' : 'rack'
+      dt = Math.min(dt, 0.05)
+      loco.throttle = Math.max(-1, Math.min(1, cmd.x || 0))
+      loco.steer = Math.max(-1, Math.min(1, cmd.y || 0))
+      const grade = terrainGrade(loco.x, e.slopeDeg || 0, course)
+      loco.grade = grade
+      loco.z = terrainHeight(loco.x, e.slopeDeg || 0, course)
+      const gradeDeg = Math.abs(grade) * 180 / Math.PI
+      const mu = muAt(loco.x, { surface: e.surface, slopeDeg: e.slopeDeg || 0, course })
+      loco.mu = mu
+      loco.surf = course === 'room' ? (loco.x >= ROOM.rug.x0 && loco.x < ROOM.rug.x1 ? 'rug' : 'hardwood')
+        : course === 'stairs' ? 'stairs' : ((DRIVE_SURFACES[e.surface] || DRIVE_SURFACES.hardwood).label || 'hardwood')
+      const sp = Math.abs(state.speed)
+
+      // gait cadence tracks the same eased speed the in-place gait uses
+      const want = loco.throttle
+      state.speed += (want - state.speed) * Math.min(1, dt * 4)
+      state.speed = Math.max(-1, Math.min(1, state.speed))
+      const spd = Math.abs(state.speed)
+      if (spd < 0.004 && want === 0) { state.speed = 0; state.armBase = null; for (const s of specs) s.plant = null }
+      state.strides += spd * GAIT.freq * dt
+      state.phase += Math.sign(state.speed) * GAIT.freq * spd * dt * Math.PI * 2
+
+      // commanded speed: kinematic walk speed × grade/mu derating along heading
+      const dir = Math.sign(state.speed) || 1
+      let vT = state.speed * WALK_V
+      const gradeEff = grade * Math.cos(loco.yaw) * dir // slope along travel dir
+      const gDeg = Math.abs(gradeEff) * 180 / Math.PI
+      const gf = clamp(1 - Math.max(0, gDeg - 4) / 20, 0.15, 1)
+      const slipF = mu < 0.35 ? clamp(mu / 0.35, 0.3, 1) : 1
+      vT *= gf * slipF
+      // legs accelerate ~2.5 m/s² and brake harder — no ice-skating starts
+      loco.v += clamp(vT - loco.v, -4 * dt, 2.5 * dt)
+      loco.slip = mu < 0.35 && Math.abs(loco.v) > 0.05
+      // yaw: turning while walking is a curved path, capped so feet keep up
+      const wWant = -loco.steer * 1.1 * Math.min(1, Math.abs(loco.v) / 0.15 + 0.25)
+      loco.w += clamp(wWant - loco.w, -2.5 * dt, 2.5 * dt)
+
+      const xPrev = loco.x, yPrev = loco.y
+      const fx = Math.cos(loco.yaw), fy = Math.sin(loco.yaw)
+      loco.x += (loco.v * fx - loco.vl * fy) * dt
+      loco.y += (loco.v * fy + loco.vl * fx) * dt
+      loco.yaw += loco.w * dt
+      // lateral slide (shove) scrubbed by foot friction, same as wheels
+      const aLat = mu * 9.81 * Math.cos(grade) * 1.6
+      loco.vl -= Math.sign(loco.vl) * Math.min(Math.abs(loco.vl), aLat * dt)
+      if (Math.abs(loco.vl) < 0.005) loco.vl = 0
+
+      // stairs: a riser above leg reach is a wall — same honesty as wheels
+      if (course === 'stairs') {
+        const rise = terrainHeight(loco.x, e.slopeDeg || 0, course) - loco.z
+        if (rise > maxStepM) {
+          loco.x = xPrev; loco.y = yPrev
+          loco.v = 0; loco.vl = 0; loco.stall = true
+          if (!loco.stepHit) { loco.bumps += 1; loco.stepHit = true }
+        } else loco.stepHit = false
+      } else loco.stepHit = false
+      // living-room obstacles: same circle-vs-AABB rule as the wheeled bench
+      if (course === 'room') {
+        const r = 0.20
+        for (const pr of ROOM.props) {
+          const nx = Math.max(pr.c[0] - pr.half[0], Math.min(loco.x, pr.c[0] + pr.half[0]))
+          const ny = Math.max(pr.c[1] - pr.half[1], Math.min(loco.y, pr.c[1] + pr.half[1]))
+          const ddx = loco.x - nx, ddy = loco.y - ny
+          const d2 = ddx * ddx + ddy * ddy
+          if (d2 >= r * r || loco.z >= pr.top) continue
+          const d = Math.sqrt(d2) || 1e-6
+          const px = ddx / d, py = ddy / d
+          loco.x = nx + px * r; loco.y = ny + py * r
+          let vx = loco.v * fx - loco.vl * fy
+          let vy = loco.v * fy + loco.vl * fx
+          const vn = vx * px + vy * py
+          if (vn < 0) {
+            if (-vn > 0.15) loco.bumps += 1
+            vx -= vn * px * 1.15; vy -= vn * py * 1.15
+            loco.v = vx * fx + vy * fy; loco.vl = -vx * fy + vy * fx
+          }
+        }
+      }
+      loco.stall = Math.abs(loco.throttle) > 0.5 && Math.abs(loco.v) < 0.04 &&
+        (gDeg > 18 || (course === 'stairs' && loco.stepHit))
+      if (loco.yaw > Math.PI) loco.yaw -= Math.PI * 2
+      if (loco.yaw < -Math.PI) loco.yaw += Math.PI * 2
+
+      const anchor = { x: loco.x * 1000, y: loco.y * 1000, yaw: loco.yaw }
+      const pose = state.speed !== 0 || want !== 0
+        ? poseAt(state.phase, spd, actualAngles, anchor)
+        : null
+      return { pose, chassis: loco }
+    },
+    shove(forceN) {
+      const mNow = (design.metrics && design.metrics.massKg) || 2
+      loco.vl += (forceN * 0.25) / mNow
+      loco.w += (forceN * 0.12) / Math.max(mNow * 0.3, 0.5)
+    },
+    reset() {
+      state.phase = 0; state.speed = 0; state.strides = 0; state.armBase = null
+      for (const s of specs) s.plant = null
+      Object.assign(loco, { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0, stepHit: false })
+    },
+    locomoteState: loco,
     hud() {
       return {
         kind: 'gait',
         speed: Math.abs(state.speed),
         cadence: (GAIT.freq * Math.abs(state.speed)).toFixed(1),
         strides: Math.round(state.strides),
+        loco: {
+          v: Math.abs(loco.v),
+          yawDeg: Math.round((loco.yaw * 180) / Math.PI),
+          gradeDeg: Math.round(Math.abs(loco.grade) * 180 / Math.PI),
+          surface: loco.surf,
+          mu: loco.mu,
+          slip: loco.slip, stall: loco.stall, bumps: loco.bumps,
+        },
       }
     },
   }
