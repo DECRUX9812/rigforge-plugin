@@ -9066,6 +9066,13 @@ const GLOBAL_CSS = `
   [data-rf="view"] { min-height: 50vh; }
   [data-rf="viewbar"], [role="toolbar"] { left: 8px; right: 8px; padding: 6px; max-width: calc(100% - 16px); }
   [data-rf="viewbar"] button, [role="toolbar"] button { min-height: 30px; min-width: 34px; }
+  /* The top bar carries the wordmark, the project strip and five controls. On a
+     font stack wider than the dev machine's it overflowed by 6px and scrolled
+     the whole page sideways. Wrapping is font-independent; shaving gaps only
+     moves the threshold. The ⌘K chip is hidden at this width below. */
+  [data-rf="top"] { flex-wrap: wrap; row-gap: 6px; }
+  [data-rf="top"] > * { min-width: 0; }
+  [data-rf="paletteBtn"] { display: none; }
   /* inline style says nowrap; the caption should wrap, not trail off */
   [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
 }
@@ -11492,7 +11499,7 @@ function Studio() {
   return h('div', { style: S.root, 'data-rf': 'root' },
     h('style', {}, GLOBAL_CSS),
     // ── top bar: brand · one project strip · actions ────────────────────────
-    h('div', { style: S.top },
+    h('div', { style: S.top, 'data-rf': 'top' },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
@@ -11556,6 +11563,9 @@ function Studio() {
           style: { ...S.btn, fontFamily: C.mono, letterSpacing: '0.06em' },
           onClick: () => setPaletteOpen(true),
           title: 'command palette (⌘K)',
+          // a keyboard shortcut is not a touch control; the stylesheet hides it
+          // below 780px, and it needs a hook that actually exists in the DOM
+          'data-rf': 'paletteBtn',
         }, '⌘K')),
     ),
 
