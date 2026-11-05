@@ -488,7 +488,7 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false })
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -615,6 +615,20 @@ function Studio() {
     () => benchOverlay(posedDesign, analysis.print && analysis.print.material),
     [posedDesign, analysis],
   )
+  // Cable harness: one run per driven joint, coloured by whether the stock
+  // servo lead reaches. Follows the live pose — wires drag with the arm.
+  const cableOv = useMemo(
+    () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
+    [posedDesign, analysis.harness, opts.cables],
+  )
+  const rawOv = useMemo(() => {
+    if (!benchOv) return cableOv
+    if (!cableOv) return benchOv
+    const d = new Float32Array(benchOv.data.length + cableOv.data.length)
+    d.set(benchOv.data, 0)
+    d.set(cableOv.data, benchOv.data.length)
+    return { data: d, verts: benchOv.verts + cableOv.verts }
+  }, [benchOv, cableOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -935,10 +949,10 @@ function Studio() {
     [opts, subjectR, machBounds, camFocus],
   )
   const benchOvWorld = useMemo(() => {
-    if (!benchOv || !chassis) return benchOv
+    if (!rawOv || !chassis) return rawOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
     const slope = benchEnv.slopeDeg
-    const d = benchOv.data
+    const d = rawOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
       // overlay verts are mm (design space); chassis state is metres
@@ -949,8 +963,8 @@ function Studio() {
       out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
-    return { data: out, verts: benchOv.verts }
-  }, [benchOv, chassis, benchEnv])
+    return { data: out, verts: rawOv.verts }
+  }, [rawOv, chassis, benchEnv])
 
   const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
@@ -1811,7 +1825,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],

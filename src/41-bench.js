@@ -317,3 +317,54 @@ function benchOverlay(design, mat) {
   seg([com[0], com[1] - 9, Z], [com[0], com[1] + 9, Z], col)
   return { data: new Float32Array(arr), verts: arr.length / 6 }
 }
+
+/**
+ * Cable harness overlay: one catenary-ish run per driven joint, from the live
+ * joint pivot back to the electrical home. Colour is the harness verdict —
+ * blue stock, amber borderline, red needs an extension, violet TTL bus.
+ * Runs in design space (mm); the page's chassis transform carries it.
+ */
+function wireOverlay(design, harness) {
+  if (!harness || !harness.rows || !harness.rows.length) return null
+  const chains = chainsFor(design)
+  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const colFor = {
+    stock: [0.40, 0.60, 0.92],
+    check: [0.95, 0.70, 0.25],
+    extend: [0.95, 0.32, 0.28],
+    'daisy-chain': [0.62, 0.45, 0.92],
+    unknown: [0.50, 0.50, 0.50],
+  }
+  const home = harness.home
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  for (const r of harness.rows) {
+    const j = byId.get(r.id)
+    if (!j || !j.pivot) continue
+    // pivot is fixed to the parent link: ancestors rotate it, the joint's own
+    // angle spins about it and does not translate it
+    const chain = (chains.get(r.id) || []).slice(0, -1)
+    const start = applyChain(chain, j.pivot)
+    const col = colFor[r.lead] || colFor.unknown
+    const len = Math.hypot(start[0] - home[0], start[1] - home[1], start[2] - home[2])
+    if (len < 4) continue
+    const sag = Math.min(70, len * 0.14)
+    // quadratic bezier: control point droops below the chord midpoint
+    const cx = (start[0] + home[0]) / 2
+    const cy = (start[1] + home[1]) / 2
+    const cz = (start[2] + home[2]) / 2 - sag
+    const at = (t) => {
+      const u = 1 - t
+      return [
+        u * u * start[0] + 2 * u * t * cx + t * t * home[0],
+        u * u * start[1] + 2 * u * t * cy + t * t * home[1],
+        Math.max(3, u * u * start[2] + 2 * u * t * cz + t * t * home[2]),
+      ]
+    }
+    const q1 = at(1 / 3), q2 = at(2 / 3)
+    seg(start, q1, col)
+    seg(q1, q2, col)
+    seg(q2, home, col)
+  }
+  return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
+}
