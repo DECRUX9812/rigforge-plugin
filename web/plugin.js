@@ -4057,6 +4057,73 @@ function printReadyTris(tris) {
   return bedFrameTris(tris)
 }
 
+const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/**
+ * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
+ * want: one file, named bodies, real units, laid out on a virtual bed.
+ * Every printed node becomes an object with its bed-oriented triangles
+ * inline; items are shelf-packed so parts don't overlap at origin.
+ */
+function to3MF(design, material) {
+  const matName = typeof material === 'string' ? material : material && material.name
+  const objects = []
+  const items = []
+  const BED_W = 300, GAP = 8
+  let cx = 10, cy = 10, rowH = 0, oid = 1
+  for (const node of design.nodes) {
+    if (!node.print) continue
+    let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    if (CONVEX_KINDS.has(node.kind)) raw = orientConvex(raw)
+    const tris = printReadyTris(raw)
+    if (!tris.length) continue
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+    for (const t of tris) for (const p of t.pts) {
+      if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0]
+      if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
+    }
+    const w = maxx - minx, d = maxy - miny
+    if (cx + w > BED_W && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${(cx - minx).toFixed(3)} ${(cy - miny).toFixed(3)} 0"/>`)
+    const vmap = new Map()
+    const verts = []
+    const faces = []
+    for (const t of tris) {
+      const idx = []
+      for (const p of t.pts) {
+        const k = `${p[0].toFixed(4)},${p[1].toFixed(4)},${p[2].toFixed(4)}`
+        let vi = vmap.get(k)
+        if (vi == null) { vi = verts.length / 3; vmap.set(k, vi); verts.push(p[0], p[1], p[2]) }
+        idx.push(vi)
+      }
+      faces.push(`<triangle v1="${idx[0]}" v2="${idx[1]}" v3="${idx[2]}"${matName ? ' pid="1"' : ''}/>`)
+    }
+    const vxml = []
+    for (let i = 0; i < verts.length; i += 3) {
+      vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
+    }
+    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(node.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
+    cx += w + GAP
+    rowH = Math.max(rowH, d)
+    oid += 1
+  }
+  if (!objects.length) return null
+  const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<resources>${matName ? `<basematerials id="1"><base name="${xmlEsc(matName)}" displaycolor="#B8B8B8"/></basematerials>` : ''}${objects.join('')}</resources>
+<build>${items.join('')}</build>
+</model>`
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`
+  const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`
+  return zipStore([
+    { name: '[Content_Types].xml', buf: contentTypes },
+    { name: '_rels/.rels', buf: rels },
+    { name: '3D/3dmodel.model', buf: model },
+  ])
+}
+
 // Convex primitives: every face's normal must point away from the part's own
 // centre. Rings, gears and tubes are not convex (their inner wall faces inward
 // on purpose), so they are left exactly as generated.
@@ -8884,13 +8951,6 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
-@media (max-width: 900px) {
-  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
-     window cut the last slider in half — a joint you cannot reach is worse than
-     one further down the page */
-  [data-rf="posegrid"] { max-height: 138px !important; }
-}
-
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
@@ -11178,6 +11238,10 @@ function Studio() {
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
       : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+    ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
+      const buf = to3MF(design, analysis.print && analysis.print.material)
+      if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
+    }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
@@ -11941,7 +12005,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
+              h('div', { style: S.poseGrid },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')

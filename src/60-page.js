@@ -1098,6 +1098,10 @@ function Studio() {
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
       : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+    ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
+      const buf = to3MF(design, analysis.print && analysis.print.material)
+      if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
+    }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
