@@ -10486,18 +10486,26 @@ float shadowFactor(vec3 n) {
   float bias = max(0.0015 * (1.0 - dot(n, uKeyDir)), 0.0004);
   // Three rings of taps: a studio key has a real penumbra, and a 5x5 grid at
   // this map resolution reads as a stencil.
+  // Nine taps in two rings, rotated per pixel so the pattern does not read as a
+  // grid, and stretched along the shadow texel so the penumbra stays wide. The
+  // earlier 5x5 version cost 25 texture fetches per fragment: on a software GL
+  // stack that is 4 fps, which is not a renderer anyone can use.
+  float ang = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float ca = cos(ang);
+  float sa = sin(ang);
+  mat2 rot = mat2(ca, -sa, sa, ca);
   float sum = 0.0;
   float wsum = 0.0;
-  for (int x = -2; x <= 2; x++) {
-    for (int y = -2; y <= 2; y++) {
-      float r2 = float(x * x + y * y);
-      float ring = 1.0 + r2 * 2.4;
-      vec2 off = vec2(float(x), float(y)) * uShadowTexel * ring * 3.2;
-      float d = texture(uShadow, proj.xy + off).r;
-      float w = 1.0 / (1.0 + r2);
-      sum += ((proj.z - bias * 1.6) > d ? 0.0 : 1.0) * w;
-      wsum += w;
-    }
+  for (int i = 0; i < 9; i++) {
+    float fi = float(i);
+    // ring 0 = centre, 1..4 inner ring, 5..8 outer ring (Vogel-ish spacing)
+    float rad = i == 0 ? 0.0 : (i < 5 ? 1.9 : 4.4);
+    float th = i == 0 ? 0.0 : (fi * 2.3999632) + ang;
+    vec2 off = (rot * vec2(cos(th), sin(th))) * rad * uShadowTexel * 1.35;
+    float d = texture(uShadow, proj.xy + off).r;
+    float w = rad < 1.0 ? 1.0 : (rad < 2.0 ? 0.85 : 0.55);
+    sum += ((proj.z - bias * 1.6) > d ? 0.0 : 1.0) * w;
+    wsum += w;
   }
   return sum / wsum;
 }
