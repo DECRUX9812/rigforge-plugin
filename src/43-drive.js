@@ -104,7 +104,7 @@ function createDrive(design, analysis) {
     surfaces: DRIVE_SURFACES,
     /** Merge bench controls; physics picks them up next step. */
     setEnv(patch) { Object.assign(env, patch) },
-    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false },
+    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false },
     /** cmd: {throttle: -1..1, steer: -1..1}; dt seconds. Mutates state. */
     step(cmd, dt) {
       const s = this.state
@@ -143,8 +143,14 @@ function createDrive(design, analysis) {
       const wWant = (wCmd - s.w) / 0.18
       const wMax = 3.2
       s.w += Math.sign(wWant) * Math.min(Math.abs(wWant), wMax) * dt
-      s.x += s.v * Math.cos(s.yaw) * dt
-      s.y += s.v * Math.sin(s.yaw) * dt
+      // lateral slide from a shove: scrubbed off fast — side contact patches
+      // dig in harder than the driven wheels do
+      const aLat = mu * G * Math.cos(grade) * 1.6
+      s.vl -= Math.sign(s.vl) * Math.min(Math.abs(s.vl), aLat * dt)
+      if (Math.abs(s.vl) < 0.005) s.vl = 0
+      const fx = Math.cos(s.yaw), fy = Math.sin(s.yaw)
+      s.x += (s.v * fx - s.vl * fy) * dt
+      s.y += (s.v * fy + s.vl * fx) * dt
       s.yaw += s.w * dt
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
@@ -152,10 +158,19 @@ function createDrive(design, analysis) {
       s.stall = s.throttle > 0.3 && s.v < 0.05 && grade > 0.03
       return s
     },
+    /** Disturbance test: a lateral shove in newtons — slides and yaws the
+     *  machine, then traction scrub kills the slide. The bench's point. */
+    shove(forceN) {
+      const s = this.state
+      const mNow = mass()
+      s.vl += (forceN * 0.25) / mNow // N·s impulse over ~0.25 s contact
+      s.w += (forceN * 0.12) / Math.max(mNow * 0.3, 0.5) // off-centre hits spin it
+      return s
+    },
     /** Reset to the origin, facing +X (the ramp's toe). */
     reset() {
       const s = this.state
-      s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0
+      s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0; s.vl = 0
       s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false
     },
     /** Telemetry for the HUD. */
@@ -173,6 +188,7 @@ function createDrive(design, analysis) {
         mass: mass(),
         slip: s.slip,
         stall: s.stall,
+        slide: Math.abs(s.vl) > 0.08,
       }
     },
   }

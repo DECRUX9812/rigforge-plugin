@@ -5083,7 +5083,7 @@ function createDrive(design, analysis) {
     surfaces: DRIVE_SURFACES,
     /** Merge bench controls; physics picks them up next step. */
     setEnv(patch) { Object.assign(env, patch) },
-    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false },
+    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false },
     /** cmd: {throttle: -1..1, steer: -1..1}; dt seconds. Mutates state. */
     step(cmd, dt) {
       const s = this.state
@@ -5122,8 +5122,14 @@ function createDrive(design, analysis) {
       const wWant = (wCmd - s.w) / 0.18
       const wMax = 3.2
       s.w += Math.sign(wWant) * Math.min(Math.abs(wWant), wMax) * dt
-      s.x += s.v * Math.cos(s.yaw) * dt
-      s.y += s.v * Math.sin(s.yaw) * dt
+      // lateral slide from a shove: scrubbed off fast — side contact patches
+      // dig in harder than the driven wheels do
+      const aLat = mu * G * Math.cos(grade) * 1.6
+      s.vl -= Math.sign(s.vl) * Math.min(Math.abs(s.vl), aLat * dt)
+      if (Math.abs(s.vl) < 0.005) s.vl = 0
+      const fx = Math.cos(s.yaw), fy = Math.sin(s.yaw)
+      s.x += (s.v * fx - s.vl * fy) * dt
+      s.y += (s.v * fy + s.vl * fx) * dt
       s.yaw += s.w * dt
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
@@ -5131,10 +5137,19 @@ function createDrive(design, analysis) {
       s.stall = s.throttle > 0.3 && s.v < 0.05 && grade > 0.03
       return s
     },
+    /** Disturbance test: a lateral shove in newtons — slides and yaws the
+     *  machine, then traction scrub kills the slide. The bench's point. */
+    shove(forceN) {
+      const s = this.state
+      const mNow = mass()
+      s.vl += (forceN * 0.12) / mNow // N·s impulse over ~0.12 s contact
+      s.w += (forceN * 0.05) / Math.max(mNow * 0.4, 0.5) // off-centre hits spin it
+      return s
+    },
     /** Reset to the origin, facing +X (the ramp's toe). */
     reset() {
       const s = this.state
-      s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0
+      s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0; s.vl = 0
       s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false
     },
     /** Telemetry for the HUD. */
@@ -5152,6 +5167,7 @@ function createDrive(design, analysis) {
         mass: mass(),
         slip: s.slip,
         stall: s.stall,
+        slide: Math.abs(s.vl) > 0.08,
       }
     },
   }
@@ -9382,6 +9398,7 @@ function Studio() {
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
   const keysRef = useRef({})
+  const gpBtnRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -9430,6 +9447,9 @@ function Studio() {
           if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
         }
         drive.step({ throttle, steer }, dt)
+        // gamepad face button = shove test (edge-triggered)
+        if (gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed && !gpBtnRef.current) drive.shove(15)
+        gpBtnRef.current = !!(gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed)
         setChassis({ ...drive.state })
       } else if (!pwrDead && ik) {
         // WASD/arrows plane, R/F height; left stick plane, right stick height
@@ -9480,6 +9500,7 @@ function Studio() {
         e.preventDefault()
       }
       if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -10112,7 +10133,8 @@ function Studio() {
                 driveHud.mass > 0 ? h('span', { key: 'e', style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
                 driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
-                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · 0 reset'),
+                driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
+                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
           // endurance telemetry rides every teleop HUD — the pack drains and
           // the servos cook whether you are driving, reaching or walking
@@ -10165,6 +10187,17 @@ function Studio() {
               'aria-label': 'payload mass',
             }),
             h('span', { style: { width: '30px', textAlign: 'right', color: C.amber } }, `${benchEnv.payloadKg.toFixed(1)}kg`)),
+          h('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+            [5, 15, 30].map((n) => h('button', {
+              key: n,
+              onClick: () => driveRef.current && driveRef.current.shove(n),
+              style: {
+                flex: 1, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
+                padding: '3px 0', borderRadius: '4px', cursor: 'pointer',
+                border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
+              },
+              title: `shove test — ${n}N lateral impulse`,
+            }, `SHOVE ${n}N`))),
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },

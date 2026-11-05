@@ -612,6 +612,7 @@ function Studio() {
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
   const keysRef = useRef({})
+  const gpBtnRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -660,6 +661,9 @@ function Studio() {
           if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04) { steer = -gx; throttle = -gy }
         }
         drive.step({ throttle, steer }, dt)
+        // gamepad face button = shove test (edge-triggered)
+        if (gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed && !gpBtnRef.current) drive.shove(15)
+        gpBtnRef.current = !!(gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed)
         setChassis({ ...drive.state })
       } else if (!pwrDead && ik) {
         // WASD/arrows plane, R/F height; left stick plane, right stick height
@@ -710,6 +714,7 @@ function Studio() {
         e.preventDefault()
       }
       if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -1342,7 +1347,8 @@ function Studio() {
                 driveHud.mass > 0 ? h('span', { key: 'e', style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
                 driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
-                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · 0 reset'),
+                driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
+                h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
           // endurance telemetry rides every teleop HUD — the pack drains and
           // the servos cook whether you are driving, reaching or walking
@@ -1395,6 +1401,17 @@ function Studio() {
               'aria-label': 'payload mass',
             }),
             h('span', { style: { width: '30px', textAlign: 'right', color: C.amber } }, `${benchEnv.payloadKg.toFixed(1)}kg`)),
+          h('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+            [5, 15, 30].map((n) => h('button', {
+              key: n,
+              onClick: () => driveRef.current && driveRef.current.shove(n),
+              style: {
+                flex: 1, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
+                padding: '3px 0', borderRadius: '4px', cursor: 'pointer',
+                border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
+              },
+              title: `shove test — ${n}N lateral impulse`,
+            }, `SHOVE ${n}N`))),
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
