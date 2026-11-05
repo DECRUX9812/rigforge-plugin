@@ -626,7 +626,7 @@ function Studio() {
   const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
-  const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
   const gpBtnRef = useRef(false)
@@ -750,14 +750,15 @@ function Studio() {
   // drive mode, the pick-place desk for reach mode. Identity-stable per
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
-    () => (driveOn && teleopKind === 'drive' ? benchRampTris(benchEnv.slopeDeg)
+    () => (driveOn && teleopKind === 'drive'
+      ? (benchEnv.course === 'room' ? livingRoomTris() : benchRampTris(benchEnv.slopeDeg))
       : driveOn && teleopKind === 'ik' ? deskPropsTris()
       : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
-    [driveOn, teleopKind, benchEnv.slopeDeg],
+    [driveOn, teleopKind, benchEnv],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : teleopKind === 'ik' ? 'desk' : 'grip') : null
+    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -767,7 +768,7 @@ function Studio() {
       }
       xfRef.current = xf
     }
-    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach) : mesh
+    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach, benchEnv.course) : mesh
     if (!xf.combined) {
       const n = mach.length + (xf.rt ? xf.rt.length : 0)
       xf.combined = new Array(n)
@@ -790,7 +791,7 @@ function Studio() {
       const wy = d[i] * sn + d[i + 1] * c + chassis.y
       out[i] = wx
       out[i + 1] = wy
-      out[i + 2] = terrainHeight(wx, slope)
+      out[i + 2] = terrainHeight(wx, slope, benchEnv.course)
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
     return { data: out, verts: benchOv.verts }
@@ -1412,6 +1413,8 @@ function Studio() {
                 driveHud.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'WHEELSPIN') : null,
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
+                driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
+                driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
           // endurance telemetry rides every teleop HUD — the pack drains and
@@ -1443,6 +1446,19 @@ function Studio() {
           },
         },
           h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+            [['rack', 'RACK'], ['room', 'ROOM']].map(([ck, cl]) => h('button', {
+              key: ck,
+              onClick: () => setBenchEnv((e) => ({ ...e, course: ck })),
+              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles' : 'traction rack: adjustable ramp and surface',
+              style: {
+                fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
+                padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
+                border: `1px solid ${benchEnv.course === ck ? C.cyan : C.line}`,
+                background: benchEnv.course === ck ? 'rgba(0,229,255,0.12)' : 'transparent',
+                color: benchEnv.course === ck ? C.cyan : C.dim,
+              },
+            }, cl))),
+          benchEnv.course === 'rack' ? h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
             Object.keys(DRIVE_SURFACES).map((sk) => h('button', {
               key: sk,
               onClick: () => setBenchEnv((e) => ({ ...e, surface: sk })),
@@ -1453,7 +1469,7 @@ function Studio() {
                 background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
                 color: benchEnv.surface === sk ? C.cyan : C.dim,
               },
-            }, sk.toUpperCase()))),
+            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } }, 'course surfaces: hardwood + rug'),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
             h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
             h('input', {

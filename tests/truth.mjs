@@ -437,6 +437,25 @@ check('drive physics: wet ice stalls where hardwood climbs', () => {
   return `ice +${ice.dx.toFixed(2)}m (${ice.stall ? 'stall' : 'slip'}), hardwood +${wood.dx.toFixed(2)}m`
 })
 
+// ── 25b. living-room course: threshold climbs, props block, bumps count ────
+check('living-room course: obstacles stop the chassis and count bumps', () => {
+  const { design, analysis } = A.composeDesign({ ...A.DEFAULT_BRIEF, archetype: 'rover' })
+  const d = A.createDrive(design, analysis)
+  d.setEnv({ course: 'room', surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  // centre lane is blocked by the toy bin — a straight driver must stop
+  for (let i = 0; i < 60 * 12; i++) d.step({ throttle: 1, steer: 0 }, 1 / 60)
+  assert(d.state.bumps >= 1, `centre lane: expected bumps, got ${d.state.bumps}`)
+  assert(d.state.x < 2.6, `centre lane reached x=${d.state.x.toFixed(2)} — drove through a prop`)
+  // the wide-left lane is clear — same machine, offset start, runs the course
+  const d2 = A.createDrive(design, analysis)
+  d2.setEnv({ course: 'room', surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
+  d2.state.y = 0.5
+  for (let i = 0; i < 60 * 10; i++) d2.step({ throttle: 1, steer: 0 }, 1 / 60)
+  assert(d2.state.x > 5, `wide lane only reached x=${d2.state.x.toFixed(2)} — corridor should be open`)
+  assert(d2.state.bumps === 0, `wide lane bumped ${d2.state.bumps}× — should be clear`)
+  return `centre pinned at x=${d.state.x.toFixed(2)} (${d.state.bumps} bumps), wide lane x=${d2.state.x.toFixed(2)}`
+})
+
 // ── 26. gait: legs cycle within joint limits, diagonal pairs phase-locked ───
 check('gait: quadruped trot moves all legs inside limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
