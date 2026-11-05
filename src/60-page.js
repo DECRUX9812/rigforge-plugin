@@ -436,6 +436,12 @@ function Studio() {
   const { design, analysis } = spec
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
+  // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
+  // (where the joints physically are). The sim slews one toward the other at
+  // each servo's real speed and stalls under overload — drag a slider and the
+  // machine follows like hardware, not like a slider preview.
+  const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
+  const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
   const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
 
@@ -444,6 +450,30 @@ function Studio() {
   useEffect(() => {
     setPose((p) => design.joints.map((j, i) => (p[i] == null ? 0 : clamp(p[i], j.min, j.max))))
   }, [design])
+
+  // The physics loop: rebuild the sim when the machine changes, feed it every
+  // commanded pose, and publish actual angles only while something is moving.
+  useEffect(() => {
+    const sim = createJointSim(design, analysis)
+    simRef.current = sim
+    sim.snap(pose)
+    let raf = 0
+    let last = performance.now()
+    const tick = (now) => {
+      const dt = Math.min(0.1, (now - last) / 1000)
+      last = now
+      if (sim.step(dt, now)) setDispPose([...sim.state.angles])
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); simRef.current = null }
+    // pose is read once at snap; later commands arrive via the effect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, analysis])
+
+  useEffect(() => {
+    simRef.current && simRef.current.setTargets(pose)
+  }, [pose])
 
   useEffect(() => {
     setCam((c) => ({ ...c, dist: CAM_FOR(analysis.dims).dist }))
@@ -522,8 +552,8 @@ function Studio() {
 
   const posedDesign = useMemo(() => ({
     ...design,
-    joints: design.joints.map((j, i) => ({ ...j, angle: pose[i] || 0 })),
-  }), [design, pose])
+    joints: design.joints.map((j, i) => ({ ...j, angle: dispPose[i] || 0 })),
+  }), [design, dispPose])
 
   const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
 

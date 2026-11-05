@@ -85,6 +85,7 @@ await build({
 
 writeFileSync(join(tmp, 'preview.html'), `<!doctype html>
 <html><head><meta charset="utf-8"><title>Rigforge preview</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13' fill='%23FF6A1A'%3E%E2%8C%AC%3C/text%3E%3C/svg%3E">
 <style>
   html,body{margin:0;height:100%;background:#0A0D10;overflow:hidden}
   #root{height:100%}
