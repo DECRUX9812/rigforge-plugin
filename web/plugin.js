@@ -11028,6 +11028,17 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      '',
+      '## Engineering summary',
+      `- **mass:** ${(analysis.mass.totalG / 1000).toFixed(2)} kg (printed ${(analysis.mass.printedG / 1000).toFixed(2)} kg, parts ${(analysis.mass.partsG / 1000).toFixed(2)} kg)`,
+      `- **cost:** $${analysis.cost.toFixed(2)} ($${analysis.costBuy.toFixed(2)} to buy, $${analysis.costShop.toFixed(2)} to print)`,
+      `- **print:** ${(analysis.print.grams / 1000).toFixed(2)} kg ${(analysis.print.material || 'filament')}, ~${analysis.print.hours.toFixed(1)}h · ${analysis.print.overhang.unsupportedMm2}mm² unsupported`,
+      `- **power:** ${analysis.power.typ != null ? `${analysis.power.typ.toFixed(1)}A typical / ${analysis.power.peak.toFixed(1)}A peak` : 'n/a'}${analysis.power.runtimeMin != null ? ` · ~${analysis.power.runtimeMin.toFixed(0)} min runtime` : ''}`,
+      ...(analysis.checks.some((c) => c.level === 'fail')
+        ? ['', '### Blocking checks', ...analysis.checks.filter((c) => c.level === 'fail').map((c) => `- FAIL ${c.msg}`)]
+        : analysis.checks.some((c) => c.level === 'warn')
+          ? ['', '### Warnings', ...analysis.checks.filter((c) => c.level === 'warn').map((c) => `- WARN ${c.msg}`)]
+          : ['', '### Checks', ...analysis.checks.filter((c) => c.level === 'ok').slice(0, 4).map((c) => `- ${c.msg}`)]),
       ...(autotestRef.current && autotestRef.current.results.length ? [
         '',
         `## Auto test — ${autotestRef.current.score}`,
@@ -11043,7 +11054,7 @@ function Studio() {
       a.click()
       URL.revokeObjectURL(a.href)
     } catch { /* SSR / no DOM */ }
-  }, [design, fixes])
+  }, [design, analysis, fixes])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
