@@ -5999,6 +5999,8 @@ function Studio() {
   const [tab, setTab] = useState('spec')
   const [simple, setSimple] = useState(() => (CTX && CTX.storage.get('simple', true)) !== false)
   const [guideOff, setGuideOff] = useState(false)
+  const [advanced, setAdvanced] = useState(false)
+  const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
@@ -6319,7 +6321,7 @@ function Studio() {
             onClick: () => { if (CTX) { CTX.storage.set('seenFirstRun', true); setGuideOff(true) } },
           }, 'GOT IT')),
         h('div', { style: S.cards },
-          PRESETS.map((p) => h('button', {
+          (allMachines ? PRESETS : PRESETS.slice(0, 4)).map((p) => h('button', {
             key: p.id,
             style: brief.archetype === p.brief.archetype ? S.cardOn : S.card,
             'aria-label': `Build a ${p.label}`,
@@ -6328,6 +6330,18 @@ function Studio() {
             h(Thumb, { archetype: p.brief.archetype }),
             h('span', { style: S.cardTitle }, p.label.toUpperCase()),
             h('span', { style: S.cardSub }, PRESET_BLURBS[p.id] || '')))),
+        PRESETS.length > 4
+          ? h('button', {
+            style: {
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              width: '100%', padding: '7px 0', marginTop: '-8px', marginBottom: '12px',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: C.faint, fontSize: '10.5px', fontFamily: C.mono, letterSpacing: '0.1em',
+            },
+            'aria-expanded': allMachines,
+            onClick: () => setAllMachines((v) => !v),
+          }, allMachines ? '− FEWER MACHINES' : `+ ${PRESETS.length - 4} MORE MACHINES`)
+          : null,
 
         h('textarea', {
           rows: 2, value: mission, style: { ...S.input, marginBottom: '8px' },
@@ -6344,13 +6358,6 @@ function Studio() {
             'aria-label': 'Build a random machine',
             onClick: surprise,
           }, '⚄')),
-
-        h('div', { style: S.chips, marginTop: '10px' },
-          ARCHETYPES.map(([id, label]) => h('button', {
-            key: id, style: brief.archetype === id ? S.chipOn : S.chip,
-            title: `switch machine type to ${label.toLowerCase()}`,
-            onClick: () => pickArchetype(id),
-          }, label))),
 
         (() => { const v = plainVerdict(analysis.checks); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
@@ -6390,33 +6397,49 @@ function Studio() {
               }),
             brief.archetype === 'arm'
               ? h(ParamSlider, { label: 'AXES', value: brief.dof, min: 3, max: 6, step: 1, hint: 'how many joints — more axes, more ways to move', onChange: (v) => applyBrief({ dof: v }) })
-              : null,
+              : null),
+
+        // Two numbers decide most builds. The rest is real, but it is a second
+        // decision — behind a disclosure, not in a beginner's face.
+        brief.archetype === 'gadget' ? null : h('button', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px', width: '100%',
+            background: 'none', border: 'none', borderTop: `1px solid ${C.line}`,
+            padding: '9px 0 3px', marginTop: '2px', cursor: 'pointer',
+            color: C.faint, fontSize: '10.5px', fontFamily: C.mono, letterSpacing: '0.1em',
+          },
+          'aria-expanded': advanced,
+          onClick: () => setAdvanced((v) => !v),
+        },
+          h('span', { style: { color: advanced ? C.accent : C.faint } }, advanced ? '−' : '+'),
+          advanced ? 'FEWER OPTIONS' : `MORE OPTIONS · ${brief.archetype === 'arm' ? 3 : 3}`),
+
+        advanced && brief.archetype !== 'gadget'
+          ? h('div', { style: { paddingTop: '10px' } },
             h(Select, {
               label: 'MATERIAL', value: brief.material,
               options: MAT_OPTIONS,
               hint: 'what you print the frame in — PETG survives drops',
               onChange: (v) => applyBrief({ material: v }),
-            })),
-
-        h(Select, {
-          label: 'CONTROLLER', value: brief.mcu,
-          options: MCU_KEYS.map((k) => ({ value: k, label: PARTS[k].name })),
-          hint: 'the robot\'s brain',
-          onChange: (v) => applyBrief({ mcu: v }),
-        }),
-        brief.archetype !== 'gadget'
-          ? h(Select, {
-            label: 'ENERGY', value: brief.battery,
-            options: [
-              { value: 'pack2s', label: '2S 18650 · 7.4V' },
-              { value: 'pack3s', label: '3S 18650 · 11.1V' },
-              { value: 'lipo2s', label: 'LiPo 2S 1000mAh' },
-              { value: 'lipo3s', label: 'LiPo 3S 2200mAh' },
-              { value: 'pd5v', label: 'USB-C tethered' },
-            ],
-            hint: 'battery pack, or plug it into the wall',
-            onChange: (v) => applyBrief({ battery: v }),
-          })
+            }),
+            h(Select, {
+              label: 'CONTROLLER', value: brief.mcu,
+              options: MCU_KEYS.map((k) => ({ value: k, label: PARTS[k].name })),
+              hint: 'the robot\'s brain',
+              onChange: (v) => applyBrief({ mcu: v }),
+            }),
+            h(Select, {
+              label: 'ENERGY', value: brief.battery,
+              options: [
+                { value: 'pack2s', label: '2S 18650 · 7.4V' },
+                { value: 'pack3s', label: '3S 18650 · 11.1V' },
+                { value: 'lipo2s', label: 'LiPo 2S 1000mAh' },
+                { value: 'lipo3s', label: 'LiPo 3S 2200mAh' },
+                { value: 'pd5v', label: 'USB-C tethered' },
+              ],
+              hint: 'battery pack, or plug it into the wall',
+              onChange: (v) => applyBrief({ battery: v }),
+            }))
           : null,
 
         shelf.length
