@@ -516,6 +516,34 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
 })
 
+// ── 30/31. autopilot certification scores maneuvers honestly ───────────────
+const runAutotest = (env) => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
+  const drive = A.createDrive(design, analysis)
+  drive.setEnv(env || {})
+  const at = A.createAutotest(drive)
+  at.start()
+  for (let i = 0; i < 60 * 20 && at.running; i++) drive.step(at.tick(1 / 60), 1 / 60)
+  return at
+}
+
+check('autotest: rover passes the certification suite on a real climb', () => {
+  const at = runAutotest({ surface: 'hardwood', slopeDeg: 10 })
+  assert(at.done, 'autotest did not finish within 20s sim')
+  assert(at.results.length === 5, `expected 5 phase results, got ${at.results.length}`)
+  const fails = at.results.filter((r) => !r.pass)
+  assert(fails.length === 0, `unexpected failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
+  return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
+check('autotest: wet-ice ramp fails the climb check honestly', () => {
+  const at = runAutotest({ surface: 'ice', slopeDeg: 10 })
+  assert(at.done, 'autotest did not finish')
+  const climb = at.results.find((r) => r.id === 'climb')
+  assert(climb && !climb.pass, `climb passed on wet ice — ${climb && climb.detail}`)
+  return `climb FAIL — ${climb.detail}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

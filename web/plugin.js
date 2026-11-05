@@ -6075,6 +6075,138 @@ function parseDirective(attrs) {
   }
 }
 
+// Autopilot certification run — scripts throttle/steer through a fixed
+// maneuver suite and scores each phase against live drive state. Every
+// check is a real measurement off drive.state; nothing passes by default,
+// so a machine that can't climb wet ice or recover from a shove fails here
+// exactly as it would on the floor.
+
+const PHASES = [
+  { id: 'sprint', label: 'SPRINT', dur: 2.5, throttle: 1, steer: 0 },
+  { id: 'turn',   label: 'TURN',   dur: 1.6, throttle: 0.4, steer: -1 },
+  { id: 'climb',  label: 'CLIMB',  dur: 4.0, throttle: 1, steer: 0 },
+  { id: 'shove',  label: 'SHOVE',  dur: 1.8, throttle: 1.0, steer: 0, shoveAt: 0.4, shoveN: 15 },
+  { id: 'return', label: 'RETURN', dur: 2.2, throttle: 0.6, steer: 1 },
+]
+
+const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a }
+
+function createAutotest(drive) {
+  const st = {
+    running: false, done: false, idx: 0, t: 0,
+    results: [], // {id,label,pass,detail}
+    phase: null, // live phase info for the HUD
+  }
+  let mark = null // per-phase accumulators
+
+  function beginPhase(i) {
+    const p = PHASES[i]
+    const s = drive.state
+    mark = {
+      x0: s.x, y0: s.y, yaw0: s.yaw, z0: s.z, bumps0: s.bumps || 0,
+      maxV: 0, stallT: 0, slipT: 0, gradeT: 0, vPreShove: null, shoved: false,
+    }
+    st.idx = i; st.t = 0; st.phase = { ...p, t: 0, n: PHASES.length }
+  }
+
+  function score(p, m, s) {
+    const dist = Math.hypot(s.x - m.x0, s.y - m.y0)
+    const stallFrac = m.stallT / p.dur
+    const bumps = (s.bumps || 0) - m.bumps0
+    switch (p.id) {
+      case 'sprint': {
+        const need = drive.vmax * 0.45
+        return { pass: m.maxV >= need, detail: `top ${m.maxV.toFixed(2)} m/s vs ${need.toFixed(2)} needed` }
+      }
+      case 'turn': {
+        const dyaw = Math.abs(wrap(s.yaw - m.yaw0))
+        return { pass: dyaw >= 0.5, detail: `turned ${(dyaw * 180 / Math.PI).toFixed(0)}°` }
+      }
+      case 'climb': {
+        // elevation is the honest metric — you cannot fake altitude. On a
+        // mostly-flat bench the same phase degrades to a sustained-speed run.
+        if (m.gradeT / p.dur < 0.3) {
+          const ok = dist >= 0.8 && stallFrac < 0.4
+          return { pass: ok, detail: `flat run ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+        }
+        const dz = s.z - m.z0
+        const ok = dz >= 0.1 && stallFrac < 0.4
+        return { pass: ok, detail: `+${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%${s.grade > 0.05 ? ` @ ${(s.grade * 180 / Math.PI).toFixed(0)}°` : ''}` }
+      }
+      case 'shove': {
+        const recovered = s.v > 0.15 || dist > 0.3
+        return { pass: recovered && stallFrac < 0.6, detail: `post-shove ${s.v.toFixed(2)} m/s, ${bumps} bump${bumps === 1 ? '' : 's'}` }
+      }
+      case 'return': {
+        const ok = Math.abs(s.v) > 0.03 || dist > 0.3
+        return { pass: ok && stallFrac < 0.6, detail: `finished at ${s.v.toFixed(2)} m/s, ${bumps} bump${bumps === 1 ? '' : 's'}` }
+      }
+      default: return { pass: false, detail: 'unknown phase' }
+    }
+  }
+
+  function endPhase() {
+    const p = PHASES[st.idx]
+    const r = score(p, mark, drive.state)
+    st.results.push({ id: p.id, label: p.label, ...r })
+    st.phase = null
+  }
+
+  return {
+    get running() { return st.running },
+    get done() { return st.done },
+    get results() { return st.results },
+    get phase() { return st.phase },
+    get score() { return `${st.results.filter((r) => r.pass).length}/${st.results.length}` },
+    /** Begin a run from a known state. */
+    start() {
+      drive.reset()
+      st.running = true; st.done = false; st.results = []; st.idx = 0; st.t = 0
+      beginPhase(0)
+    },
+    stop() { st.running = false; st.phase = null },
+    /**
+     * Advance the script one frame. Returns the {throttle, steer} command
+     * the caller must feed to drive.step — the script owns the inputs
+     * while running.
+     */
+    tick(dt) {
+      if (!st.running) return { throttle: 0, steer: 0 }
+      const p = PHASES[st.idx]
+      const s = drive.state
+      st.t += dt
+      mark.maxV = Math.max(mark.maxV, Math.abs(s.v))
+      if (s.stall) mark.stallT += dt
+      if (s.slip) mark.slipT += dt
+      if (s.grade > 0.03) mark.gradeT += dt
+      if (p.shoveAt != null && !mark.shoved && st.t >= p.shoveAt) {
+        mark.shoved = true
+        mark.vPreShove = s.v
+        drive.shove(p.shoveN)
+      }
+      if (st.t >= p.dur) {
+        endPhase()
+        if (st.idx + 1 >= PHASES.length) {
+          st.running = false; st.done = true
+          return { throttle: 0, steer: 0 }
+        }
+        beginPhase(st.idx + 1)
+      }
+      st.phase.t = st.t
+      // climb holds heading toward +X (the ramp direction). PD on yaw rate —
+      // a saturated P-only steer overshoots through 200°+ because the
+      // chassis yaw has real inertia (w slews at wMax rad/s²).
+      let steer = p.steer
+      if (p.id === 'climb') {
+        const kYaw = drive.vmax / Math.max((drive.trackMm / 1000) * 0.5, 0.05)
+        const err = wrap(-s.yaw)
+        steer = Math.max(-1, Math.min(1, (0.9 * s.w - 2.2 * err) / kYaw))
+      }
+      return { throttle: p.throttle, steer }
+    },
+  }
+}
+
 // ── viewport: a software 3D renderer, because a CAD view cannot be a DIV ────
 // Painter's algorithm on 2D canvas: sub-millisecond for these meshes, no
 // WebGL context to lose, no three.js to ship. Shading is a three-light studio
@@ -9694,9 +9826,11 @@ function Studio() {
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
+  const autotestRef = useRef(null)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
+    autotestRef.current = driveRef.current ? createAutotest(driveRef.current) : null
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
     gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
     gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
@@ -9739,9 +9873,15 @@ function Studio() {
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
       if (!pwrDead && drive) {
-        let throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
-        let steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        let throttle, steer
+        if (at && at.running) {
+          ;({ throttle, steer } = at.tick(dt))
+        } else {
+          throttle = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+          steer = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
+        }
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -9957,6 +10097,11 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      ...(autotestRef.current && autotestRef.current.results.length ? [
+        '',
+        `## Auto test — ${autotestRef.current.score}`,
+        ...autotestRef.current.results.map((r) => `- ${r.pass ? 'PASS' : 'FAIL'} **${r.label}** — ${r.detail}`),
+      ] : []),
       '',
       '_Generated by RigForge test bench — numbers are simulated, not measured._',
     ].filter(Boolean).join('\n')
@@ -10583,6 +10728,18 @@ function Studio() {
             }, `⚒ ${fixes[0].msg}${fixes.length > 1 ? `  (+${fixes.length - 1} more)` : ''}`)
             : null,
         ) : null,
+        driveOn && autotestRef.current && (autotestRef.current.running || autotestRef.current.done) ? h('div', {
+          style: {
+            position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10.5px',
+            color: autotestRef.current.done && autotestRef.current.results.every((r) => r.pass) ? C.green : C.cyan,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '5px 10px', pointerEvents: 'none',
+            title: (autotestRef.current.results || []).map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.label} — ${r.detail}`).join('\n'),
+          },
+        }, autotestRef.current.running
+          ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
+          : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -10730,7 +10887,19 @@ function Studio() {
                 ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            autotestRef.current ? h('button', {
+              style: autotestRef.current.running || (autotestRef.current.done && !autotestRef.current.results.every((r) => r.pass)) ? S.viewChipOn : S.viewChip,
+              'aria-pressed': !!(autotestRef.current && autotestRef.current.running),
+              title: 'autopilot certification — scripts sprint, turn, climb, shove-recovery and return, scoring each check',
+              onClick: () => {
+                const at = autotestRef.current
+                if (!at) return
+                if (at.running) { at.stop(); return }
+                at.start()
+                setDriveOn(true)
+              },
+            }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',
