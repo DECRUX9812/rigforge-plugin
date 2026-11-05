@@ -50,9 +50,9 @@ const GLOBAL_CSS = `
 [data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
 [data-rf="root"] ::-webkit-scrollbar-track { background: transparent; }
-[data-rf="body"] { display: grid; grid-template-columns: 300px minmax(0,1fr) 400px; }
+[data-rf="body"] { display: grid; grid-template-columns: 288px minmax(0,1fr) 440px; }
 @media (max-width: 1440px) {
-  [data-rf="body"] { grid-template-columns: 268px minmax(0,1fr) 352px; }
+  [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
   [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }

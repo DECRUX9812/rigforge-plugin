@@ -542,6 +542,7 @@ function Studio() {
     : tab === 'parts' ? h(TabParts, { design, analysis })
       : tab === 'pins' ? h(TabPins, { analysis })
         : tab === 'power' ? h(TabPower, { analysis })
+          : tab === 'assembly' ? h(TabAssembly, { design, analysis })
           : tab === 'print' ? h(TabPrint, { design, analysis })
             : tab === 'code' ? h(TabCode, { design })
               : h(TabSteps, { design, analysis })
