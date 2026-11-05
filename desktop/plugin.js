@@ -3883,15 +3883,85 @@ function importedMeshTris(node) {
   return out
 }
 
+/**
+ * The whole node transform — its Euler rotation, its position, the slide it is
+ * on and every joint above it — collapsed into one affine matrix, computed once
+ * per node. Calling rotEuler + applyChain per *vertex* meant a 3 900-triangle
+ * machine ran trigonometry about 12 000 times per rebuild; this runs it once.
+ */
+function nodeAffine(node, chain, slide, shift) {
+  // Euler X→Y→Z, matching rotEuler
+  let m = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  const mul = (a, b) => [
+    a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+    a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+    a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+  ]
+  const rot = node.rot
+  if (rot) {
+    const [rx, ry, rz] = rot
+    if (rx) {
+      const c = Math.cos(rx), s = Math.sin(rx)
+      m = mul([1, 0, 0, 0, c, -s, 0, s, c], m)
+    }
+    if (ry) {
+      const c = Math.cos(ry), s = Math.sin(ry)
+      m = mul([c, 0, s, 0, 1, 0, -s, 0, c], m)
+    }
+    if (rz) {
+      const c = Math.cos(rz), s = Math.sin(rz)
+      m = mul([c, -s, 0, s, c, 0, 0, 0, 1], m)
+    }
+  }
+  const t = [
+    node.pos[0] + slide[0],
+    node.pos[1] + slide[1],
+    node.pos[2] + slide[2],
+  ]
+  if (chain) {
+    for (const j of chain) {
+      if (j.slide) continue
+      const sign = j.axis === 'y' ? -1 : 1
+      const a = (sign * j.angle * Math.PI) / 180
+      if (!a) continue
+      const c = Math.cos(a), s = Math.sin(a)
+      const R = j.axis === 'x'
+        ? [1, 0, 0, 0, c, -s, 0, s, c]
+        : j.axis === 'y'
+          ? [c, 0, s, 0, 1, 0, -s, 0, c]
+          : [c, -s, 0, s, c, 0, 0, 0, 1]
+      // rotate about the joint pivot: p' = R(p − pivot) + pivot
+      const pv = j.pivot || [0, 0, 0]
+      const rpv = [
+        R[0] * pv[0] + R[1] * pv[1] + R[2] * pv[2],
+        R[3] * pv[0] + R[4] * pv[1] + R[5] * pv[2],
+        R[6] * pv[0] + R[7] * pv[1] + R[8] * pv[2],
+      ]
+      // p' = R(p − pivot) + pivot applied to the whole transform, so the
+      // translation is rotated too: t' = R·t − R·pivot + pivot
+      const rt = [
+        (R[0] * t[0] + R[1] * t[1] + R[2] * t[2]) - rpv[0] + pv[0],
+        (R[3] * t[0] + R[4] * t[1] + R[5] * t[2]) - rpv[1] + pv[1],
+        (R[6] * t[0] + R[7] * t[1] + R[8] * t[2]) - rpv[2] + pv[2],
+      ]
+      t[0] = rt[0]; t[1] = rt[1]; t[2] = rt[2]
+      m = mul(R, m)
+    }
+  }
+  if (shift) { t[0] += shift[0]; t[1] += shift[1]; t[2] += shift[2] }
+  return { m, t }
+}
+
 function nodeTriangles(design, node, chain, shift) {
   const tris = []
   const slide = slideDisp(design, node)
-  const world = (p) => {
-    const q = rotEuler(p, node.rot)
-    let w = [q[0] + node.pos[0] + slide[0], q[1] + node.pos[1] + slide[1], q[2] + node.pos[2] + slide[2]]
-    w = applyChain(chain, w)
-    return shift ? [w[0] + shift[0], w[1] + shift[1], w[2] + shift[2]] : w
-  }
+  const { m, t } = nodeAffine(node, chain, slide, shift)
+  // p' = M·p + t, nine multiplies and no trigonometry per vertex
+  const world = (p) => [
+    m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + t[0],
+    m[3] * p[0] + m[4] * p[1] + m[5] * p[2] + t[1],
+    m[6] * p[0] + m[7] * p[1] + m[8] * p[2] + t[2],
+  ]
   const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat })
 
   let local = []
