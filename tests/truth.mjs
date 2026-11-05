@@ -513,6 +513,26 @@ check('node transform: the affine matrix agrees with rotEuler + applyChain, rest
   return `${checked} node points identical between the matrix and the reference path`
 })
 
+// ── 29. OpenSCAD is a file a maker can work in ──────────────────────────────
+check('OpenSCAD export: one named module per node, each instantiated once, every archetype', () => {
+  let total = 0
+  eachPreset((p, { design }) => {
+    const scad = A.toOpenSCAD(design)
+    const modules = [...scad.matchAll(/^module (p_\w+)\(\)/gm)].map((m) => m[1])
+    const calls = [...scad.matchAll(/^  (p_\w+)\(\);/gm)].map((m) => m[1])
+    assert(modules.length === design.nodes.length, `${p.id}: ${modules.length} modules for ${design.nodes.length} nodes`)
+    assert(new Set(modules).size === modules.length, `${p.id}: duplicate module name — one part would shadow another`)
+    assert(calls.length === modules.length, `${p.id}: ${calls.length} instantiations for ${modules.length} modules`)
+    for (const m of modules) {
+      assert(calls.filter((c) => c === m).length === 1, `${p.id}: module ${m} instantiated ${calls.filter((c) => c === m).length} times`)
+    }
+    assert(scad.split('{').length === scad.split('}').length, `${p.id}: unbalanced braces in the SCAD file`)
+    assert(scad.includes('PART = "all"') && scad.includes('module assembly()'), `${p.id}: no PART switch / assembly`)
+    total += modules.length
+  })
+  return `${total} named modules across ten machines`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
