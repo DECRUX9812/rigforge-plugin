@@ -9568,7 +9568,7 @@ function Studio() {
       if (powerRef.current) {
         const drv = driveRef.current
         const motorA = drv ? Math.abs(drv.state.throttle) * motorARef.current : 0
-        powerRef.current.step(dt, sim.state, motorA)
+        powerRef.current.step(dt * timeWarpRef.current, sim.state, motorA)
         sim.state.thermal = powerRef.current.state.cut
       }
       raf = requestAnimationFrame(tick)
@@ -9686,6 +9686,9 @@ function Studio() {
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
   const [, setSenseTick] = useState(0)
+  const [timeWarp, setTimeWarp] = useState(1)
+  const timeWarpRef = useRef(1)
+  timeWarpRef.current = timeWarp
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
@@ -10647,7 +10650,13 @@ function Studio() {
               'aria-pressed': !!cam.ortho,
               title: 'orthographic projection',
               onClick: () => setCam((c) => ({ ...c, ortho: !c.ortho })),
-            }, 'ORTHO')),
+            }, 'ORTHO'),
+            h('button', {
+              style: timeWarp === 10 ? S.viewChipOn : S.viewChip,
+              'aria-pressed': timeWarp === 10,
+              title: 'endurance time warp — battery drains and servos heat 10× faster',
+              onClick: () => setTimeWarp((w) => (w === 1 ? 10 : 1)),
+            }, `TIME ${timeWarp}×`)),
           driveAvail ? h('div', { style: S.viewSep }) : null,
           driveAvail ? h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'bench teleop' },
             h('button', {
