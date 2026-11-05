@@ -234,7 +234,7 @@ function analyze(design) {
     // builds. Counting it in every project makes a $30 sensor node read as $100.
     if (!p.shop) costBuy += p.price * qty
     // A spool is not consumed by one build — charge the grams used, not $20.
-    if (p.print) continue
+    if (p.print || p.shop) continue
     partMassG += p.mass * qty
   }
 

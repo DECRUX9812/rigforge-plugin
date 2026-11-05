@@ -48,6 +48,25 @@ const PARTS = {
     note: 'The spoilboard. Replaced when it gets chewed up, so do not make it precious.',
   },
 
+  // ── board-level passives (the parts a pick-and-place machine exists for) ──
+  res_0402: {
+    name: '0402 resistor (per 10)', cat: 'passive', price: 0.6, mass: 0.2, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [1, 0.5, 0.35], conn: '0402 SMD',
+    sku: '0402 1% resistor assortment', src: 'ali', shop: true,
+    pkg: '0402', note: 'Sold in strips. You will use six and lose four.',
+  },
+  cap_0402: {
+    name: '0402 capacitor (per 10)', cat: 'passive', price: 0.8, mass: 0.2, volts: 16,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [1, 0.5, 0.5], conn: '0402 SMD',
+    sku: '0402 X7R capacitor assortment', src: 'ali', shop: true,
+    pkg: '0402', note: 'Decoupling is not optional: every IC wants one within 2mm.',
+  },
+  res_0603: {
+    name: '0603 resistor (per 10)', cat: 'passive', price: 0.7, mass: 0.3, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [1.6, 0.8, 0.4], conn: '0603 SMD',
+    sku: '0603 1% resistor assortment', src: 'ali', shop: true, pkg: '0603',
+  },
+
   // ── MCUs ──────────────────────────────────────────────────────────────────
   esp32s3: {
     name: 'ESP32-S3 DevKitC-1',

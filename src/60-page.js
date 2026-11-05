@@ -491,6 +491,9 @@ function Studio() {
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design), 'text/csv')],
+    ...(design.pcb && design.pcb.placed.length
+      ? [['Centroid / CPL .csv (for assembly)', () => download(`${fileBase}-cpl.csv`, toCentroidCsv(design), 'text/csv')]]
+      : []),
     ['Firmware .ino', () => download(`${fileBase}.ino`, design.firmware, 'text/plain')],
     ['Spec JSON (for Hermes)', async () => {
       const json = JSON.stringify({ brief, design: design.title, metrics: design.metrics, checks: analysis.checks, parts: design.parts }, null, 2)

@@ -14,6 +14,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
+  { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 90mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 92, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
@@ -27,6 +28,7 @@ const PRESETS = [
 function detectArchetype(text) {
   const t = text.toLowerCase()
   if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
+  if (/\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber/.test(t)) return 'pcb'
   if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
   if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
@@ -75,7 +77,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'iot' ? buildIot(b)
+  const design = b.archetype === 'pcb' ? buildPcb(b)
+    : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'humanoid' ? buildHumanoid(b)
     : b.archetype === 'robot' ? buildFullRobot(b)
@@ -112,7 +115,7 @@ function agentPrompt(brief, spec, instruction) {
     '',
     '::rigforge{brief=<json with archetype, mission, payloadKg, reachMm, dof, material, mcu, battery>}',
     '',
-    'Keep it inside these archetypes: iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry.',
+    'Keep it inside these archetypes: pcb | iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry.',
     'Only numbers the engine can act on — no prose inside the json.',
   ]
   return lines.filter(Boolean).join('\n')

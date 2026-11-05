@@ -394,6 +394,19 @@ function buildMesh(design, explode) {
 }
 
 // ── exporters ───────────────────────────────────────────────────────────────
+/**
+ * Centroid / pick-and-place file (CPL). The third of the three files an
+ * assembly house quotes from, and the one people forget. Coordinates are mm
+ * from the board's centre, rotation in degrees, both in the board frame.
+ */
+function toCentroidCsv(design) {
+  const placed = (design.pcb && design.pcb.placed) || []
+  const head = 'Designator,Mid X (mm),Mid Y (mm),Layer,Rotation,Package'
+  const rows = placed.map((p) => [p.des, p.x.toFixed(3), p.y.toFixed(3), p.layer || 'top', p.rot || 0, p.pkg || ''].join(','))
+  const note = `# ${design.title} — centroid from Rigforge. Origin = board centre; X right, Y up, degrees CCW.`
+  return [note, head, ...rows].join('\n')
+}
+
 
 /** Binary STL — the file a slicer actually opens. */
 function toSTL(tris, headerText) {

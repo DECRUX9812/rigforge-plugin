@@ -17,6 +17,9 @@ const SOLDER_CLASSES = [
   { match: /^(sot-?23|sot-?223|sc-?70)/i, verdict: 'hand', why: 'three legs, easy' },
   { match: /^(dip|pdip)-?\d*/i, verdict: 'hand', why: 'through-hole, easiest of all' },
   { match: /^(to-?220|to-?252)/i, verdict: 'hand', why: 'big tabs, hand solderable' },
+  { match: /^(module|mod\b)/i, verdict: 'hand', why: 'a finished module — castellated pads or headers, no fine pitch' },
+  { match: /^lga/i, verdict: 'reflow', why: 'land grid, no leads — hot air and paste' },
+  { match: /^(jst|tht|usb|header|conn)/i, verdict: 'hand', why: 'through-hole or big pads' },
 ]
 
 function solderVerdict(text) {
@@ -51,12 +54,45 @@ const VERDICT_COLOR = { hand: 'green', reflow: 'amber', house: 'cyan', unknown: 
 function TabAssembly({ design, analysis }) {
   const [probe, setProbe] = useState('')
   const jobs = solderJobs(design)
-  const jointCount = jobs.reduce((s, j) => s + j.joints, 0)
+  const boardJoints = (design.pcb && design.pcb.joints) || 0
+  const jointCount = boardJoints + jobs.reduce((s, j) => s + j.joints, 0)
   const parsed = probe.split(/[,;\s]+/).map(solderVerdict).filter(Boolean)
   const tone = (v) => (v === 'hand' ? C.green : v === 'reflow' ? C.amber : v === 'house' ? C.cyan : C.faint)
   const label = (v) => (v === 'hand' ? 'BY HAND' : v === 'reflow' ? 'HOT AIR' : v === 'house' ? 'SEND OUT' : 'CHECK DATA')
 
+  const placements = (design.pcb && design.pcb.placed) || []
+  const byMethod = placements.reduce((acc, p) => {
+    const v = solderVerdict(p.pkg)
+    const k = v ? v.verdict : 'unknown'
+    acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
+
   return [
+    placements.length
+      ? h('div', { style: { marginBottom: '16px' } },
+        h('div', { style: S.sectionLabel }, 'placements on this board'),
+        h('div', { style: { display: 'flex', gap: '14px', marginBottom: '10px' } },
+          [['hand', 'BY HAND'], ['reflow', 'HOT AIR'], ['house', 'SEND OUT'], ['unknown', 'CHECK']]
+            .filter(([k]) => byMethod[k])
+            .map(([k, label]) => h('div', { key: k, style: { flex: '0 0 auto' } },
+              h('div', { style: S.kvKey }, label),
+              h('div', { style: { ...S.bigVal, fontSize: '18px', color: tone(k) } }, byMethod[k])))),
+        h('table', { style: S.table },
+          h('thead', {}, h('tr', {},
+            h('th', { style: S.th }, 'DES'), h('th', { style: S.th }, 'PACKAGE'),
+            h('th', { style: S.th }, 'METHOD'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'X · Y'))),
+          h('tbody', {}, placements.map((p) => {
+            const v = solderVerdict(p.pkg)
+            return h('tr', { key: p.des },
+              h('td', { style: { ...S.td, fontFamily: C.mono, color: C.text } }, p.des),
+              h('td', { style: S.td }, p.pkg),
+              h('td', { style: { ...S.td, color: tone(v ? v.verdict : 'unknown'), fontFamily: C.mono, fontSize: '9.5px' } },
+                label(v ? v.verdict : 'unknown')),
+              h('td', { style: S.tdNum }, `${p.x} · ${p.y}`))
+          }))))
+      : null,
+
     h('div', { style: { display: 'flex', gap: '14px', marginBottom: '14px' } },
       h('div', { style: { flex: '1 1 0' } },
         h('div', { style: S.kvKey }, 'SOLDER JOINTS'),
@@ -68,7 +104,7 @@ function TabAssembly({ design, analysis }) {
     jobs.length
       ? h('table', { style: S.table },
         h('thead', {}, h('tr', {},
-          h('th', { style: S.th }, 'PART THAT NEEDS AN IRON'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'JOINTS'))),
+          h('th', { style: S.th }, 'OFF-BOARD PART WITH SOLDER TABS'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'JOINTS'))),
         h('tbody', {}, jobs.map((j) => h('tr', { key: j.key },
           h('td', { style: S.td },
             h('div', { style: { color: C.text } }, j.name),
