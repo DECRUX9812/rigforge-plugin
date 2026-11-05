@@ -5347,6 +5347,7 @@ function createDrive(design, analysis) {
     kind: 'drive',
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
+    bodyKg: m.massKg, // carried-load tests scale off this
     vmax,
     fMotor,
     env,
@@ -6559,6 +6560,7 @@ const DRIVE_PHASES = [
   { id: 'sprint', label: 'SPRINT', dur: 2.5, throttle: 1, steer: 0 },
   { id: 'turn',   label: 'TURN',   dur: 1.6, throttle: 0.4, steer: -1 },
   { id: 'climb',  label: 'CLIMB',  dur: 4.0, throttle: 1, steer: 0 },
+  { id: 'load',   label: 'LOAD',   dur: 4.0, throttle: 1, steer: 0, payloadFrac: 0.3 },
   { id: 'shove',  label: 'SHOVE',  dur: 1.8, throttle: 1.0, steer: 0, shoveAt: 0.4, shoveN: 15 },
   { id: 'return', label: 'RETURN', dur: 2.2, throttle: 0.6, steer: 1 },
 ]
@@ -6570,6 +6572,10 @@ function driveAutotest(drive) {
   function beginPhase(i) {
     const p = DRIVE_PHASES[i]
     const s = drive.state
+    // carried load rides on env.payloadKg — set it for the phase, clear after
+    if (typeof drive.setEnv === 'function') {
+      drive.setEnv({ payloadKg: p.payloadFrac ? (drive.bodyKg || 5) * p.payloadFrac : 0 })
+    }
     mark = {
       x0: s.x, y0: s.y, yaw0: s.yaw, z0: s.z, bumps0: s.bumps || 0,
       maxV: 0, stallT: 0, slipT: 0, gradeT: 0, vPreShove: null, shoved: false,
@@ -6601,6 +6607,18 @@ function driveAutotest(drive) {
         const dz = s.z - m.z0
         const ok = dz >= 0.1 && stallFrac < 0.4
         return { pass: ok, detail: `+${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%${s.grade > 0.05 ? ` @ ${(s.grade * 180 / Math.PI).toFixed(0)}°` : ''}` }
+      }
+      case 'load': {
+        // 30% of body mass in the bay — payload physics already live in
+        // createDrive (mass() feeds traction cap, grade force and shove)
+        const payKg = (drive.bodyKg || 5) * (p.payloadFrac || 0.3)
+        if (m.gradeT / p.dur < 0.3) {
+          const ok = dist >= 0.7 && stallFrac < 0.5
+          return { pass: ok, detail: `carried ${payKg.toFixed(1)}kg — ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+        }
+        const dz = s.z - m.z0
+        const ok = dz >= 0.08 && stallFrac < 0.5
+        return { pass: ok, detail: `carried ${payKg.toFixed(1)}kg — +${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%` }
       }
       case 'shove': {
         const recovered = s.v > 0.15 || dist > 0.3
