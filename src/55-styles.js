@@ -33,6 +33,53 @@ const C = {
   mono: 'ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
 }
 
+
+// Global rules the inline styles cannot express: responsiveness, focus rings,
+// and motion that politely stops when the OS asks it to. Rendered as one
+// <style> element inside the page root, scoped by data-rf attributes.
+const GLOBAL_CSS = `
+[data-rf="root"] * { box-sizing: border-box; }
+[data-rf="root"] button, [data-rf="root"] [role="button"] { font: inherit; }
+[data-rf="root"] button:focus-visible,
+[data-rf="root"] input:focus-visible,
+[data-rf="root"] textarea:focus-visible,
+[data-rf="root"] select:focus-visible,
+[data-rf="root"] [role="button"]:focus-visible {
+  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+}
+[data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
+[data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
+[data-rf="root"] ::-webkit-scrollbar-track { background: transparent; }
+[data-rf="body"] { display: grid; grid-template-columns: 300px minmax(0,1fr) 400px; }
+@media (max-width: 1440px) {
+  [data-rf="body"] { grid-template-columns: 268px minmax(0,1fr) 352px; }
+}
+@media (max-width: 1180px) {
+  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }
+  [data-rf="spec"] { grid-column: 1 / -1; max-height: 44vh; border-top: 1px solid #1E2A35; }
+  [data-rf="view"] { min-height: 38vh; }
+  [data-rf="strip"] { display: none; }
+}
+@media (max-width: 900px) {
+  /* one document that scrolls, instead of three panes fighting for height */
+  [data-rf="body"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: min-content min-content min-content;
+    grid-auto-rows: min-content;
+    overflow-y: auto;
+  }
+  [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
+  [data-rf="view"] { min-height: 62vh; }
+  [data-rf="spec"] { max-height: none; }
+  [data-rf="tagline"] { display: none; }
+  [data-rf="top"] { gap: 10px; padding: 0 12px; }
+  [data-rf="strip"] { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-rf="root"] * { transition: none !important; animation: none !important; }
+}
+`
+
 const S = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
@@ -53,6 +100,33 @@ const S = {
   },
   tagline: { fontSize: '11.5px', color: C.faint, letterSpacing: '0.01em' },
   topStats: { display: 'flex', gap: '8px', marginLeft: 'auto', alignItems: 'center' },
+  projectStrip: {
+    display: 'flex', alignItems: 'stretch', gap: '0px', marginLeft: 'auto',
+    border: `1px solid ${C.line}`, borderRadius: '9px', background: C.panel, overflow: 'hidden',
+  },
+  stripItem: {
+    display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 12px',
+    borderLeft: `1px solid ${C.lineSoft}`,
+  },
+  stripItemFirst: {
+    display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 12px',
+  },
+  stripKey: { fontSize: '9px', letterSpacing: '0.13em', color: C.faint, fontFamily: C.mono },
+  stripVal: { fontSize: '12.5px', fontFamily: C.mono, color: C.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
+  actions: { display: 'flex', alignItems: 'center', gap: '7px' },
+  seg: {
+    display: 'flex', padding: '2px', borderRadius: '8px', border: `1px solid ${C.line}`,
+    background: C.bg, gap: '2px',
+  },
+  segOn: {
+    padding: '4px 10px', borderRadius: '6px', border: 'none', background: C.raise,
+    color: C.text, fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: C.sans,
+  },
+  segOff: {
+    padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '11px', fontWeight: 500, cursor: 'pointer', fontFamily: C.sans,
+  },
+  dot: { width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', flex: '0 0 auto' },
   statChip: {
     display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 11px',
     border: `1px solid ${C.line}`, borderRadius: '8px', background: C.panel,
@@ -90,8 +164,7 @@ const S = {
 
   // ── body grid ───────────────────────────────────────────────────────────
   body: {
-    display: 'grid', gridTemplateColumns: '300px minmax(0,1fr) 400px',
-    gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
+    display: 'grid', gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
   },
   col: { background: C.bg, minHeight: 0, display: 'flex', flexDirection: 'column' },
   rail: { background: C.panel, minHeight: 0, overflowY: 'auto', padding: '16px' },

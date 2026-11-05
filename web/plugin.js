@@ -4913,6 +4913,53 @@ const C = {
   mono: 'ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
 }
 
+
+// Global rules the inline styles cannot express: responsiveness, focus rings,
+// and motion that politely stops when the OS asks it to. Rendered as one
+// <style> element inside the page root, scoped by data-rf attributes.
+const GLOBAL_CSS = `
+[data-rf="root"] * { box-sizing: border-box; }
+[data-rf="root"] button, [data-rf="root"] [role="button"] { font: inherit; }
+[data-rf="root"] button:focus-visible,
+[data-rf="root"] input:focus-visible,
+[data-rf="root"] textarea:focus-visible,
+[data-rf="root"] select:focus-visible,
+[data-rf="root"] [role="button"]:focus-visible {
+  outline: 2px solid #FF6A1A; outline-offset: 2px; border-radius: 8px;
+}
+[data-rf="root"] ::-webkit-scrollbar { width: 9px; height: 9px; }
+[data-rf="root"] ::-webkit-scrollbar-thumb { background: #1E2A35; border-radius: 9px; }
+[data-rf="root"] ::-webkit-scrollbar-track { background: transparent; }
+[data-rf="body"] { display: grid; grid-template-columns: 300px minmax(0,1fr) 400px; }
+@media (max-width: 1440px) {
+  [data-rf="body"] { grid-template-columns: 268px minmax(0,1fr) 352px; }
+}
+@media (max-width: 1180px) {
+  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }
+  [data-rf="spec"] { grid-column: 1 / -1; max-height: 44vh; border-top: 1px solid #1E2A35; }
+  [data-rf="view"] { min-height: 38vh; }
+  [data-rf="strip"] { display: none; }
+}
+@media (max-width: 900px) {
+  /* one document that scrolls, instead of three panes fighting for height */
+  [data-rf="body"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: min-content min-content min-content;
+    grid-auto-rows: min-content;
+    overflow-y: auto;
+  }
+  [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
+  [data-rf="view"] { min-height: 62vh; }
+  [data-rf="spec"] { max-height: none; }
+  [data-rf="tagline"] { display: none; }
+  [data-rf="top"] { gap: 10px; padding: 0 12px; }
+  [data-rf="strip"] { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-rf="root"] * { transition: none !important; animation: none !important; }
+}
+`
+
 const S = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
@@ -4933,6 +4980,33 @@ const S = {
   },
   tagline: { fontSize: '11.5px', color: C.faint, letterSpacing: '0.01em' },
   topStats: { display: 'flex', gap: '8px', marginLeft: 'auto', alignItems: 'center' },
+  projectStrip: {
+    display: 'flex', alignItems: 'stretch', gap: '0px', marginLeft: 'auto',
+    border: `1px solid ${C.line}`, borderRadius: '9px', background: C.panel, overflow: 'hidden',
+  },
+  stripItem: {
+    display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 12px',
+    borderLeft: `1px solid ${C.lineSoft}`,
+  },
+  stripItemFirst: {
+    display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 12px',
+  },
+  stripKey: { fontSize: '9px', letterSpacing: '0.13em', color: C.faint, fontFamily: C.mono },
+  stripVal: { fontSize: '12.5px', fontFamily: C.mono, color: C.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
+  actions: { display: 'flex', alignItems: 'center', gap: '7px' },
+  seg: {
+    display: 'flex', padding: '2px', borderRadius: '8px', border: `1px solid ${C.line}`,
+    background: C.bg, gap: '2px',
+  },
+  segOn: {
+    padding: '4px 10px', borderRadius: '6px', border: 'none', background: C.raise,
+    color: C.text, fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: C.sans,
+  },
+  segOff: {
+    padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'transparent',
+    color: C.faint, fontSize: '11px', fontWeight: 500, cursor: 'pointer', fontFamily: C.sans,
+  },
+  dot: { width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', flex: '0 0 auto' },
   statChip: {
     display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 11px',
     border: `1px solid ${C.line}`, borderRadius: '8px', background: C.panel,
@@ -4970,8 +5044,7 @@ const S = {
 
   // ── body grid ───────────────────────────────────────────────────────────
   body: {
-    display: 'grid', gridTemplateColumns: '300px minmax(0,1fr) 400px',
-    gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
+    display: 'grid', gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
   },
   col: { background: C.bg, minHeight: 0, display: 'flex', flexDirection: 'column' },
   rail: { background: C.panel, minHeight: 0, overflowY: 'auto', padding: '16px' },
@@ -5920,39 +5993,63 @@ function Studio() {
             : tab === 'code' ? h(TabCode, { design })
               : h(TabSteps, { design, analysis })
 
-  return h('div', { style: S.root },
-    // ── top bar ────────────────────────────────────────────────────────────
+  const strip = (label, value, color, first) => h('div', { style: first ? S.stripItemFirst : S.stripItem },
+    h('span', { style: S.stripKey }, label),
+    h('span', { style: { ...S.stripVal, color: color || C.text } }, value))
+
+  return h('div', { style: S.root, 'data-rf': 'root' },
+    h('style', {}, GLOBAL_CSS),
+    // ── top bar: brand · one project strip · actions ────────────────────────
     h('div', { style: S.top },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
-        h('span', { style: S.tagline }, 'robots · printed machines · spec out')),
-      h('div', { style: S.topStats },
-        h(StatChip, { k: 'COST', v: money(analysis.cost), title: 'total parts cost at hobbyist prices' }),
-        h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g`, title: 'how much the finished machine weighs' }),
-        h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, title: 'the most current the motors can ever pull at once', color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
-        h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h`, title: 'estimated 3D-print time for the custom parts' }),
+        h('span', { style: S.tagline, 'data-rf': 'tagline' }, 'robots · printed machines · spec out')),
+
+      // the numbers belong to the build, so they read as one object, not six chips
+      h('div', { style: S.projectStrip, 'data-rf': 'strip' },
+        strip('COST', money(analysis.cost), C.text, true),
+        strip('MASS', `${Math.round(analysis.mass.totalG)}g`),
+        strip('PEAK', `${fmt(analysis.power.peak, 1)}A`, analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text),
+        strip('PRINT', `${fmt(analysis.print.hours, 0)}h`),
         h('button', {
-          style: { ...S.statChip, cursor: 'pointer', textAlign: 'left', borderColor: fails ? C.red : warns ? 'rgba(255,194,74,0.4)' : C.line },
+          style: {
+            ...S.stripItem, borderLeft: `1px solid ${C.lineSoft}`, background: 'transparent',
+            cursor: 'pointer', textAlign: 'left', border: 'none', borderLeftWidth: '1px',
+            borderLeftStyle: 'solid', borderLeftColor: C.lineSoft,
+          },
           title: 'jump to the engineering self-checks for this design',
           onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
         },
-          h('span', { style: S.statKey }, 'CHECKS'),
-          h('span', { style: { ...S.statVal, color: fails ? C.red : warns ? C.amber : C.green } }, fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS')),
-        h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', title: 'is the Hermes agent backend connected', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
-        h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
-        h('div', { style: { position: 'relative' } },
+          h('span', { style: S.stripKey }, 'CHECKS'),
+          h('span', { style: { ...S.stripVal, color: fails ? C.red : warns ? C.amber : C.green } },
+            fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS'))),
+
+      h('div', { style: S.actions },
+        h('div', { style: S.seg, role: 'group', 'aria-label': 'detail level' },
           h('button', {
-          style: simple ? { ...S.btn, borderColor: C.cyan, color: C.cyan } : S.btn,
-          title: simple ? 'show the engineering tabs' : 'hide the engineering, plain words only',
-          onClick: () => {
-            const next = !simple
-            setSimple(next)
-            if (CTX) CTX.storage.set('simple', next)
-            if (!next) setTab('spec')
-          },
-        }, simple ? 'SIMPLE' : 'ENGINEER'),
-        h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
+            style: simple ? S.segOn : S.segOff,
+            'aria-pressed': simple,
+            title: 'plain words: cost, print time, what to buy',
+            onClick: () => { setSimple(true); if (CTX) CTX.storage.set('simple', true) },
+          }, 'Simple'),
+          h('button', {
+            style: simple ? S.segOff : S.segOn,
+            'aria-pressed': !simple,
+            title: 'the engineering: BOM, pins, power, print sheet, firmware, build order',
+            onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+          }, 'Engineer')),
+
+        h('button', {
+          style: { ...S.btn, borderColor: 'rgba(255,106,26,0.5)', color: C.accent, gap: '7px' },
+          onClick: askHermes,
+          title: link === 'live' ? 'Hermes is connected — hand it this build' : 'hand this build to Hermes',
+        },
+          h('span', { style: { ...S.dot, background: link === 'live' ? C.green : link === 'offline' ? C.red : C.faint } }),
+          'Ask Hermes'),
+
+        h('div', { style: { position: 'relative' } },
+          h('button', { style: S.btn, onClick: () => setMenu((m) => !m), 'aria-expanded': !!menu }, 'Export ▾'),
           menu
             ? h('div', { style: S.menu },
               exports.map(([label, fn]) => h('div', {
@@ -5962,13 +6059,13 @@ function Studio() {
                 onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent' },
               }, h('span', {}, label))))
             : null),
-        h('button', { style: S.btn, onClick: saveToShelf }, 'SAVE')),
+        h('button', { style: S.btn, onClick: saveToShelf, title: 'keep this build on the shelf' }, 'Save')),
     ),
 
     // ── body ───────────────────────────────────────────────────────────────
-    h('div', { style: S.body },
+    h('div', { style: S.body, 'data-rf': 'body' },
       // left rail: the brief
-      h('div', { style: S.rail },
+      h('div', { style: S.rail, 'data-rf': 'rail' },
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
         (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRun },
           h('div', { style: S.firstRunStep },
@@ -6101,7 +6198,7 @@ function Studio() {
           'Deterministic engine: torque, current, mass and print time are computed, not narrated. The agent redesigns; the maths here is yours.')),
 
       // centre: viewport
-      h('div', { style: { ...S.col, minWidth: 0, position: 'relative' } },
+      h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
         h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
         h('div', { style: S.viewTools },
           ['ISO', 'FRONT', 'SIDE', 'TOP'].map((v, i) => {
@@ -6182,7 +6279,7 @@ function Studio() {
             }, 'POSE')))),
 
       // right rail: the spec
-      h('div', { style: S.col },
+      h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
           h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
           : h('div', { style: S.tabs },

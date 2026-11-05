@@ -416,39 +416,63 @@ function Studio() {
             : tab === 'code' ? h(TabCode, { design })
               : h(TabSteps, { design, analysis })
 
-  return h('div', { style: S.root },
-    // ── top bar ────────────────────────────────────────────────────────────
+  const strip = (label, value, color, first) => h('div', { style: first ? S.stripItemFirst : S.stripItem },
+    h('span', { style: S.stripKey }, label),
+    h('span', { style: { ...S.stripVal, color: color || C.text } }, value))
+
+  return h('div', { style: S.root, 'data-rf': 'root' },
+    h('style', {}, GLOBAL_CSS),
+    // ── top bar: brand · one project strip · actions ────────────────────────
     h('div', { style: S.top },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
-        h('span', { style: S.tagline }, 'robots · printed machines · spec out')),
-      h('div', { style: S.topStats },
-        h(StatChip, { k: 'COST', v: money(analysis.cost), title: 'total parts cost at hobbyist prices' }),
-        h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g`, title: 'how much the finished machine weighs' }),
-        h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, title: 'the most current the motors can ever pull at once', color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
-        h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h`, title: 'estimated 3D-print time for the custom parts' }),
+        h('span', { style: S.tagline, 'data-rf': 'tagline' }, 'robots · printed machines · spec out')),
+
+      // the numbers belong to the build, so they read as one object, not six chips
+      h('div', { style: S.projectStrip, 'data-rf': 'strip' },
+        strip('COST', money(analysis.cost), C.text, true),
+        strip('MASS', `${Math.round(analysis.mass.totalG)}g`),
+        strip('PEAK', `${fmt(analysis.power.peak, 1)}A`, analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text),
+        strip('PRINT', `${fmt(analysis.print.hours, 0)}h`),
         h('button', {
-          style: { ...S.statChip, cursor: 'pointer', textAlign: 'left', borderColor: fails ? C.red : warns ? 'rgba(255,194,74,0.4)' : C.line },
+          style: {
+            ...S.stripItem, borderLeft: `1px solid ${C.lineSoft}`, background: 'transparent',
+            cursor: 'pointer', textAlign: 'left', border: 'none', borderLeftWidth: '1px',
+            borderLeftStyle: 'solid', borderLeftColor: C.lineSoft,
+          },
           title: 'jump to the engineering self-checks for this design',
           onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
         },
-          h('span', { style: S.statKey }, 'CHECKS'),
-          h('span', { style: { ...S.statVal, color: fails ? C.red : warns ? C.amber : C.green } }, fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS')),
-        h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', title: 'is the Hermes agent backend connected', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
-        h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
-        h('div', { style: { position: 'relative' } },
+          h('span', { style: S.stripKey }, 'CHECKS'),
+          h('span', { style: { ...S.stripVal, color: fails ? C.red : warns ? C.amber : C.green } },
+            fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS'))),
+
+      h('div', { style: S.actions },
+        h('div', { style: S.seg, role: 'group', 'aria-label': 'detail level' },
           h('button', {
-          style: simple ? { ...S.btn, borderColor: C.cyan, color: C.cyan } : S.btn,
-          title: simple ? 'show the engineering tabs' : 'hide the engineering, plain words only',
-          onClick: () => {
-            const next = !simple
-            setSimple(next)
-            if (CTX) CTX.storage.set('simple', next)
-            if (!next) setTab('spec')
-          },
-        }, simple ? 'SIMPLE' : 'ENGINEER'),
-        h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
+            style: simple ? S.segOn : S.segOff,
+            'aria-pressed': simple,
+            title: 'plain words: cost, print time, what to buy',
+            onClick: () => { setSimple(true); if (CTX) CTX.storage.set('simple', true) },
+          }, 'Simple'),
+          h('button', {
+            style: simple ? S.segOff : S.segOn,
+            'aria-pressed': !simple,
+            title: 'the engineering: BOM, pins, power, print sheet, firmware, build order',
+            onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+          }, 'Engineer')),
+
+        h('button', {
+          style: { ...S.btn, borderColor: 'rgba(255,106,26,0.5)', color: C.accent, gap: '7px' },
+          onClick: askHermes,
+          title: link === 'live' ? 'Hermes is connected — hand it this build' : 'hand this build to Hermes',
+        },
+          h('span', { style: { ...S.dot, background: link === 'live' ? C.green : link === 'offline' ? C.red : C.faint } }),
+          'Ask Hermes'),
+
+        h('div', { style: { position: 'relative' } },
+          h('button', { style: S.btn, onClick: () => setMenu((m) => !m), 'aria-expanded': !!menu }, 'Export ▾'),
           menu
             ? h('div', { style: S.menu },
               exports.map(([label, fn]) => h('div', {
@@ -458,13 +482,13 @@ function Studio() {
                 onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent' },
               }, h('span', {}, label))))
             : null),
-        h('button', { style: S.btn, onClick: saveToShelf }, 'SAVE')),
+        h('button', { style: S.btn, onClick: saveToShelf, title: 'keep this build on the shelf' }, 'Save')),
     ),
 
     // ── body ───────────────────────────────────────────────────────────────
-    h('div', { style: S.body },
+    h('div', { style: S.body, 'data-rf': 'body' },
       // left rail: the brief
-      h('div', { style: S.rail },
+      h('div', { style: S.rail, 'data-rf': 'rail' },
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
         (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRun },
           h('div', { style: S.firstRunStep },
@@ -597,7 +621,7 @@ function Studio() {
           'Deterministic engine: torque, current, mass and print time are computed, not narrated. The agent redesigns; the maths here is yours.')),
 
       // centre: viewport
-      h('div', { style: { ...S.col, minWidth: 0, position: 'relative' } },
+      h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
         h(Viewport, { mesh, cam, setCam, opts, design, analysis }),
         h('div', { style: S.viewTools },
           ['ISO', 'FRONT', 'SIDE', 'TOP'].map((v, i) => {
@@ -678,7 +702,7 @@ function Studio() {
             }, 'POSE')))),
 
       // right rail: the spec
-      h('div', { style: S.col },
+      h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
           h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
           : h('div', { style: S.tabs },
