@@ -725,13 +725,21 @@ function Studio() {
           const gy2 = dz(gp.axes[1] || 0)
           if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
+        let gaitEnv = benchEnv
         if (at && at.running) {
           const c = at.tick(dt)
-          if (c) { gx = c.x || 0; gy = c.y || 0 }
+          if (c) {
+            gx = c.x || 0; gy = c.y || 0
+            // LOAD certification phase carries a virtual payload — merge it
+            // into the env for this frame only
+            if (c.payloadKg != null && c.payloadKg !== benchEnv.payloadKg) {
+              gaitEnv = { ...benchEnv, payloadKg: c.payloadKg }
+            }
+          }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         if (gait.locomote) {
-          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, gaitEnv)
           if (r && r.pose) setPose(r.pose)
           if (r && r.chassis) setChassis({ ...r.chassis })
         } else {

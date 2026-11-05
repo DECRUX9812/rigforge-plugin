@@ -270,6 +270,7 @@ const GAIT_LOCO_PHASES = [
   { id: 'sprint',   label: 'SPRINT',   dur: 3, x: 1 },
   { id: 'climb',    label: 'CLIMB',    dur: 4, x: 1 },
   { id: 'obstacle', label: 'OBSTACLE', dur: 4, x: 1 },
+  { id: 'load',     label: 'LOAD',     dur: 4, x: 1, payloadFrac: 0.3 },
   { id: 'stand',    label: 'STAND',    dur: 2, x: 0 },
 ]
 
@@ -326,6 +327,12 @@ function locoGaitAutotest(gait) {
         }
         return { pass: dist >= 0.6, detail: `covered ${dist.toFixed(2)} m` }
       }
+      case 'load': {
+        // 30% of body mass on the back — a real carry, not a token weight
+        const payKg = (gait.bodyKg || 6) * (p.payloadFrac || 0.3)
+        return { pass: dist >= 0.4 && stallFrac < 0.5,
+          detail: `carried ${payKg.toFixed(1)}kg (${((payKg / (gait.bodyKg || 6)) * 100).toFixed(0)}% body) — covered ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+      }
       case 'stand': {
         const stopped = gait.state.speed < 0.03 && Math.abs(s.v || 0) < 0.03
         return { pass: stopped, detail: `settled at ${gait.state.speed.toFixed(2)} gait, ${Math.abs(s.v || 0).toFixed(2)} m/s` }
@@ -344,26 +351,27 @@ function locoGaitAutotest(gait) {
     },
     stop() { st.running = false; st.phase = null },
     tick(dt) {
-      if (!st.running) return { x: 0 }
+      if (!st.running) return { x: 0, payloadKg: 0 }
       t += dt
       const p = GAIT_LOCO_PHASES[idx]
       const s = loco()
       mark.maxV = Math.max(mark.maxV, Math.abs(s.v || 0))
       if ((s.gradeDeg || 0) > 4) mark.gradeT += dt
       if (s.stall) { mark.stallT += dt; mark.stallSeen = true; st.stallEver = true }
+      const payKg = p.payloadFrac ? (gait.bodyKg || 6) * p.payloadFrac : 0
       if (t >= p.dur) {
         const r = scorePhase(p, mark)
         pushResult(st, p.id, p.label, r.pass, r.detail)
         idx += 1
         if (idx >= GAIT_LOCO_PHASES.length) {
           st.running = false; st.done = true; st.phase = null
-          return { x: 0 }
+          return { x: 0, payloadKg: 0 }
         }
         beginPhase(idx)
-        return { x: GAIT_LOCO_PHASES[idx].x }
+        return { x: GAIT_LOCO_PHASES[idx].x, payloadKg: 0 }
       }
       st.phase.t = t
-      return { x: p.x }
+      return { x: p.x, payloadKg: payKg }
     },
   })
 }

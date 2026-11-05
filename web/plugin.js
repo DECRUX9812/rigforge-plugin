@@ -5852,6 +5852,7 @@ function createGaitTeleop(design) {
     kind: 'gait',
     state,
     maxStepM, // tallest riser the legs can mount — the autotest predicts with it
+    bodyKg: (design.metrics && design.metrics.massKg) || 6, // carried-load tests scale off this
     /** cmd: {x: -1..1 walk speed}; actualAngles current pose. */
     step(cmd, dt, actualAngles) {
       const want = Math.max(-1, Math.min(1, cmd.x || 0))
@@ -5897,14 +5898,23 @@ function createGaitTeleop(design) {
       state.strides += spd * GAIT.freq * dt
       state.phase += Math.sign(state.speed) * GAIT.freq * spd * dt * Math.PI * 2
 
-      // commanded speed: kinematic walk speed × grade/mu derating along heading
+      // carried load: mass on the back costs leg torque — speed derates
+      // with the load ratio, exposed so the HUD and autotest can see it
+      const bodyKg = (design.metrics && design.metrics.massKg) || 6
+      const payKg = Math.max(0, e.payloadKg || 0)
+      const loadR = payKg / Math.max(bodyKg, 0.5)
+      const payF = payKg > 0 ? clamp(1 / (1 + loadR * 1.8), 0.3, 1) : 1
+      loco.payloadKg = payKg
+      loco.loadR = loadR
+
+      // commanded speed: kinematic walk speed × grade/mu/load derating
       const dir = Math.sign(state.speed) || 1
       let vT = state.speed * WALK_V
       const gradeEff = grade * Math.cos(loco.yaw) * dir // slope along travel dir
       const gDeg = Math.abs(gradeEff) * 180 / Math.PI
       const gf = clamp(1 - Math.max(0, gDeg - 4) / 20, 0.15, 1)
       const slipF = mu < 0.35 ? clamp(mu / 0.35, 0.3, 1) : 1
-      vT *= gf * slipF
+      vT *= gf * slipF * payF
       // legs accelerate ~2.5 m/s² and brake harder — no ice-skating starts
       loco.v += clamp(vT - loco.v, -4 * dt, 2.5 * dt)
       loco.slip = mu < 0.35 && Math.abs(loco.v) > 0.05
@@ -6781,6 +6791,7 @@ const GAIT_LOCO_PHASES = [
   { id: 'sprint',   label: 'SPRINT',   dur: 3, x: 1 },
   { id: 'climb',    label: 'CLIMB',    dur: 4, x: 1 },
   { id: 'obstacle', label: 'OBSTACLE', dur: 4, x: 1 },
+  { id: 'load',     label: 'LOAD',     dur: 4, x: 1, payloadFrac: 0.3 },
   { id: 'stand',    label: 'STAND',    dur: 2, x: 0 },
 ]
 
@@ -6837,6 +6848,12 @@ function locoGaitAutotest(gait) {
         }
         return { pass: dist >= 0.6, detail: `covered ${dist.toFixed(2)} m` }
       }
+      case 'load': {
+        // 30% of body mass on the back — a real carry, not a token weight
+        const payKg = (gait.bodyKg || 6) * (p.payloadFrac || 0.3)
+        return { pass: dist >= 0.4 && stallFrac < 0.5,
+          detail: `carried ${payKg.toFixed(1)}kg (${((payKg / (gait.bodyKg || 6)) * 100).toFixed(0)}% body) — covered ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+      }
       case 'stand': {
         const stopped = gait.state.speed < 0.03 && Math.abs(s.v || 0) < 0.03
         return { pass: stopped, detail: `settled at ${gait.state.speed.toFixed(2)} gait, ${Math.abs(s.v || 0).toFixed(2)} m/s` }
@@ -6855,26 +6872,27 @@ function locoGaitAutotest(gait) {
     },
     stop() { st.running = false; st.phase = null },
     tick(dt) {
-      if (!st.running) return { x: 0 }
+      if (!st.running) return { x: 0, payloadKg: 0 }
       t += dt
       const p = GAIT_LOCO_PHASES[idx]
       const s = loco()
       mark.maxV = Math.max(mark.maxV, Math.abs(s.v || 0))
       if ((s.gradeDeg || 0) > 4) mark.gradeT += dt
       if (s.stall) { mark.stallT += dt; mark.stallSeen = true; st.stallEver = true }
+      const payKg = p.payloadFrac ? (gait.bodyKg || 6) * p.payloadFrac : 0
       if (t >= p.dur) {
         const r = scorePhase(p, mark)
         pushResult(st, p.id, p.label, r.pass, r.detail)
         idx += 1
         if (idx >= GAIT_LOCO_PHASES.length) {
           st.running = false; st.done = true; st.phase = null
-          return { x: 0 }
+          return { x: 0, payloadKg: 0 }
         }
         beginPhase(idx)
-        return { x: GAIT_LOCO_PHASES[idx].x }
+        return { x: GAIT_LOCO_PHASES[idx].x, payloadKg: 0 }
       }
       st.phase.t = t
-      return { x: p.x }
+      return { x: p.x, payloadKg: payKg }
     },
   })
 }
@@ -10762,13 +10780,21 @@ function Studio() {
           const gy2 = dz(gp.axes[1] || 0)
           if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
+        let gaitEnv = benchEnv
         if (at && at.running) {
           const c = at.tick(dt)
-          if (c) { gx = c.x || 0; gy = c.y || 0 }
+          if (c) {
+            gx = c.x || 0; gy = c.y || 0
+            // LOAD certification phase carries a virtual payload — merge it
+            // into the env for this frame only
+            if (c.payloadKg != null && c.payloadKg !== benchEnv.payloadKg) {
+              gaitEnv = { ...benchEnv, payloadKg: c.payloadKg }
+            }
+          }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         if (gait.locomote) {
-          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, gaitEnv)
           if (r && r.pose) setPose(r.pose)
           if (r && r.chassis) setChassis({ ...r.chassis })
         } else {
