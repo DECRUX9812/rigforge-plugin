@@ -144,7 +144,7 @@ function TabSpec({ design, analysis }) {
 }
 
 /** TEST: the pre-print bench. Would this machine stand, climb and hold? */
-function TabTest({ design, analysis }) {
+function TabTest({ design, analysis, certHistory }) {
   const [slope, setSlope] = useState(15)
   const r = useMemo(() => benchReport(design, analysis, { mat: analysis.print.material, slopeDeg: slope }), [design, analysis, slope])
   const worst = r.verdicts.some((v) => v.status === 'fail') ? 'fail' : r.verdicts.some((v) => v.status === 'warn') ? 'warn' : 'ok'
@@ -210,6 +210,22 @@ function TabTest({ design, analysis }) {
     h(KV, { k: 'flat margin', v: `${Math.round(r.flatMm)} mm`, accent: r.flatMm > 15 ? C.green : r.flatMm > 0 ? C.amber : C.red })))
   blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, marginTop: '10px' } },
     'Rigid-body statics at the current pose — CoM is mass-weighted over every node, the support polygon is the convex hull of ground contacts, and torque is exact r×F about each joint axis. It answers "will it stand, climb and hold?" before you spend filament.'))
+
+  const arch = design.archetype || (design.brief && design.brief.archetype)
+  const hist = (certHistory || []).filter((x) => x.arch === arch).slice(-8).reverse()
+  if (hist.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '16px' } }, 'autopilot certification history'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'RUN'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'SCORE'),
+        h('th', { style: S.th }, 'PHASES'))),
+      h('tbody', {}, hist.map((x, i) => h('tr', { key: i },
+        h('td', { style: { ...S.td, color: C.faint } }, `${x.mode} · ${new Date(x.ts).toLocaleDateString()}`),
+        h('td', { style: { ...S.tdNum, color: x.passes === x.total ? C.green : x.passes > x.total / 2 ? C.amber : C.red, fontWeight: 700 } }, `${x.passes}/${x.total}`),
+        h('td', { style: { ...S.td, color: C.faint, fontSize: '10px' } }, x.phases))))))
+    blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px' } },
+      'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped.'))
+  }
   return blocks
 }
 
@@ -323,6 +339,8 @@ function TabPrint({ design, analysis }) {
     .map((n) => ({ id: n.id, name: prettyPart(n.id), kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
+  const overhang = new Map((analysis.print.overhang ? analysis.print.overhang.parts : []).map((p) => [p.id, p]))
+  const supportG = overhang.size ? [...overhang.values()].reduce((s, p) => s + p.unsupported, 0) : 0
   return [
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
@@ -330,16 +348,30 @@ function TabPrint({ design, analysis }) {
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
-        h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'))),
-      h('tbody', {}, rows.map((r) => h('tr', { key: r.id },
-        h('td', { style: { ...S.td, color: C.text } }, r.name),
-        h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
-        h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)))))),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'TIME'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'SUPPORT'))),
+      h('tbody', {}, rows.map((r) => {
+        const oh = overhang.get(r.id)
+        const sup = oh && oh.unsupported > 0 ? oh.unsupported : 0
+        return h('tr', { key: r.id },
+          h('td', { style: { ...S.td, color: C.text } }, r.name),
+          h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
+          h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)),
+          h('td', { style: { ...S.tdNum, color: C.faint } }, (() => {
+            const mins = (r.mm3 / 18000) * 60
+            return mins >= 60 ? `${(mins / 60).toFixed(1)}h` : `${Math.max(1, Math.round(mins))}m`
+          })()),
+          h('td', { style: { ...S.tdNum, color: sup > 50 ? C.amber : C.faint } }, sup > 0 ? `${Math.round(sup)}` : '—'))
+      }))),
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'print advice'),
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
-      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
+      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. TIME is extrusion only — add ~15–20 min heat-up per part on top. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
-      `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.`),
+      `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat by measured bed contact, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.` +
+      (supportG > 0
+        ? ` SUPPORT column is mm² of surface hanging in mid-air — budget roughly 2× that in support filament and expect scars on those faces.`
+        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.')),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },

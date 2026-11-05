@@ -1258,7 +1258,7 @@ function MAT_PART(material) {
 function buildRover(brief) {
   const d = newDesign('rover', brief)
   const payload = clampPayload(d, brief.payloadKg || 2, 0.2, 15)
-  const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 130) // wheel Ø, mm
+  const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 220) // wheel Ø, mm
   const track = clamp(Math.round(wheelD * 3.2), 150, 420)
   const wheelbase = clamp(Math.round(track * 1.25), 180, 520)
   const r = wheelD / 2 / 1000 // m
@@ -2968,6 +2968,14 @@ function analyze(design) {
   const dims = [bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]]
 
   const checks = [...(design.checks || [])]
+  // A brief that named no machine gets a plain sentence, not a silent build.
+  if (design.brief && design.brief.archetypeMatched === false) {
+    const said = String(design.brief.mission || '').trim()
+    checks.push({
+      level: 'warn',
+      msg: `Your words did not name a machine I build${said ? ` ("${said.slice(0, 40)}")` : ''} — so this is a small enclosure, the simplest thing that fits. Name the kind: rover, arm, quadruped, humanoid, gripper, board, gantry.`,
+    })
+  }
   // Anything the agent layer had to change on the way in is visible here, not
   // buried in its logs: the studio judges the design it was actually given.
   const adjusted = design.brief && Array.isArray(design.brief._adjusted) ? design.brief._adjusted : []
@@ -4127,6 +4135,73 @@ function printReadyTris(tris) {
   return bedFrameTris(tris)
 }
 
+const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/**
+ * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
+ * want: one file, named bodies, real units, laid out on a virtual bed.
+ * Every printed node becomes an object with its bed-oriented triangles
+ * inline; items are shelf-packed so parts don't overlap at origin.
+ */
+function to3MF(design, material) {
+  const matName = typeof material === 'string' ? material : material && material.name
+  const objects = []
+  const items = []
+  const BED_W = 300, GAP = 8
+  let cx = 10, cy = 10, rowH = 0, oid = 1
+  for (const node of design.nodes) {
+    if (!node.print) continue
+    let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    if (CONVEX_KINDS.has(node.kind)) raw = orientConvex(raw)
+    const tris = printReadyTris(raw)
+    if (!tris.length) continue
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+    for (const t of tris) for (const p of t.pts) {
+      if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0]
+      if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
+    }
+    const w = maxx - minx, d = maxy - miny
+    if (cx + w > BED_W && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${(cx - minx).toFixed(3)} ${(cy - miny).toFixed(3)} 0"/>`)
+    const vmap = new Map()
+    const verts = []
+    const faces = []
+    for (const t of tris) {
+      const idx = []
+      for (const p of t.pts) {
+        const k = `${p[0].toFixed(4)},${p[1].toFixed(4)},${p[2].toFixed(4)}`
+        let vi = vmap.get(k)
+        if (vi == null) { vi = verts.length / 3; vmap.set(k, vi); verts.push(p[0], p[1], p[2]) }
+        idx.push(vi)
+      }
+      faces.push(`<triangle v1="${idx[0]}" v2="${idx[1]}" v3="${idx[2]}"${matName ? ' pid="1"' : ''}/>`)
+    }
+    const vxml = []
+    for (let i = 0; i < verts.length; i += 3) {
+      vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
+    }
+    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(node.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
+    cx += w + GAP
+    rowH = Math.max(rowH, d)
+    oid += 1
+  }
+  if (!objects.length) return null
+  const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<resources>${matName ? `<basematerials id="1"><base name="${xmlEsc(matName)}" displaycolor="#B8B8B8"/></basematerials>` : ''}${objects.join('')}</resources>
+<build>${items.join('')}</build>
+</model>`
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`
+  const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`
+  return zipStore([
+    { name: '[Content_Types].xml', buf: contentTypes },
+    { name: '_rels/.rels', buf: rels },
+    { name: '3D/3dmodel.model', buf: model },
+  ])
+}
+
 // Convex primitives: every face's normal must point away from the part's own
 // centre. Rings, gears and tubes are not convex (their inner wall faces inward
 // on purpose), so they are left exactly as generated.
@@ -4541,11 +4616,20 @@ function boundsOf(nodes) {
 const BENCH_G = 9810 // mm/s²  (g in mm units — keeps torque in N·mm→N·m clean)
 
 /** Mass of one node in grams: bought part → catalog mass; printed → volume×density. */
+// Metals are modelled by volume like everything else, but at their own density:
+// treating a steel bearing race as PLA made every fastener a sixth of its weight.
+const NODE_MAT_DENSITY = { steel: 7.85, metal: 2.70, alu: 2.70 }
+
 function benchNodeMassG(design, node, mat) {
   const p = node.part ? PARTS[node.part] : null
   if (p) return (p.mass || 0) * (node.qty || 1)
-  const density = (mat && mat.density) || 1.24 // g/cm³
-  return (nodeVolume(node) / 1000) * density
+  const density = NODE_MAT_DENSITY[node.mat] || (mat && mat.density) || 1.24 // g/cm³
+  // A printed node is a shell, not a solid billet: use the same ~34%-solid
+  // volume the print estimate and the STL use. With the solid volume the bench
+  // CoM came out 1.6x heavier than the mass printed in the header of the very
+  // same screen — two masses for one machine is worse than either being wrong.
+  const v = node.print ? shellVolume(node) : nodeVolume(node)
+  return (v / 1000) * density
 }
 
 /** World position of a node centre under the current joint pose (mm). */
@@ -4669,11 +4753,14 @@ function benchSlopeMargin(design, mat, slopeDeg) {
  * actuator was actually picked for. τ = Σ m·g·lever about each joint axis —
  * exact rigid-body statics; yaw axes read ~0 because gravity can't load them.
  */
-function benchTorqueMargins(design, mat) {
+function benchTorqueMargins(design, mat, extra) {
   const chains = chainsFor(design)
   const acts = design.actuators || []
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const out = []
+  // `extra`: virtual payload masses hung on a joint — {joint, pos:[x,y,z] mm
+  // world, massG}. Used by the lift test: the arm holds a real prop and we ask
+  // whether the servos have torque left, not whether the geometry reaches.
   // descendant joints of j (inclusive) via parent chain
   const subtree = (jid) => {
     const ids = new Set([jid])
@@ -4705,6 +4792,14 @@ function benchTorqueMargins(design, mat) {
       const leverNmm = Math.abs(tx * ax[0] + ty * ax[1] + tz * ax[2]) // N·mm
       tauNm += leverNmm / 1000 // N·mm → N·m
     }
+    for (const pay of extra || []) {
+      if (!ids.has(pay.joint)) continue
+      const r = [pay.pos[0] - j.pivot[0], pay.pos[1] - j.pivot[1], pay.pos[2] - j.pivot[2]]
+      const mg = pay.massG * 9.81e-3 // N
+      const tx = -r[1] * mg, ty = r[0] * mg
+      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+      tauNm += Math.abs(tx * ax[0] + ty * ax[1]) / 1000
+    }
     const need = tauNm // N·m
     const stall = act.effective || 0
     out.push({ joint: j.id, label: j.label, needNm: need, stallNm: stall, margin: stall > 0 ? stall / Math.max(need, 1e-6) : 0 })
@@ -4719,7 +4814,14 @@ function benchTorqueMargins(design, mat) {
 function benchReport(design, analysis, opts = {}) {
   const mat = opts.mat || (analysis && analysis.material) || PARTS.pla && null
   const slopeDeg = opts.slopeDeg != null ? opts.slopeDeg : 15
-  const { com, massG } = benchCoM(design, mat)
+  const bench = benchCoM(design, mat)
+  const com = bench.com
+  // Two masses on one screen is an honesty bug: the header prints the BOM mass
+  // and this panel printed a geometry mass, so a 1.2kg arm read 1.9kg right
+  // under a card saying 1.2kg. The distribution still comes from geometry (a
+  // uniform scale moves no centre of mass), the total comes from the BOM.
+  const bomG = analysis && analysis.mass && analysis.mass.totalG
+  const massG = bomG > 0 ? bomG : bench.massG
   const contacts = benchContacts2D(design)
   const hull = hull2D(contacts)
   const flatMm = benchHullMargin([com[0], com[1]], hull)
@@ -5406,6 +5508,7 @@ function createDrive(design, analysis) {
     kind: 'drive',
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
+    bodyKg: m.massKg, // carried-load tests scale off this
     vmax,
     fMotor,
     env,
@@ -5681,6 +5784,8 @@ function createArmTeleop(design) {
   return {
     kind: 'ik',
     state,
+    design,          // read-only: autotest poses a clone for torque checks
+    distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
      * Returns desired joint angles (deg, design.joints order) or null.
@@ -5909,6 +6014,7 @@ function createGaitTeleop(design) {
     kind: 'gait',
     state,
     maxStepM, // tallest riser the legs can mount — the autotest predicts with it
+    bodyKg: (design.metrics && design.metrics.massKg) || 6, // carried-load tests scale off this
     /** cmd: {x: -1..1 walk speed}; actualAngles current pose. */
     step(cmd, dt, actualAngles) {
       const want = Math.max(-1, Math.min(1, cmd.x || 0))
@@ -5954,14 +6060,23 @@ function createGaitTeleop(design) {
       state.strides += spd * GAIT.freq * dt
       state.phase += Math.sign(state.speed) * GAIT.freq * spd * dt * Math.PI * 2
 
-      // commanded speed: kinematic walk speed × grade/mu derating along heading
+      // carried load: mass on the back costs leg torque — speed derates
+      // with the load ratio, exposed so the HUD and autotest can see it
+      const bodyKg = (design.metrics && design.metrics.massKg) || 6
+      const payKg = Math.max(0, e.payloadKg || 0)
+      const loadR = payKg / Math.max(bodyKg, 0.5)
+      const payF = payKg > 0 ? clamp(1 / (1 + loadR * 1.8), 0.3, 1) : 1
+      loco.payloadKg = payKg
+      loco.loadR = loadR
+
+      // commanded speed: kinematic walk speed × grade/mu/load derating
       const dir = Math.sign(state.speed) || 1
       let vT = state.speed * WALK_V
       const gradeEff = grade * Math.cos(loco.yaw) * dir // slope along travel dir
       const gDeg = Math.abs(gradeEff) * 180 / Math.PI
       const gf = clamp(1 - Math.max(0, gDeg - 4) / 20, 0.15, 1)
       const slipF = mu < 0.35 ? clamp(mu / 0.35, 0.3, 1) : 1
-      vT *= gf * slipF
+      vT *= gf * slipF * payF
       // legs accelerate ~2.5 m/s² and brake harder — no ice-skating starts
       loco.v += clamp(vT - loco.v, -4 * dt, 2.5 * dt)
       loco.slip = mu < 0.35 && Math.abs(loco.v) > 0.05
@@ -6155,7 +6270,11 @@ function fixSuggestions(s) {
   const drv = s.drive ? (s.drive.loco || s.drive) : null
   if (drv) {
     if (drv.stall || (drv.slide && drv.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+      // gradeDeg/surface are absent on a flat push in the stairs course, and
+      // 'undefined° undefined' is what that printed
+      const grade = Number.isFinite(drv.gradeDeg) ? `${drv.gradeDeg}° ` : ''
+      const surf = drv.surface || 'the ground'
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${grade}${surf} — more torque, lower grade, or shed payload`)
     } else if (drv.slip) {
       push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }
@@ -6452,27 +6571,29 @@ function matchArchetype(text) {
     ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
     ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
   ]
-  for (const [id, re] of rules) if (re.test(t)) return { id, confident: true }
-  return { id: 'gadget', confident: false }
+  for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
+  // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
+  // load carrier: catching it here beats building an enclosure and calling it a
+  // misunderstanding
+  if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
+    return { id: 'rover', archetype: 'rover', confident: true, matched: true }
+  }
+  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false }
 }
 
 function detectArchetype(text) {
-  const t = String(text || '').toLowerCase()
-  if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
-  if (/\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/.test(t)) return 'pcb'
-  if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
-  if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
-  if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
-  if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
-  if (/gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/.test(t)) return 'gripper'
-  if (/\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/.test(t)) return 'arm'
-  if (/rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/.test(t)) return 'rover'
-  return 'gadget'
+  return matchArchetype(text).archetype
 }
 
 /** Pull numbers out of prose. "a 1.2kg payload with 500mm reach, 6 dof". */
 function parseBrief(text) {
-  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: detectArchetype(text) }
+  const verdict = matchArchetype(text)
+  const out = { ...DEFAULT_BRIEF, mission: text.trim(), archetype: verdict.archetype }
+  // Whether the words actually named a machine. Nonsense used to fall through to
+  // the smallest enclosure and build it without a word, which reads as "it
+  // understood me" when it did not.
+  out.archetypeMatched = verdict.matched
+  if (!verdict.matched && out.mission.length < 4) out.archetypeMatched = true
   const kg = text.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|kilo)/i)
   if (kg) out.payloadKg = parseFloat(kg[1].replace(',', '.'))
   const g = text.match(/(\d{2,4})\s*g(?:ram)?\b/i)
@@ -6606,6 +6727,7 @@ const DRIVE_PHASES = [
   { id: 'sprint', label: 'SPRINT', dur: 2.5, throttle: 1, steer: 0 },
   { id: 'turn',   label: 'TURN',   dur: 1.6, throttle: 0.4, steer: -1 },
   { id: 'climb',  label: 'CLIMB',  dur: 4.0, throttle: 1, steer: 0 },
+  { id: 'load',   label: 'LOAD',   dur: 4.0, throttle: 1, steer: 0, payloadFrac: 0.3 },
   { id: 'shove',  label: 'SHOVE',  dur: 1.8, throttle: 1.0, steer: 0, shoveAt: 0.4, shoveN: 15 },
   { id: 'return', label: 'RETURN', dur: 2.2, throttle: 0.6, steer: 1 },
 ]
@@ -6617,6 +6739,10 @@ function driveAutotest(drive) {
   function beginPhase(i) {
     const p = DRIVE_PHASES[i]
     const s = drive.state
+    // carried load rides on env.payloadKg — set it for the phase, clear after
+    if (typeof drive.setEnv === 'function') {
+      drive.setEnv({ payloadKg: p.payloadFrac ? (drive.bodyKg || 5) * p.payloadFrac : 0 })
+    }
     mark = {
       x0: s.x, y0: s.y, yaw0: s.yaw, z0: s.z, bumps0: s.bumps || 0,
       maxV: 0, stallT: 0, slipT: 0, gradeT: 0, vPreShove: null, shoved: false,
@@ -6648,6 +6774,18 @@ function driveAutotest(drive) {
         const dz = s.z - m.z0
         const ok = dz >= 0.1 && stallFrac < 0.4
         return { pass: ok, detail: `+${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%${s.grade > 0.05 ? ` @ ${(s.grade * 180 / Math.PI).toFixed(0)}°` : ''}` }
+      }
+      case 'load': {
+        // 30% of body mass in the bay — payload physics already live in
+        // createDrive (mass() feeds traction cap, grade force and shove)
+        const payKg = (drive.bodyKg || 5) * (p.payloadFrac || 0.3)
+        if (m.gradeT / p.dur < 0.3) {
+          const ok = dist >= 0.7 && stallFrac < 0.5
+          return { pass: ok, detail: `carried ${payKg.toFixed(1)}kg — ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+        }
+        const dz = s.z - m.z0
+        const ok = dz >= 0.08 && stallFrac < 0.5
+        return { pass: ok, detail: `carried ${payKg.toFixed(1)}kg — +${dz.toFixed(2)} m climb, stall ${(stallFrac * 100).toFixed(0)}%` }
       }
       case 'shove': {
         const recovered = s.v > 0.15 || dist > 0.3
@@ -6729,15 +6867,57 @@ function reachAutotest(ik) {
     legs.push({ kind: 'prop', prop: p, wp: [p.pos[0], p.pos[1], top + 8], pose: null, t: 0, err: null })
   }
   legs.push({ kind: 'home', wp: null, pose: null, t: 0, err: null })
+  // LIFT legs: reach a carry point over each prop, heaviest first, then ask
+  // the torque model whether the servos can actually hold that mass at that
+  // pose — reaching is not lifting.
+  for (const p of [...DESK_PROPS].sort((a, b) => b.massG - a.massG)) {
+    const top = p.pos[2] + p.size[2] / 2
+    legs.push({ kind: 'lift', prop: p, wp: [p.pos[0] - 40, p.pos[1], top + 90], pose: null, t: 0, err: null })
+  }
   let li = 0
 
-  const legLabel = (l) => (l.kind === 'home' ? 'HOME' : `REACH ${l.prop.name}`)
+  const legLabel = (l) => (l.kind === 'home' ? 'HOME' : l.kind === 'lift' ? `LIFT ${l.prop.name}` : `REACH ${l.prop.name}`)
+
+  function liftVerdict(leg) {
+    const d = ik.design
+    if (!d || !leg.pose || !ik.distalJoint) return { pass: false, detail: 'no design or pose to test' }
+    const mat = MATERIALS[d.brief && d.brief.material] || null
+    // payload hangs ~35mm below the tip — where a gripper would actually hold it
+    const evalPose = (pose) => {
+      const posed = { ...d, joints: d.joints.map((j, i) => ({ ...j, angle: pose[i] != null ? pose[i] : j.angle })) }
+      const tip = typeof ik.tipPos === 'function' ? ik.tipPos(pose) : null
+      const payPos = tip ? [tip[0], tip[1], tip[2] - 35] : [leg.prop.pos[0], leg.prop.pos[1], leg.prop.pos[2]]
+      const tor = benchTorqueMargins(posed, mat, [{ joint: ik.distalJoint, pos: payPos, massG: leg.prop.massG }])
+      return tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity, label: '?' })
+    }
+    // certification asks "can it lift this at all" — so give the arm its best
+    // honest shot: probe tucked carry poses and keep the most headroom found.
+    // If even the probes can't get there, the honest answer is "unreachable".
+    let reached = leg.err != null && leg.err <= 45
+    let best = reached ? evalPose(leg.pose) : null
+    for (const tuck of [20, 40, 60, 80, 100, 120]) {
+      for (const dz of [50, 80]) {
+        const wp = [leg.prop.pos[0] - tuck, leg.prop.pos[1], leg.prop.pos[2] + leg.prop.size[2] / 2 + dz]
+        const pose = ik.seek(wp[0], wp[1], wp[2], (st.seedAngles || leg.pose || []).slice(), 30)
+        if (ik.state.err > 45) continue
+        reached = true
+        const w = evalPose(pose)
+        if (!best || w.margin > best.margin) best = w
+      }
+    }
+    if (!reached) return { pass: false, detail: `no carry pose inside reach — closest err ${(leg.err == null ? 999 : leg.err).toFixed(0)}mm` }
+    const pass = best.margin >= 1.0
+    return { pass, detail: `best carry ${best.label} at ${best.margin === Infinity ? '∞' : best.margin.toFixed(2)}× stall holding ${leg.prop.massG}g` }
+  }
 
   function scoreLeg() {
     const leg = legs[li]
     const err = leg.err == null ? 999 : leg.err
     if (leg.kind === 'home') pushResult(st, 'home', 'HOME', err <= 45, `returned, err ${err.toFixed(0)}mm`)
-    else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm`)
+    else if (leg.kind === 'lift') {
+      const v = liftVerdict(leg)
+      pushResult(st, `lift-${leg.prop.id}`, `LIFT ${leg.prop.name.toUpperCase()}`, v.pass, v.detail)
+    } else pushResult(st, `reach-${leg.prop.id}`, leg.prop.name.toUpperCase(), err <= 30, `err ${err.toFixed(0)}mm`)
   }
   function advance() {
     li++
@@ -6796,6 +6976,7 @@ const GAIT_LOCO_PHASES = [
   { id: 'sprint',   label: 'SPRINT',   dur: 3, x: 1 },
   { id: 'climb',    label: 'CLIMB',    dur: 4, x: 1 },
   { id: 'obstacle', label: 'OBSTACLE', dur: 4, x: 1 },
+  { id: 'load',     label: 'LOAD',     dur: 4, x: 1, payloadFrac: 0.3 },
   { id: 'stand',    label: 'STAND',    dur: 2, x: 0 },
 ]
 
@@ -6852,6 +7033,12 @@ function locoGaitAutotest(gait) {
         }
         return { pass: dist >= 0.6, detail: `covered ${dist.toFixed(2)} m` }
       }
+      case 'load': {
+        // 30% of body mass on the back — a real carry, not a token weight
+        const payKg = (gait.bodyKg || 6) * (p.payloadFrac || 0.3)
+        return { pass: dist >= 0.4 && stallFrac < 0.5,
+          detail: `carried ${payKg.toFixed(1)}kg (${((payKg / (gait.bodyKg || 6)) * 100).toFixed(0)}% body) — covered ${dist.toFixed(2)} m, stall ${(stallFrac * 100).toFixed(0)}%` }
+      }
       case 'stand': {
         const stopped = gait.state.speed < 0.03 && Math.abs(s.v || 0) < 0.03
         return { pass: stopped, detail: `settled at ${gait.state.speed.toFixed(2)} gait, ${Math.abs(s.v || 0).toFixed(2)} m/s` }
@@ -6870,26 +7057,27 @@ function locoGaitAutotest(gait) {
     },
     stop() { st.running = false; st.phase = null },
     tick(dt) {
-      if (!st.running) return { x: 0 }
+      if (!st.running) return { x: 0, payloadKg: 0 }
       t += dt
       const p = GAIT_LOCO_PHASES[idx]
       const s = loco()
       mark.maxV = Math.max(mark.maxV, Math.abs(s.v || 0))
       if ((s.gradeDeg || 0) > 4) mark.gradeT += dt
       if (s.stall) { mark.stallT += dt; mark.stallSeen = true; st.stallEver = true }
+      const payKg = p.payloadFrac ? (gait.bodyKg || 6) * p.payloadFrac : 0
       if (t >= p.dur) {
         const r = scorePhase(p, mark)
         pushResult(st, p.id, p.label, r.pass, r.detail)
         idx += 1
         if (idx >= GAIT_LOCO_PHASES.length) {
           st.running = false; st.done = true; st.phase = null
-          return { x: 0 }
+          return { x: 0, payloadKg: 0 }
         }
         beginPhase(idx)
-        return { x: GAIT_LOCO_PHASES[idx].x }
+        return { x: GAIT_LOCO_PHASES[idx].x, payloadKg: 0 }
       }
       st.phase.t = t
-      return { x: p.x }
+      return { x: p.x, payloadKg: payKg }
     },
   })
 }
@@ -8863,6 +9051,13 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 900px) {
+  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
+     window cut the last slider in half — a joint you cannot reach is worse than
+     one further down the page */
+  [data-rf="posegrid"] { max-height: 138px !important; }
+}
+
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
@@ -9024,7 +9219,7 @@ const S = {
     boxShadow: '0 0 0 1px rgba(255,106,26,0.22), 0 8px 20px rgba(0,0,0,0.32)',
   },
   cardTitle: { fontFamily: C.sans, fontSize: '11.5px', fontWeight: 650, color: C.text, letterSpacing: '0.01em' },
-  cardSub: { fontSize: '11px', color: C.faint, lineHeight: 1.35 },
+  cardSub: { fontSize: '11px', color: C.dim, lineHeight: 1.35 },
   thumb: {
     display: 'block', width: '100%', height: '62px', marginBottom: '3px',
     borderRadius: '7px', background: 'radial-gradient(circle at 50% 30%, #12202b, #0a1017 70%)',
@@ -9128,10 +9323,10 @@ const S = {
   },
   poseGrid: {
     flex: '1 1 auto', minWidth: 0, display: 'grid', gap: '6px 18px',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(238px, 1fr))',
     maxHeight: '78px', overflowY: 'auto', alignContent: 'start',
   },
-  poseRow: { display: 'grid', gridTemplateColumns: '1fr 84px 40px', alignItems: 'center', gap: '8px', minWidth: 0 },
+  poseRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 74px 46px', alignItems: 'center', gap: '7px', minWidth: 0 },
   poseName: {
     fontSize: '10.5px', color: C.dim, whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis', letterSpacing: '0.01em',
@@ -9244,13 +9439,13 @@ const S = {
     color: C.faint, textTransform: 'uppercase', marginBottom: '7px',
   },
   buyRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', alignItems: 'baseline',
+    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 66px', gap: '10px', alignItems: 'baseline',
     padding: '6px 0', borderBottom: `1px solid ${C.lineSoft}`,
   },
   buyName: { fontSize: '12px', color: C.text, lineHeight: 1.35 },
   buyQty: { fontFamily: C.mono, fontSize: '10px', color: C.faint },
   buyPrice: {
-    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap',
+    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap', textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
@@ -9498,7 +9693,7 @@ function TabSpec({ design, analysis }) {
 }
 
 /** TEST: the pre-print bench. Would this machine stand, climb and hold? */
-function TabTest({ design, analysis }) {
+function TabTest({ design, analysis, certHistory }) {
   const [slope, setSlope] = useState(15)
   const r = useMemo(() => benchReport(design, analysis, { mat: analysis.print.material, slopeDeg: slope }), [design, analysis, slope])
   const worst = r.verdicts.some((v) => v.status === 'fail') ? 'fail' : r.verdicts.some((v) => v.status === 'warn') ? 'warn' : 'ok'
@@ -9564,6 +9759,22 @@ function TabTest({ design, analysis }) {
     h(KV, { k: 'flat margin', v: `${Math.round(r.flatMm)} mm`, accent: r.flatMm > 15 ? C.green : r.flatMm > 0 ? C.amber : C.red })))
   blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, marginTop: '10px' } },
     'Rigid-body statics at the current pose — CoM is mass-weighted over every node, the support polygon is the convex hull of ground contacts, and torque is exact r×F about each joint axis. It answers "will it stand, climb and hold?" before you spend filament.'))
+
+  const arch = design.archetype || (design.brief && design.brief.archetype)
+  const hist = (certHistory || []).filter((x) => x.arch === arch).slice(-8).reverse()
+  if (hist.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '16px' } }, 'autopilot certification history'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'RUN'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'SCORE'),
+        h('th', { style: S.th }, 'PHASES'))),
+      h('tbody', {}, hist.map((x, i) => h('tr', { key: i },
+        h('td', { style: { ...S.td, color: C.faint } }, `${x.mode} · ${new Date(x.ts).toLocaleDateString()}`),
+        h('td', { style: { ...S.tdNum, color: x.passes === x.total ? C.green : x.passes > x.total / 2 ? C.amber : C.red, fontWeight: 700 } }, `${x.passes}/${x.total}`),
+        h('td', { style: { ...S.td, color: C.faint, fontSize: '10px' } }, x.phases))))))
+    blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px' } },
+      'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped.'))
+  }
   return blocks
 }
 
@@ -9677,6 +9888,8 @@ function TabPrint({ design, analysis }) {
     .map((n) => ({ id: n.id, name: prettyPart(n.id), kind: n.kind, mm3: shellVolume(n), dims: nodeHalf(n).map((x) => x * 2) }))
     .sort((a, b) => b.mm3 - a.mm3)
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
+  const overhang = new Map((analysis.print.overhang ? analysis.print.overhang.parts : []).map((p) => [p.id, p]))
+  const supportG = overhang.size ? [...overhang.values()].reduce((s, p) => s + p.unsupported, 0) : 0
   return [
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
@@ -9684,16 +9897,30 @@ function TabPrint({ design, analysis }) {
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
-        h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'))),
-      h('tbody', {}, rows.map((r) => h('tr', { key: r.id },
-        h('td', { style: { ...S.td, color: C.text } }, r.name),
-        h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
-        h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)))))),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'TIME'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'SUPPORT'))),
+      h('tbody', {}, rows.map((r) => {
+        const oh = overhang.get(r.id)
+        const sup = oh && oh.unsupported > 0 ? oh.unsupported : 0
+        return h('tr', { key: r.id },
+          h('td', { style: { ...S.td, color: C.text } }, r.name),
+          h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
+          h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)),
+          h('td', { style: { ...S.tdNum, color: C.faint } }, (() => {
+            const mins = (r.mm3 / 18000) * 60
+            return mins >= 60 ? `${(mins / 60).toFixed(1)}h` : `${Math.max(1, Math.round(mins))}m`
+          })()),
+          h('td', { style: { ...S.tdNum, color: sup > 50 ? C.amber : C.faint } }, sup > 0 ? `${Math.round(sup)}` : '—'))
+      }))),
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'print advice'),
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
-      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
+      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. TIME is extrusion only — add ~15–20 min heat-up per part on top. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
-      `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.`),
+      `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat by measured bed contact, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.` +
+      (supportG > 0
+        ? ` SUPPORT column is mm² of surface hanging in mid-air — budget roughly 2× that in support filament and expect scars on those faces.`
+        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.')),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },
@@ -10325,6 +10552,11 @@ function CommandPalette({ open, commands, onClose }) {
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+  // The primary CTA is picked by meaning: the export list keeps growing, and
+  // selecting the "print pack" by index once shipped a whole-machine STL under a
+  // button that promised a zip.
+  const packEntry = exports.find(([label]) => /print pack|board pack|fab \+ assembly/i.test(label))
+  const packAction = (packEntry || exports[1])[1]
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -10427,7 +10659,10 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
           `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
           h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
             'One file per part: laid flat, centred on the bed, sitting on Z=0.'))),
-    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+    // The primary call to action must not be an index into a list that other
+    // features keep inserting into: this used to say "print pack" and download
+    // the whole-machine STL because the STL entry moved to position 1.
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
@@ -10470,7 +10705,15 @@ const PRESET_BLURBS = {
 }
 
 /** One honest sentence anybody can read — the tables below carry the detail. */
-function plainVerdict(checks) {
+function plainVerdict(checks, brief) {
+  // A brief that named nothing must not collect a green tick just because the
+  // checks pass on a machine nobody asked for.
+  if (brief && brief.archetypeMatched === false) {
+    return {
+      icon: '!', color: C.amber,
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+    }
+  }
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
@@ -10493,6 +10736,7 @@ function Studio() {
   const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
+  const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -10663,6 +10907,8 @@ function Studio() {
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
   const autotestRef = useRef(null)
+  const autoReportOffRef = useRef(false)
+  const certLoggedRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -10766,13 +11012,21 @@ function Studio() {
           const gy2 = dz(gp.axes[1] || 0)
           if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
+        let gaitEnv = benchEnv
         if (at && at.running) {
           const c = at.tick(dt)
-          if (c) { gx = c.x || 0; gy = c.y || 0 }
+          if (c) {
+            gx = c.x || 0; gy = c.y || 0
+            // LOAD certification phase carries a virtual payload — merge it
+            // into the env for this frame only
+            if (c.payloadKg != null && c.payloadKg !== benchEnv.payloadKg) {
+              gaitEnv = { ...benchEnv, payloadKg: c.payloadKg }
+            }
+          }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         if (gait.locomote) {
-          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, gaitEnv)
           if (r && r.pose) setPose(r.pose)
           if (r && r.chassis) setChassis({ ...r.chassis })
         } else {
@@ -10789,6 +11043,29 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      }
+      // a finished certification run goes into persistent history once —
+      // the card and REPORT can then show "best for this machine"
+      const atDone = autotestRef.current
+      if (atDone && atDone.done && !certLoggedRef.current) {
+        certLoggedRef.current = true
+        try {
+          const entry = {
+            arch: design.archetype || (design.brief && design.brief.archetype) || '?',
+            mode: drive ? 'drive' : ik ? 'ik' : gait ? 'gait' : grip ? 'grip' : sense ? 'sense' : '?',
+            passes: atDone.results.filter((r) => r.pass).length,
+            total: atDone.results.length,
+            ts: Date.now(),
+            phases: atDone.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}`).join(' '),
+          }
+          setCertHistory((h) => {
+            const next = [...h, entry].slice(-30)
+            if (CTX) CTX.storage.set('certHistory', next)
+            return next
+          })
+        } catch { /* storage may be unavailable */ }
+      } else if (atDone && atDone.running) {
+        certLoggedRef.current = false
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
@@ -10968,6 +11245,10 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
+  const certArch = design.archetype || (design.brief && design.brief.archetype)
+  const certBest = certHistory.filter((x) => x.arch === certArch)
+    .reduce((m, x) => (!m || x.passes > m.passes ? x : m), null)
+
   const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
     [benchLive, driveHud, propHud, gripHud, powerHud, brief])
 
@@ -10988,6 +11269,17 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      '',
+      '## Engineering summary',
+      `- **mass:** ${(analysis.mass.totalG / 1000).toFixed(2)} kg (printed ${(analysis.mass.printedG / 1000).toFixed(2)} kg, parts ${(analysis.mass.partsG / 1000).toFixed(2)} kg)`,
+      `- **cost:** $${analysis.cost.toFixed(2)} ($${analysis.costBuy.toFixed(2)} to buy, $${analysis.costShop.toFixed(2)} to print)`,
+      `- **print:** ${(analysis.print.grams / 1000).toFixed(2)} kg ${(analysis.print.material || 'filament')}, ~${analysis.print.hours.toFixed(1)}h · ${analysis.print.overhang.unsupportedMm2}mm² unsupported`,
+      `- **power:** ${analysis.power.typ != null ? `${analysis.power.typ.toFixed(1)}A typical / ${analysis.power.peak.toFixed(1)}A peak` : 'n/a'}${analysis.power.runtimeMin != null ? ` · ~${analysis.power.runtimeMin.toFixed(0)} min runtime` : ''}`,
+      ...(analysis.checks.some((c) => c.level === 'fail')
+        ? ['', '### Blocking checks', ...analysis.checks.filter((c) => c.level === 'fail').map((c) => `- FAIL ${c.msg}`)]
+        : analysis.checks.some((c) => c.level === 'warn')
+          ? ['', '### Warnings', ...analysis.checks.filter((c) => c.level === 'warn').map((c) => `- WARN ${c.msg}`)]
+          : ['', '### Checks', ...analysis.checks.filter((c) => c.level === 'ok').slice(0, 4).map((c) => `- ${c.msg}`)]),
       ...(autotestRef.current && autotestRef.current.results.length ? [
         '',
         `## Auto test — ${autotestRef.current.score}`,
@@ -11003,7 +11295,7 @@ function Studio() {
       a.click()
       URL.revokeObjectURL(a.href)
     } catch { /* SSR / no DOM */ }
-  }, [design, fixes])
+  }, [design, analysis, fixes])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -11119,6 +11411,10 @@ function Studio() {
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
       : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+    ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
+      const buf = to3MF(design, analysis.print && analysis.print.material)
+      if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
+    }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
@@ -11180,7 +11476,7 @@ function Studio() {
   const warns = analysis.checks.filter((c) => c.level === 'warn').length
 
   const panel = tab === 'spec' ? h(TabSpec, { design, analysis })
-    : tab === 'test' ? h(TabTest, { design, analysis })
+    : tab === 'test' ? h(TabTest, { design, analysis, certHistory })
     : tab === 'parts' ? h(TabParts, { design, analysis })
       : tab === 'pins' ? h(TabPins, { analysis })
         : tab === 'power' ? h(TabPower, { analysis })
@@ -11393,7 +11689,7 @@ function Studio() {
             }, `${ex.label} — ${ex.why}`)))
           : null,
 
-        (() => { const v = plainVerdict(analysis.checks); return h('div', {
+        (() => { const v = plainVerdict(analysis.checks, brief); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
         },
           h('span', { style: { fontFamily: C.mono, fontWeight: 700, color: v.color, flex: '0 0 auto' } }, v.icon),
@@ -11646,6 +11942,34 @@ function Studio() {
         }, autotestRef.current.running
           ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
           : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
+        driveOn && autotestRef.current && autotestRef.current.done && !autoReportOffRef.current ? h('div', {
+          style: {
+            position: 'absolute', top: '44px', left: '50%', transform: 'translateX(-50%)', zIndex: 6,
+            fontFamily: C.mono, fontSize: '10.5px', minWidth: '300px', maxWidth: '440px',
+            background: 'rgba(10,13,16,0.88)', border: `1px solid ${C.line}`,
+            borderRadius: '8px', padding: '8px 12px', pointerEvents: 'auto',
+          },
+        },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+            h('span', {
+              style: { fontWeight: 700, color: autotestRef.current.results.every((r) => r.pass) ? C.green : C.amber },
+            }, `CERTIFICATION ${autotestRef.current.score}`),
+            h('button', {
+              style: { marginLeft: 'auto', background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '0 4px' },
+              title: 'dismiss — results stay in REPORT',
+              onClick: () => { autoReportOffRef.current = true },
+            }, '×')),
+          certBest ? h('div', {
+            style: { fontSize: '9.5px', color: C.faint, marginBottom: '4px' },
+            title: certHistory.filter((x) => x.arch === certArch).map((x) => `${x.passes}/${x.total} · ${x.phases}`).join('\n'),
+          }, `best for this machine: ${certBest.passes}/${certBest.total}`) : null,
+          ...autotestRef.current.results.map((r) => h('div', {
+            key: r.id || r.label,
+            style: { display: 'flex', gap: '8px', alignItems: 'baseline', padding: '2px 0' },
+          },
+            h('span', { style: { color: r.pass ? C.green : C.red, fontWeight: 700, flex: '0 0 38px' } }, r.pass ? 'PASS' : 'FAIL'),
+            h('span', { style: { color: C.dim, flex: '0 0 74px' } }, r.label),
+            h('span', { style: { color: C.text } }, r.detail)))) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -11806,6 +12130,7 @@ function Studio() {
                 if (!at) return
                 if (at.running) { at.stop(); return }
                 at.start()
+                autoReportOffRef.current = false
                 setDriveOn(true)
               },
             }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
@@ -11857,7 +12182,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid },
+              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')

@@ -64,6 +64,8 @@ function createArmTeleop(design) {
   return {
     kind: 'ik',
     state,
+    design,          // read-only: autotest poses a clone for torque checks
+    distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
      * Returns desired joint angles (deg, design.joints order) or null.
@@ -292,6 +294,7 @@ function createGaitTeleop(design) {
     kind: 'gait',
     state,
     maxStepM, // tallest riser the legs can mount — the autotest predicts with it
+    bodyKg: (design.metrics && design.metrics.massKg) || 6, // carried-load tests scale off this
     /** cmd: {x: -1..1 walk speed}; actualAngles current pose. */
     step(cmd, dt, actualAngles) {
       const want = Math.max(-1, Math.min(1, cmd.x || 0))
@@ -337,14 +340,23 @@ function createGaitTeleop(design) {
       state.strides += spd * GAIT.freq * dt
       state.phase += Math.sign(state.speed) * GAIT.freq * spd * dt * Math.PI * 2
 
-      // commanded speed: kinematic walk speed × grade/mu derating along heading
+      // carried load: mass on the back costs leg torque — speed derates
+      // with the load ratio, exposed so the HUD and autotest can see it
+      const bodyKg = (design.metrics && design.metrics.massKg) || 6
+      const payKg = Math.max(0, e.payloadKg || 0)
+      const loadR = payKg / Math.max(bodyKg, 0.5)
+      const payF = payKg > 0 ? clamp(1 / (1 + loadR * 1.8), 0.3, 1) : 1
+      loco.payloadKg = payKg
+      loco.loadR = loadR
+
+      // commanded speed: kinematic walk speed × grade/mu/load derating
       const dir = Math.sign(state.speed) || 1
       let vT = state.speed * WALK_V
       const gradeEff = grade * Math.cos(loco.yaw) * dir // slope along travel dir
       const gDeg = Math.abs(gradeEff) * 180 / Math.PI
       const gf = clamp(1 - Math.max(0, gDeg - 4) / 20, 0.15, 1)
       const slipF = mu < 0.35 ? clamp(mu / 0.35, 0.3, 1) : 1
-      vT *= gf * slipF
+      vT *= gf * slipF * payF
       // legs accelerate ~2.5 m/s² and brake harder — no ice-skating starts
       loco.v += clamp(vT - loco.v, -4 * dt, 2.5 * dt)
       loco.slip = mu < 0.35 && Math.abs(loco.v) > 0.05
@@ -538,7 +550,11 @@ function fixSuggestions(s) {
   const drv = s.drive ? (s.drive.loco || s.drive) : null
   if (drv) {
     if (drv.stall || (drv.slide && drv.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+      // gradeDeg/surface are absent on a flat push in the stairs course, and
+      // 'undefined° undefined' is what that printed
+      const grade = Number.isFinite(drv.gradeDeg) ? `${drv.gradeDeg}° ` : ''
+      const surf = drv.surface || 'the ground'
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${grade}${surf} — more torque, lower grade, or shed payload`)
     } else if (drv.slip) {
       push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }

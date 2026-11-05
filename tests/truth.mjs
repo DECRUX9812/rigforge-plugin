@@ -171,6 +171,32 @@ check('STL: header count = (size-84)/50; parts centred, on Z=0', () => {
   return `${parts} STL files validated`
 })
 
+// ── 9c. 3MF pack: same parts, slicer format, bed-laid-out ────────────────────
+check('3MF: zip structure, named objects match printed parts, mm units, Z=0', () => {
+  let objs = 0
+  eachPreset((p, { design }) => {
+    const buf = A.to3MF(design, null)
+    const printed = design.nodes.filter((n) => n.print).length
+    if (!printed) { assert(!buf, `${p.id} emitted a 3MF with no printed parts`); return }
+    assert(buf, `${p.id} produced no 3MF`)
+    const raw = Buffer.from(buf).toString('latin1')
+    assert(raw.startsWith('PK'), `${p.id} 3MF is not a zip`)
+    assert(raw.includes('[Content_Types].xml') && raw.includes('3D/3dmodel.model'), `${p.id} 3MF missing package parts`)
+    // zipStore writes method-0 (stored) entries, so the model XML is verbatim
+    const model = raw.slice(raw.indexOf('<model '), raw.indexOf('</model>') + 8)
+    assert(model.includes('unit="millimeter"'), `${p.id} 3MF not in mm`)
+    const nObj = (model.match(/<object /g) || []).length
+    const nItem = (model.match(/<item /g) || []).length
+    near(nObj, printed, 0, `${p.id} object count`)
+    near(nItem, printed, 0, `${p.id} build item count`)
+    const zs = [...model.matchAll(/z="(-?[\d.]+)"/g)].map((m) => Number(m[1]))
+    assert(zs.length > 0, `${p.id} 3MF has no vertices`)
+    near(Math.min(...zs), 0, 0.01, `${p.id} min Z`)
+    objs += nObj
+  })
+  return `${objs} 3MF objects validated across presets`
+})
+
 // ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
 // The dims heuristic used to stand wedges and ring towers on edge — the
 // overhang check caught it, bestBedPerm fixed it. These presets must stay
@@ -620,7 +646,7 @@ const runAutotest = (env) => {
 check('autotest: rover passes the certification suite on a real climb', () => {
   const at = runAutotest({ surface: 'hardwood', slopeDeg: 10 })
   assert(at.done, 'autotest did not finish within 20s sim')
-  assert(at.results.length === 5, `expected 5 phase results, got ${at.results.length}`)
+  assert(at.results.length === 6, `expected 6 phase results, got ${at.results.length}`)
   const fails = at.results.filter((r) => !r.pass)
   assert(fails.length === 0, `unexpected failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
   return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
@@ -655,24 +681,30 @@ check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
 // ── 33-36. autopilot certification covers every teleop kind ────────────────
 const presetDesign = (archetype) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === archetype).brief })
 
-check('autotest reach: arm tour scores real IK error per desk prop', () => {
+check('autotest reach: arm tour scores reach AND lift capacity per desk prop', () => {
   const { design } = presetDesign('arm')
   const ik = A.createArmTeleop(design)
   const at = A.createAutotest(ik)
   at.start()
-  const actual = design.joints.map(() => 0)
-  for (let i = 0; i < 60 * 40 && at.running; i++) {
+  let actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 50 && at.running; i++) {
     const c = at.tick(1 / 60, actual)
     const pose = c && c.pose ? c.pose : (c ? ik.step(c, 1 / 60, actual) : null)
     if (pose) pose.forEach((a, j) => { actual[j] = a }) // engine has no servo lag — apply instantly
   }
   assert(at.done, 'reach tour did not finish')
-  assert(at.results.length === 4, `expected 4 results (3 props + home), got ${at.results.length}`)
+  assert(at.results.length === 7, `expected 7 results (3 reach + home + 3 lift), got ${at.results.length}`)
   const steel = at.results.find((r) => r.id === 'reach-steel')
   assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
   const bin = at.results.find((r) => r.id === 'reach-bin')
   assert(bin && !bin.pass, `parts bin should be honestly unreachable for this arm — ${bin && bin.detail}`)
-  assert(at.results.every((r) => /err \d+mm|returned/.test(r.detail)), 'results lack measured detail')
+  // the lift legs must differentiate by mass: 80g bin passes on stall margin,
+  // the 1.2kg steel block must fail — reaching is not lifting
+  const liftBin = at.results.find((r) => r.id === 'lift-bin')
+  const liftSteel = at.results.find((r) => r.id === 'lift-steel')
+  assert(liftBin && liftBin.pass, `80g bin should be liftable — ${liftBin && liftBin.detail}`)
+  assert(liftSteel && !liftSteel.pass, `1.2kg steel should fail the torque check — ${liftSteel && liftSteel.detail}`)
+  assert(/stall|carry/.test(liftSteel.detail), 'lift verdict lacks the measured margin')
   return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
 })
 
