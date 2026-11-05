@@ -4,7 +4,7 @@
 
 function buildQuadruped(brief) {
   const d = newDesign('quadruped', brief)
-  const payload = clamp(brief.payloadKg || 1, 0.2, 6)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.2, 6)
   const legLen = clamp((brief.reachMm || 400) * 0.28, 90, 260)
   const hipW = clamp(Math.round(legLen * 1.35), 120, 340)
   const bodyLen = clamp(Math.round(hipW * 1.5), 160, 460)

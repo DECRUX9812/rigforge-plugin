@@ -85,9 +85,14 @@ function TabSpec({ design, analysis }) {
       h('tbody', {}, design.actuators.map((x) => h('tr', { key: x.label },
         h('td', { style: S.td }, x.label),
         h('td', { style: S.tdNum }, `${fmt(x.need, 2)} N·m`),
-        h('td', { style: S.td }, PARTS[x.servo].name.replace(/ servo| standard| micro/g, '')),
-        h('td', { style: { ...S.tdNum, color: (x.effective || PARTS[x.servo].torque) >= x.need ? C.green : C.red } },
-          `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
+        h('td', { style: S.td }, x.ratio === 0 ? '— needs another drive' : PARTS[x.servo].name.replace(/ servo| standard| micro/g, '')),
+        h('td', {
+          style: {
+            ...S.tdNum,
+            color: x.ratio === 0 ? C.red : (x.effective || PARTS[x.servo].torque) >= x.need ? C.green : C.red,
+          },
+        },
+          x.ratio === 0 ? 'out of scope' : `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
   }
 
   if (design.mech && design.mech.length) {

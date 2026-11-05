@@ -4,7 +4,7 @@
 
 function buildRover(brief) {
   const d = newDesign('rover', brief)
-  const payload = clamp(brief.payloadKg || 2, 0.2, 15)
+  const payload = clampPayload(d, brief.payloadKg || 2, 0.2, 15)
   const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 130) // wheel Ø, mm
   const track = clamp(Math.round(wheelD * 3.2), 150, 420)
   const wheelbase = clamp(Math.round(track * 1.25), 180, 520)

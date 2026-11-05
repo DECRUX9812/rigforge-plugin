@@ -704,6 +704,29 @@ function box(d, id, size, pos, mat, extra) {
  * design, so the geometry splits itself rather than leaving a 410mm part and a
  * warning the user cannot act on.
  */
+/**
+ * Payload has a physical envelope per archetype — a 400kg quadruped is not a
+ * quadruped. Clamping is right; clamping *silently* is not, because the checks
+ * then pass for a machine that cannot carry what was asked. Say it out loud.
+ */
+function clampPayload(d, requested, lo, hi) {
+  const want = Number(requested)
+  const safe = Number.isFinite(want) && want > 0 ? want : lo
+  const got = Math.min(hi, Math.max(lo, safe))
+  if (safe > hi) {
+    d.checks.push({
+      level: 'fail',
+      msg: `Asked to carry ${safe}kg. A ${d.archetype === 'robot' ? 'mobile robot' : d.archetype} tops out around ${hi}kg — sizing below uses ${hi}kg, so this drawing will not carry ${safe}kg. Smaller payload, or a different machine class.`,
+    })
+  } else if (safe < lo) {
+    d.checks.push({
+      level: 'warn',
+      msg: `${safe}kg is below what this class is sized for (${lo}kg) — the structure is fine, the resolution is not: a servo this small cannot hold position against a real load.`,
+    })
+  }
+  return got
+}
+
 function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
   const usable = Math.max(60, (bed || 256) - 16)
   const gap = 2
@@ -984,7 +1007,11 @@ const ARM_SEG = { w: 46, h: 40 }
 function buildArm(brief) {
   const d = newDesign('arm', brief)
   const reach = clamp(brief.reachMm || 450, 180, 1200)
-  const payload = clamp(brief.payloadKg || 1, 0.1, 8)
+  // The slider stops at 8kg, but the brief does not: a sentence or a build code
+  // can ask for 40. Sizing must use what was asked for, or the machine is
+  // quietly undersized and the checks pass anyway.
+  const askedPayload = Math.max(0.1, Number(brief.payloadKg) || 1)
+  const payload = askedPayload
   const dof = clamp(brief.dof || 5, 3, 6)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const density = mat.density / 1000 // g/mm³
@@ -995,7 +1022,7 @@ function buildArm(brief) {
   const baseH = 74
 
   d.title = `${dof}-DoF arm · ${Math.round(reach)}mm reach`
-  d.subtitle = `${payload}kg payload · ${mat.name} links`
+  d.subtitle = `${askedPayload}kg payload · ${mat.name} links`
 
   // ── mass + torque cascade ───────────────────────────────────────────────
   const linkMass = (len) => (len * ARM_SEG.w * ARM_SEG.h * 0.34 * density) // shelled, ~34% solid
@@ -1047,7 +1074,7 @@ function buildArm(brief) {
           msg: `${label}: needs ${fmt(need, 1)} N·m at full extension — that is ${ratio}:1 beyond ${PARTS[top].name}. This is a stepper/harmonic-drive machine: use NEMA17 + 5:1 or cut reach/payload.`,
         })
         addPart(d, servo, 1, label)
-        return { servo, ratio }
+        return { servo, ratio: 0 }
       }
       addPart(d, 'gt2_kit', 1, `${label} ${ratio}:1 belt reduction`)
       d.notes.push(`${label} uses a ${ratio}:1 GT2 belt stage — ${PARTS[servo].name} alone gives ${fmt(PARTS[servo].torque, 2)} N·m, ${fmt(PARTS[servo].torque * ratio, 2)} N·m at the joint.`)
@@ -1201,7 +1228,7 @@ function buildArm(brief) {
   d.metrics = {
     joints: servoCount,
     reachMm: Math.round(tipX),
-    payloadKg: payload,
+    payloadKg: askedPayload,
     massKg: (mUpper + mFore + mWrist + mTool) / 1000,
   }
   return d
@@ -1217,7 +1244,7 @@ function MAT_PART(material) {
 
 function buildRover(brief) {
   const d = newDesign('rover', brief)
-  const payload = clamp(brief.payloadKg || 2, 0.2, 15)
+  const payload = clampPayload(d, brief.payloadKg || 2, 0.2, 15)
   const wheelD = clamp(Math.round(brief.wheelMm || (brief.reachMm || 400) * 0.22), 60, 130) // wheel Ø, mm
   const track = clamp(Math.round(wheelD * 3.2), 150, 420)
   const wheelbase = clamp(Math.round(track * 1.25), 180, 520)
@@ -1345,7 +1372,7 @@ function buildRover(brief) {
 
 function buildQuadruped(brief) {
   const d = newDesign('quadruped', brief)
-  const payload = clamp(brief.payloadKg || 1, 0.2, 6)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.2, 6)
   const legLen = clamp((brief.reachMm || 400) * 0.28, 90, 260)
   const hipW = clamp(Math.round(legLen * 1.35), 120, 340)
   const bodyLen = clamp(Math.round(hipW * 1.5), 160, 460)
@@ -1439,7 +1466,7 @@ function buildQuadruped(brief) {
 function buildGripper(brief) {
   const d = newDesign('gripper', brief)
   const span = clamp(brief.reachMm || 80, 30, 240) // jaw opening, mm
-  const payload = clamp(brief.payloadKg || 1, 0.1, 6)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.1, 6)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
 
   d.title = `${Math.round(span)}mm parallel gripper`
@@ -1659,7 +1686,7 @@ function buildGadget(brief) {
 
 function buildFullRobot(brief) {
   const d = newDesign('robot', brief)
-  const payload = clamp(brief.payloadKg || 1, 0.2, 5)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.2, 5)
   const wheelD = clamp(Math.round(brief.wheelMm || 130), 80, 160)
   const track = clamp(Math.round(wheelD * 2.6), 240, 440)
   const wheelbase = clamp(Math.round(track * 1.15), 300, 520)
@@ -1984,7 +2011,7 @@ void loop() {
 function buildHumanoid(brief) {
   const d = newDesign('humanoid', brief)
   const H = clamp(brief.reachMm || 620, 380, 1100) // standing height, mm
-  const handPayload = clamp(brief.payloadKg || 0.5, 0.1, 3)
+  const handPayload = clampPayload(d, brief.payloadKg || 0.5, 0.1, 3)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const density = mat.density / 1000
 
@@ -5919,9 +5946,14 @@ function TabSpec({ design, analysis }) {
       h('tbody', {}, design.actuators.map((x) => h('tr', { key: x.label },
         h('td', { style: S.td }, x.label),
         h('td', { style: S.tdNum }, `${fmt(x.need, 2)} N·m`),
-        h('td', { style: S.td }, PARTS[x.servo].name.replace(/ servo| standard| micro/g, '')),
-        h('td', { style: { ...S.tdNum, color: (x.effective || PARTS[x.servo].torque) >= x.need ? C.green : C.red } },
-          `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
+        h('td', { style: S.td }, x.ratio === 0 ? '— needs another drive' : PARTS[x.servo].name.replace(/ servo| standard| micro/g, '')),
+        h('td', {
+          style: {
+            ...S.tdNum,
+            color: x.ratio === 0 ? C.red : (x.effective || PARTS[x.servo].torque) >= x.need ? C.green : C.red,
+          },
+        },
+          x.ratio === 0 ? 'out of scope' : `${fmt(x.effective || PARTS[x.servo].torque, 2)} N·m${x.ratio > 1 ? ` ${x.ratio}:1` : ''}`))))))
   }
 
   if (design.mech && design.mech.length) {

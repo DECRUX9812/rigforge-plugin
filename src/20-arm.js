@@ -9,7 +9,11 @@ const ARM_SEG = { w: 46, h: 40 }
 function buildArm(brief) {
   const d = newDesign('arm', brief)
   const reach = clamp(brief.reachMm || 450, 180, 1200)
-  const payload = clamp(brief.payloadKg || 1, 0.1, 8)
+  // The slider stops at 8kg, but the brief does not: a sentence or a build code
+  // can ask for 40. Sizing must use what was asked for, or the machine is
+  // quietly undersized and the checks pass anyway.
+  const askedPayload = Math.max(0.1, Number(brief.payloadKg) || 1)
+  const payload = askedPayload
   const dof = clamp(brief.dof || 5, 3, 6)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const density = mat.density / 1000 // g/mm³
@@ -20,7 +24,7 @@ function buildArm(brief) {
   const baseH = 74
 
   d.title = `${dof}-DoF arm · ${Math.round(reach)}mm reach`
-  d.subtitle = `${payload}kg payload · ${mat.name} links`
+  d.subtitle = `${askedPayload}kg payload · ${mat.name} links`
 
   // ── mass + torque cascade ───────────────────────────────────────────────
   const linkMass = (len) => (len * ARM_SEG.w * ARM_SEG.h * 0.34 * density) // shelled, ~34% solid
@@ -72,7 +76,7 @@ function buildArm(brief) {
           msg: `${label}: needs ${fmt(need, 1)} N·m at full extension — that is ${ratio}:1 beyond ${PARTS[top].name}. This is a stepper/harmonic-drive machine: use NEMA17 + 5:1 or cut reach/payload.`,
         })
         addPart(d, servo, 1, label)
-        return { servo, ratio }
+        return { servo, ratio: 0 }
       }
       addPart(d, 'gt2_kit', 1, `${label} ${ratio}:1 belt reduction`)
       d.notes.push(`${label} uses a ${ratio}:1 GT2 belt stage — ${PARTS[servo].name} alone gives ${fmt(PARTS[servo].torque, 2)} N·m, ${fmt(PARTS[servo].torque * ratio, 2)} N·m at the joint.`)
@@ -226,7 +230,7 @@ function buildArm(brief) {
   d.metrics = {
     joints: servoCount,
     reachMm: Math.round(tipX),
-    payloadKg: payload,
+    payloadKg: askedPayload,
     massKg: (mUpper + mFore + mWrist + mTool) / 1000,
   }
   return d

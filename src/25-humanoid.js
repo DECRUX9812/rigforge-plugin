@@ -14,7 +14,7 @@
 function buildHumanoid(brief) {
   const d = newDesign('humanoid', brief)
   const H = clamp(brief.reachMm || 620, 380, 1100) // standing height, mm
-  const handPayload = clamp(brief.payloadKg || 0.5, 0.1, 3)
+  const handPayload = clampPayload(d, brief.payloadKg || 0.5, 0.1, 3)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const density = mat.density / 1000
 

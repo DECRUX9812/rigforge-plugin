@@ -10,7 +10,7 @@
 
 function buildFullRobot(brief) {
   const d = newDesign('robot', brief)
-  const payload = clamp(brief.payloadKg || 1, 0.2, 5)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.2, 5)
   const wheelD = clamp(Math.round(brief.wheelMm || 130), 80, 160)
   const track = clamp(Math.round(wheelD * 2.6), 240, 440)
   const wheelbase = clamp(Math.round(track * 1.15), 300, 520)

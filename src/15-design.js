@@ -53,6 +53,29 @@ function box(d, id, size, pos, mat, extra) {
  * design, so the geometry splits itself rather than leaving a 410mm part and a
  * warning the user cannot act on.
  */
+/**
+ * Payload has a physical envelope per archetype — a 400kg quadruped is not a
+ * quadruped. Clamping is right; clamping *silently* is not, because the checks
+ * then pass for a machine that cannot carry what was asked. Say it out loud.
+ */
+function clampPayload(d, requested, lo, hi) {
+  const want = Number(requested)
+  const safe = Number.isFinite(want) && want > 0 ? want : lo
+  const got = Math.min(hi, Math.max(lo, safe))
+  if (safe > hi) {
+    d.checks.push({
+      level: 'fail',
+      msg: `Asked to carry ${safe}kg. A ${d.archetype === 'robot' ? 'mobile robot' : d.archetype} tops out around ${hi}kg — sizing below uses ${hi}kg, so this drawing will not carry ${safe}kg. Smaller payload, or a different machine class.`,
+    })
+  } else if (safe < lo) {
+    d.checks.push({
+      level: 'warn',
+      msg: `${safe}kg is below what this class is sized for (${lo}kg) — the structure is fine, the resolution is not: a servo this small cannot hold position against a real load.`,
+    })
+  }
+  return got
+}
+
 function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
   const usable = Math.max(60, (bed || 256) - 16)
   const gap = 2

@@ -6,7 +6,7 @@
 function buildGripper(brief) {
   const d = newDesign('gripper', brief)
   const span = clamp(brief.reachMm || 80, 30, 240) // jaw opening, mm
-  const payload = clamp(brief.payloadKg || 1, 0.1, 6)
+  const payload = clampPayload(d, brief.payloadKg || 1, 0.1, 6)
   const mat = MATERIALS[brief.material] || MATERIALS.petg
 
   d.title = `${Math.round(span)}mm parallel gripper`
