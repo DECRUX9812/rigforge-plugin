@@ -8884,6 +8884,13 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 900px) {
+  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
+     window cut the last slider in half — a joint you cannot reach is worse than
+     one further down the page */
+  [data-rf="posegrid"] { max-height: 138px !important; }
+}
+
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
@@ -11908,7 +11915,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid },
+              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')

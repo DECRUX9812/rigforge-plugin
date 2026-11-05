@@ -83,6 +83,13 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 900px) {
+  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
+     window cut the last slider in half — a joint you cannot reach is worse than
+     one further down the page */
+  [data-rf="posegrid"] { max-height: 138px !important; }
+}
+
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
