@@ -333,6 +333,7 @@ function TabPrint({ design, analysis }) {
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
         h('th', { style: { ...S.th, textAlign: 'right' } }, 'GRAMS'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'TIME'),
         h('th', { style: { ...S.th, textAlign: 'right' } }, 'SUPPORT'))),
       h('tbody', {}, rows.map((r) => {
         const oh = overhang.get(r.id)
@@ -341,11 +342,15 @@ function TabPrint({ design, analysis }) {
           h('td', { style: { ...S.td, color: C.text } }, r.name),
           h('td', { style: { ...S.td, color: C.faint } }, r.dims.map((d) => Math.round(d)).join('×')),
           h('td', { style: S.tdNum }, fmt((r.mm3 / total) * analysis.print.grams, 1)),
+          h('td', { style: { ...S.tdNum, color: C.faint } }, (() => {
+            const mins = (r.mm3 / 18000) * 60
+            return mins >= 60 ? `${(mins / 60).toFixed(1)}h` : `${Math.max(1, Math.round(mins))}m`
+          })()),
           h('td', { style: { ...S.tdNum, color: sup > 50 ? C.amber : C.faint } }, sup > 0 ? `${Math.round(sup)}` : '—'))
       }))),
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'print advice'),
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
-      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
+      `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. TIME is extrusion only — add ~15–20 min heat-up per part on top. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
       `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat by measured bed contact, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.` +
       (supportG > 0
