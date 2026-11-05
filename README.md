@@ -14,10 +14,13 @@ a complete machine from one brief:
 | power | per-rail typical and stall current → pack → runtime, wire gauge, fuse and connector sizing |
 | electronics | pin map that refuses strapping pins and the flash bus, PCA9685 channels, UART bus reservation |
 | firmware | Arduino skeleton generated from the same pin map — homing, encoders, gait loops |
-| manufacturing | BOM with prices + SKUs, mass, print grams/hours, **bed-aware part splitting**, per-part STL pack (zip), OpenSCAD, assembly order |
+| manufacturing | BOM with prices + SKUs, mass, print grams/**hours per part**, **bed-aware part splitting**, per-part STL pack (zip), **3MF slicer file**, OpenSCAD, assembly order |
 | boards | a controller board you can design: placements, per-part solder verdicts, and a **board pack** (BOM + centroid/CPL + spec) for a fab or assembly house |
+| test bench | **field-test before you print**: drive dynamics (traction, grade, payload, shove), legged gait on real courses, IK reach with weighted props, grip hold tests, sensor stimulus, endurance power — plus a **statics bench** (CoM, support polygon, tip-over, torque vs stall) |
+| certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand — scored pass/fail with real numbers, kept as per-machine history |
+| DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships — parts that would print on edge or need support say so |
 | trust | **show the working** on every headline number, and **before/after** on every change — recomputed, never remembered |
-| sharing | a design is a **build code**: `RF1-…`, ~200 characters, rebuilds exactly on someone else's machine |
+| sharing | a design is a **build code**: `RF1-…`, ~200 characters, rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
 
 The engine is deterministic and offline: the same brief always produces the same
 machine, and every number is computed (not narrated). The agent designs; the maths
@@ -52,7 +55,13 @@ so instead of hiding it. Things it caught in its own output:
   warning. Parts now split themselves to *your* bed (180/220/256/300/350mm) with
   joiner plates, and the notes say which seams to glue.
 - **STLs that were not slice-ready.** Per-part exports used to arrive in world space,
-  floating mid-machine. They are now laid flat, centred and sitting on Z=0.
+  floating mid-machine. They are now laid flat by *measured bed contact* (not bounding
+  box), centred and sitting on Z=0 — and the same triangles feed the overhang check,
+  so what the DFM report says is what the slicer gets.
+- **Certification that measured nothing.** The autopilot suite scores real simulated
+  outcomes — distance covered, stall percentage, climb height, carried mass — and a
+  quadruped whose legs can't reach a stair riser fails OBSTACLE honestly while the
+  humanoid passes. Wet ice fails CLIMB. A 40kg payload fails loudly.
 - **Payload it could not carry.** Asking for 40kg used to be silently clamped to 8kg
   with every check passing. Over-weight requests now fail loudly, and a joint beyond
   any servo + 4:1 belt reads `out of scope` rather than inventing a 7:1 stage.
@@ -135,11 +144,20 @@ src/20..29-*.js       archetype generators (arm, rover, quadruped, gripper/gadge
                       full robot, humanoid, iot node, gantry, controller board)
 src/30-analysis.js    pin map, power budget, mass/cost/print, readiness checks
 src/35-firmware.js    Arduino generation + assembly steps
-src/40-geometry.js    FK pass, meshes, STL / OpenSCAD / markdown / CSV exporters
-src/45-compose.js     brief parsing, presets, agent prompt, directive parsing
-src/50-viewport.js    software 3D renderer (painter's algorithm on 2D canvas)
-src/55-styles.js      the studio's palette + element factory
+src/40-geometry.js    FK pass, meshes, STL / 3MF / OpenSCAD / markdown / CSV exporters, DFM overhang
+src/41-bench.js       statics: CoM, support polygon, slope tip-over, torque vs stall, CCD IK
+src/41-sim-export.js  URDF + MJCF export for ROS / MuJoCo / PyBullet
+src/42-physics.js     joint dynamics: servo-speed slew, stall sag, thermal, bus current
+src/43-drive.js       wheeled chassis: traction, grade, payload, shove, stairs/room courses
+src/43-teleop.js      drive / IK-reach / gait-locomote / grip / sensor teleop + AUTO scripts
+src/44-power.js       endurance sim: battery sag, servo heat, thermal cutout
 src/44-share.js       build codes (RF1-…), encode/decode
+src/45-compose.js     brief parsing, presets, agent prompt, directive parsing
+src/46-autotest.js    certification suites per machine kind
+src/50-viewport.js    viewport shell
+src/51-gl.js          WebGL2 renderer: shadow map, GGX, layer lines, ACES (2D canvas fallback)
+src/55-styles.js      the studio's palette + element factory
+src/parts-bracket.js  imported CAD mesh (Sand3D) as a real printable part
 src/56-panels.js      the eight spec tabs
 src/58-assembly.js    solder verdicts, footprint checker, assembly-house handoff
 src/59-audit.js       show the working — formulas and contributors
@@ -159,6 +177,8 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
+node tests/truth.mjs            # 41 behaviour-contract claims — the numbers must stay honest
+node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
 
