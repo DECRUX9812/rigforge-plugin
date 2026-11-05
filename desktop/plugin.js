@@ -5002,6 +5002,7 @@ const RAMP = { x0: 1.4, x1: 3.0, halfW: 1.1, topX: 5.2 }
 
 /** Terrain height at world x — flat, ramp grade, then plateau. */
 function terrainHeight(x, slopeDeg, course) {
+  if (course === 'stairs') return stairsHeight(x)
   if (course === 'room') return roomHeight(x)
   if (x <= RAMP.x0) return 0
   const h = (RAMP.x1 - RAMP.x0) * Math.tan((slopeDeg * Math.PI) / 180)
@@ -5011,6 +5012,7 @@ function terrainHeight(x, slopeDeg, course) {
 
 /** Local grade (radians, + = uphill toward +X) at world x. */
 function terrainGrade(x, slopeDeg, course) {
+  if (course === 'stairs') return 0
   if (course === 'room') {
     for (const g of ROOM.segs) {
       if (x >= g[0] && x < g[1]) return g[3] !== g[2] ? Math.atan2(g[3] - g[2], g[1] - g[0]) : 0
@@ -5055,10 +5057,34 @@ function roomHeight(x) {
 
 /** Friction at world x — the rug grips harder than the floor. */
 function muAt(x, env) {
+  if (env.course === 'stairs') return DRIVE_SURFACES.hardwood.mu
   if (env.course === 'room') {
     return x >= ROOM.rug.x0 && x < ROOM.rug.x1 ? ROOM.rug.mu : ROOM.muFloor
   }
   return (DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood).mu
+}
+
+// ── stairs course ───────────────────────────────────────────────────────────
+// A porch-stair run along +X: 4 risers of 80mm with 320mm treads. Whether a
+// chassis mounts a nosing is decided by wheel radius, not by torque — a rigid
+// bot on 50mm wheels cannot climb an 80mm step, and the bench says so.
+const STAIRS = { x0: 1.6, tread: 0.32, stepH: 0.08, n: 4, halfW: 1.1 }
+
+function stairsHeight(x) {
+  if (x <= STAIRS.x0) return 0
+  const i = Math.floor((x - STAIRS.x0) / STAIRS.tread)
+  return Math.min(i + 1, STAIRS.n) * STAIRS.stepH
+}
+
+/** Stacked tread boxes — reads as a real stair flight, not a ramp. */
+function stairsTris() {
+  const tris = []
+  for (let i = 0; i < STAIRS.n; i++) {
+    tris.push(...deskBoxTris(
+      STAIRS.x0 + (i + 0.5) * STAIRS.tread, 0, (i + 0.5) * STAIRS.stepH,
+      STAIRS.tread, STAIRS.halfW * 2, STAIRS.stepH, 'metal', `stair-${i}`))
+  }
+  return tris
 }
 
 /**
@@ -5119,6 +5145,8 @@ function createDrive(design, analysis) {
   const motorTorque = (motor && motor.torque) || m.torquePerWheel || 0.5
   const fMotor = (2 * motorTorque * 0.35) / Math.max(wheelR, 0.01)
   const vmax = Math.min(m.speedMps || 1, 1.4) // bench scale, not a highway
+  // largest riser this chassis can mount: about a wheel radius of bite
+  const maxStep = wheelR * 1.1
 
   const env = { surface: 'hardwood', slopeDeg: 0, payloadKg: 0 }
   const mass = () => baseMass + (env.payloadKg || 0)
@@ -5132,7 +5160,7 @@ function createDrive(design, analysis) {
     surfaces: DRIVE_SURFACES,
     /** Merge bench controls; physics picks them up next step. */
     setEnv(patch) { Object.assign(env, patch) },
-    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0 },
+    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, vl: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false, bumps: 0, stepHit: false },
     /** cmd: {throttle: -1..1, steer: -1..1}; dt seconds. Mutates state. */
     step(cmd, dt) {
       const s = this.state
@@ -5140,7 +5168,7 @@ function createDrive(design, analysis) {
       s.throttle = Math.max(-1, Math.min(1, cmd.throttle || 0))
       s.steer = Math.max(-1, Math.min(1, cmd.steer || 0))
       const mNow = mass()
-      const course = env.course === 'room' ? 'room' : 'rack'
+      const course = env.course === 'room' ? 'room' : env.course === 'stairs' ? 'stairs' : 'rack'
       const mu = muAt(s.x, env)
       const grade = terrainGrade(s.x, env.slopeDeg, course)
       s.grade = grade
@@ -5178,9 +5206,24 @@ function createDrive(design, analysis) {
       s.vl -= Math.sign(s.vl) * Math.min(Math.abs(s.vl), aLat * dt)
       if (Math.abs(s.vl) < 0.005) s.vl = 0
       const fx = Math.cos(s.yaw), fy = Math.sin(s.yaw)
+      const xPrev = s.x, yPrev = s.y
       s.x += (s.v * fx - s.vl * fy) * dt
       s.y += (s.v * fy + s.vl * fx) * dt
       s.yaw += s.w * dt
+      // stairs: a riser taller than the wheel radius is a wall, not a grade.
+      // The nose may already be over the nosing when the hull centre crosses,
+      // so the check keys on centre-x — close enough for a bench verdict.
+      let stepBlocked = false
+      if (course === 'stairs') {
+        const rise = terrainHeight(s.x, env.slopeDeg, course) - s.z
+        if (rise > maxStep) {
+          s.x = xPrev; s.y = yPrev
+          s.v = 0; s.vl = 0
+          s.stall = true
+          stepBlocked = true
+          if (!s.stepHit) { s.bumps = (s.bumps || 0) + 1; s.stepHit = true }
+        } else s.stepHit = false
+      }
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
       // living-room obstacles: circle chassis vs AABB props, kill inward vel
@@ -5213,7 +5256,7 @@ function createDrive(design, analysis) {
       // stall = flooring it on a grade but crawling: under ~13 cm/s of
       // progress (or sliding backwards) the machine is not climbing — the
       // traction fix and this flag are the same failure seen two ways.
-      s.stall = s.throttle > 0.3 && grade > 0.03 && s.v < 0.13
+      s.stall = stepBlocked || (s.throttle > 0.3 && grade > 0.03 && s.v < 0.13)
       return s
     },
     /** Disturbance test: a lateral shove in newtons — slides and yaws the
@@ -5229,7 +5272,7 @@ function createDrive(design, analysis) {
     reset() {
       const s = this.state
       s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0; s.vl = 0
-      s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false; s.bumps = 0
+      s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false; s.bumps = 0; s.stepHit = false
     },
     /** Telemetry for the HUD. */
     hud() {
@@ -5247,7 +5290,7 @@ function createDrive(design, analysis) {
         slip: s.slip,
         stall: s.stall,
         slide: Math.abs(s.vl) > 0.08,
-        course: env.course === 'room' ? 'room' : 'rack',
+        course: env.course === 'room' ? 'room' : env.course === 'stairs' ? 'stairs' : 'rack',
         bumps: s.bumps || 0,
       }
     },
@@ -5683,6 +5726,9 @@ function fixSuggestions(s) {
       push('fail', `Fix drive: wheels can't pull ${s.drive.mass ? s.drive.mass.toFixed(1) + 'kg ' : ''}up ${s.drive.gradeDeg}° ${s.drive.surface} — more torque, lower grade, or shed payload`)
     } else if (s.drive.slip) {
       push('warn', `Fix traction: slipping on ${s.drive.surface} (μ${s.drive.mu}) — rubber wheels or less payload`)
+    }
+    if (s.drive.course === 'stairs' && (s.drive.stall || (s.drive.bumps || 0) > 0)) {
+      push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension')
     }
   }
   if (s.prop && s.prop.over) {
@@ -10006,14 +10052,14 @@ function Studio() {
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
     () => (driveOn && teleopKind === 'drive'
-      ? (benchEnv.course === 'room' ? livingRoomTris() : benchRampTris(benchEnv.slopeDeg))
+      ? (benchEnv.course === 'room' ? livingRoomTris() : benchEnv.course === 'stairs' ? stairsTris() : benchRampTris(benchEnv.slopeDeg))
       : driveOn && teleopKind === 'ik' ? deskPropsTris()
       : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
     [driveOn, teleopKind, benchEnv],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
+    const rtSig = rtTris ? (teleopKind === 'drive' ? (benchEnv.course === 'room' ? 'room' : benchEnv.course === 'stairs' ? 'stairs' : `ramp${benchEnv.slopeDeg}`) : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -10706,6 +10752,7 @@ function Studio() {
                 driveHud.stall ? h('span', { key: 'g', style: { color: C.red } }, 'STALL') : null,
                 driveHud.slide ? h('span', { key: 'i', style: { color: C.amber } }, 'SLIDE') : null,
                 driveHud.course === 'room' ? h('span', { key: 'j', style: { color: C.cyan } }, 'ROOM') : null,
+                driveHud.course === 'stairs' ? h('span', { key: 'j2', style: { color: C.cyan } }, 'STAIRS') : null,
                 driveHud.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.bumps}`) : null,
                 h('span', { key: 'h', style: { color: C.faint } }, 'WASD · X shove · 0 reset'),
               ],
@@ -10750,10 +10797,12 @@ function Studio() {
           },
         },
           h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-            [['rack', 'RACK'], ['room', 'ROOM']].map(([ck, cl]) => h('button', {
+            [['rack', 'RACK'], ['room', 'ROOM'], ['stairs', 'STAIRS']].map(([ck, cl]) => h('button', {
               key: ck,
               onClick: () => setBenchEnv((e) => ({ ...e, course: ck })),
-              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles' : 'traction rack: adjustable ramp and surface',
+              title: ck === 'room' ? 'living-room course: threshold hump, rug zone, three obstacles'
+                : ck === 'stairs' ? 'porch stairs: 4×80mm risers — mounts only if wheel radius bites the nosing'
+                : 'traction rack: adjustable ramp and surface',
               style: {
                 fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
                 padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
@@ -10773,7 +10822,8 @@ function Studio() {
                 background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
                 color: benchEnv.surface === sk ? C.cyan : C.dim,
               },
-            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } }, 'course surfaces: hardwood + rug'),
+            }, sk.toUpperCase()))) : h('div', { style: { fontSize: '9px', color: C.faint } },
+              benchEnv.course === 'stairs' ? 'stairs: wood treads, μ0.8 — risers decide' : 'course surfaces: hardwood + rug'),
           h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
             h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
             h('input', {
