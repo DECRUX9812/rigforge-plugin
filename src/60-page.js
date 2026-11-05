@@ -628,14 +628,23 @@ function Studio() {
     () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
     [posedDesign, analysis.harness, opts.cables],
   )
+  // Reach envelope: workspace sphere at the arm's base + live tip crosshair.
+  // Pose-aware only through the tip — the sphere itself is a fixed bound.
+  const reachOv = useMemo(() => {
+    const t = teleopKind === 'ik' ? ikRef.current : null
+    if (!opts.reach || !t || !t.reachSphere) return null
+    return reachOverlay(t.reachSphere, t.tipPos(dispPose))
+  }, [opts.reach, teleopKind, design, dispPose])
   const rawOv = useMemo(() => {
-    if (!benchOv) return cableOv
-    if (!cableOv) return benchOv
-    const d = new Float32Array(benchOv.data.length + cableOv.data.length)
-    d.set(benchOv.data, 0)
-    d.set(cableOv.data, benchOv.data.length)
-    return { data: d, verts: benchOv.verts + cableOv.verts }
-  }, [benchOv, cableOv])
+    const parts = [benchOv, cableOv, reachOv].filter(Boolean)
+    if (!parts.length) return null
+    if (parts.length === 1) return parts[0]
+    const total = parts.reduce((s, p) => s + p.data.length, 0)
+    const d = new Float32Array(total)
+    let off = 0
+    for (const p of parts) { d.set(p.data, off); off += p.data.length }
+    return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
+  }, [benchOv, cableOv, reachOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -1901,7 +1910,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
