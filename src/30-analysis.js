@@ -321,6 +321,14 @@ function analyze(design) {
   const checks = [...(design.checks || [])]
   // Anything the agent layer had to change on the way in is visible here, not
   // buried in its logs: the studio judges the design it was actually given.
+  // A brief that named no machine gets a plain sentence, not a silent build.
+  if (design.brief && design.brief.archetypeMatched === false) {
+    const said = String(design.brief.mission || '').trim()
+    checks.push({
+      level: 'warn',
+      msg: `Your words did not name a machine I build${said ? ` ("${said.slice(0, 40)}")` : ''} — so this is a small enclosure, the simplest thing that fits. Name the kind: rover, arm, quadruped, humanoid, gripper, board, gantry.`,
+    })
+  }
   const adjusted = design.brief && Array.isArray(design.brief._adjusted) ? design.brief._adjusted : []
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })

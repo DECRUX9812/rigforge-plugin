@@ -437,7 +437,15 @@ const PRESET_BLURBS = {
 }
 
 /** One honest sentence anybody can read — the tables below carry the detail. */
-function plainVerdict(checks) {
+function plainVerdict(checks, match) {
+  // A brief that named nothing must not collect a green tick just because the
+  // checks pass on a machine nobody asked for.
+  if (match && match.confident === false) {
+    return {
+      icon: '!', color: C.amber,
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+    }
+  }
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
@@ -1205,7 +1213,11 @@ function Studio() {
             }, `${ex.label} — ${ex.why}`)))
           : null,
 
-        (() => { const v = plainVerdict(analysis.checks); return h('div', {
+        (() => {
+          // the brief itself carries whether the words named a machine, set when
+          // it was parsed — no reaching into a local of another IIFE
+          const v = plainVerdict(analysis.checks, brief && brief.archetypeMatched === false ? { confident: false } : null)
+          return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
         },
           h('span', { style: { fontFamily: C.mono, fontWeight: 700, color: v.color, flex: '0 0 auto' } }, v.icon),
