@@ -5064,6 +5064,13 @@ function muAt(x, env) {
   return (DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood).mu
 }
 
+// Course dressing (ramps, rooms, stairs) is authored in metres to match the
+// drive physics and terrainHeight(); the render space is mm — scale at the
+// boundary so tris land in the same space as the machine mesh.
+function courseTrisMm(tris) {
+  return tris.map((t) => ({ ...t, pts: t.pts.map((p) => [p[0] * 1000, p[1] * 1000, p[2] * 1000]) }))
+}
+
 // ── stairs course ───────────────────────────────────────────────────────────
 // A porch-stair run along +X: 4 risers of 80mm with 320mm treads. Whether a
 // chassis mounts a nosing is decided by wheel radius, not by torque — a rigid
@@ -5084,7 +5091,7 @@ function stairsTris() {
       STAIRS.x0 + (i + 0.5) * STAIRS.tread, 0, (i + 0.5) * STAIRS.stepH,
       STAIRS.tread, STAIRS.halfW * 2, STAIRS.stepH, 'metal', `stair-${i}`))
   }
-  return tris
+  return courseTrisMm(tris)
 }
 
 /**
@@ -5128,7 +5135,7 @@ function benchRampTris(slopeDeg) {
   }
   stripe(-W + 0.03, -W + 0.03)
   stripe(W - 0.03, W - 0.03)
-  return tris
+  return courseTrisMm(tris)
 }
 
 /** Returns null for machines with nothing to drive. */
@@ -5306,10 +5313,12 @@ function createDrive(design, analysis) {
  */
 function applyChassis(mesh, st, slopeDeg, out, course) {
   if (!st) return mesh
+  // chassis state and terrain courses are metres; mesh pts are mm
+  const mx = st.x * 1000, my = st.y * 1000
   const g = st.grade || 0
   const cp = Math.cos(-g), sp = Math.sin(-g)
   const c = Math.cos(st.yaw), sn = Math.sin(st.yaw)
-  const zBase = terrainHeight(st.x, slopeDeg || 0, course)
+  const zBase = terrainHeight(st.x, slopeDeg || 0, course) * 1000
   const res = out || new Array(mesh.length)
   for (let i = 0; i < mesh.length; i++) {
     const t = mesh[i]
@@ -5325,8 +5334,8 @@ function applyChassis(mesh, st, slopeDeg, out, course) {
       const px = p[0] * cp + p[2] * sp
       const pz = -p[0] * sp + p[2] * cp
       const py = p[1]
-      pts[k][0] = px * c - py * sn + st.x
-      pts[k][1] = px * sn + py * c + st.y
+      pts[k][0] = px * c - py * sn + mx
+      pts[k][1] = px * sn + py * c + my
       pts[k][2] = pz + zBase
     }
   }
@@ -5338,8 +5347,8 @@ function applyChassis(mesh, st, slopeDeg, out, course) {
 let _roomTris = null
 function livingRoomTris() {
   if (_roomTris) return _roomTris
-  _roomTris = []
-  const T = (a, b, c, mat, node) => _roomTris.push({ pts: [a, b, c], mat, node })
+  const raw = []
+  const T = (a, b, c, mat, node) => raw.push({ pts: [a, b, c], mat, node })
   // rug: thin padded rectangle under the high-mu zone
   const rug = { x0: ROOM.rug.x0 - 0.15, x1: ROOM.rug.x1 + 0.15, y: 1.25, t: 0.012 }
   const rz = rug.t / 2
@@ -5356,8 +5365,9 @@ function livingRoomTris() {
     const [sx, sy, sz] = pr.size
     const onRug = pr.c[0] >= ROOM.rug.x0 && pr.c[0] < ROOM.rug.x1
     const baseZ = (onRug ? rug.t : 0) + 0.001
-    _roomTris.push(...deskBoxTris(pr.c[0], pr.c[1], baseZ + sz / 2, sx, sy, sz, pr.mat, `room-${pr.id}`))
+    raw.push(...deskBoxTris(pr.c[0], pr.c[1], baseZ + sz / 2, sx, sy, sz, pr.mat, `room-${pr.id}`))
   }
+  _roomTris = courseTrisMm(raw)
   return _roomTris
 }
 
@@ -7459,11 +7469,12 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const fallback = useRef(false)
   const target = useMemo(() => {
+    if (focus) return focus
     if (!mesh.length) return [0, 0, 120]
     const min = [Infinity, Infinity, Infinity]
     const max = [-Infinity, -Infinity, -Infinity]
@@ -7472,7 +7483,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       if (p[i] > max[i]) max[i] = p[i]
     }
     return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]
-  }, [mesh])
+  }, [mesh, focus])
 
   useEffect(() => {
     const cv = ref.current
@@ -7776,6 +7787,7 @@ uniform float uHasShadow;
 uniform vec3 uPlateColor;
 uniform float uExtent;
 uniform float uGridMm;
+uniform float uContactMm;
 uniform float uShowGrid;
 out vec4 fragColor;
 
@@ -7810,8 +7822,8 @@ void main() {
   vec3 base = uPlateColor * (0.35 + 0.65 * shade);
   base += vec3(0.05, 0.07, 0.09) * line * gridFade * 0.35 * uShowGrid;
 
-  // contact darkening right under the machine
-  float contact = 1.0 - smoothstep(0.0, uExtent * 0.30, r);
+  // contact darkening right under the machine — sized to the subject, not the course
+  float contact = 1.0 - smoothstep(0.0, uContactMm, r);
   base *= 1.0 - 0.45 * contact;
 
   base = toSRGB(base);
@@ -8056,14 +8068,32 @@ function createGLRenderer(canvas) {
       const h = canvas.height
       if (!w || !h || !mesh || !mesh.length) return
 
-      const cx = bounds ? (bounds.min[0] + bounds.max[0]) / 2 : 0
-      const cy = bounds ? (bounds.min[1] + bounds.max[1]) / 2 : 0
-      const cz = bounds ? (bounds.min[2] + bounds.max[2]) / 2 : 0
-      const size = bounds ? Math.max(
+      // Framing subject = the machine (opts.subjectBounds); the full scene
+      // bounds may include a course spanning metres, which must not stretch
+      // the camera or shrink the robot to a speck.
+      let subj = (opts && opts.subjectBounds) || bounds
+      if (opts && opts.focus && subj) {
+        // subjectBounds are in local machine space; the fit loop needs the
+        // world-space box so a driving machine frames correctly
+        const hx = (subj.max[0] - subj.min[0]) / 2
+        const hy = (subj.max[1] - subj.min[1]) / 2
+        const hz = (subj.max[2] - subj.min[2]) / 2
+        const f = opts.focus
+        subj = { min: [f[0] - hx, f[1] - hy, f[2] - hz], max: [f[0] + hx, f[1] + hy, f[2] + hz] }
+      }
+      const cx = subj ? (subj.min[0] + subj.max[0]) / 2 : 0
+      const cy = subj ? (subj.min[1] + subj.max[1]) / 2 : 0
+      const cz = subj ? (subj.min[2] + subj.max[2]) / 2 : 0
+      const size = subj ? Math.max(
+        subj.max[0] - subj.min[0],
+        subj.max[1] - subj.min[1],
+        subj.max[2] - subj.min[2],
+      ) : 300
+      const sceneSize = bounds ? Math.max(
         bounds.max[0] - bounds.min[0],
         bounds.max[1] - bounds.min[1],
         bounds.max[2] - bounds.min[2],
-      ) : 300
+      ) : size
       // Frame the machine by its own bounds: a 1170mm gantry and a 90mm board
       // must both fill the view, and nothing may be cropped off-screen. The
       // wheel still works, because cam.dist scales the fitted distance.
@@ -8082,7 +8112,7 @@ function createGLRenderer(canvas) {
 
       // Bias the subject up and to the left so the title block in the bottom
       // right never sits on top of the machine.
-      const target = [cx, cy, cz + size * 0.02]
+      const target = (opts && opts.focus) || [cx, cy, cz + size * 0.02]
       const yaw = cam.yaw
       const pitch = cam.pitch
       // Z-up, matching the studio's model space: height is z, so the orbit
@@ -8093,7 +8123,7 @@ function createGLRenderer(canvas) {
         target[2] + d * Math.sin(pitch),
       ]
       let eye = eyeAt(dist)
-      let proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + size * 6)
+      let proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + sceneSize * 6)
       let view = M4.lookAt(eye, target, [0, 0, 1])
       let viewProj = M4.mul(proj, view)
 
@@ -8109,9 +8139,9 @@ function createGLRenderer(canvas) {
         let worst = 1
         for (let corner = 0; corner < 8; corner += 1) {
           const p = [
-            corner & 1 ? bounds.max[0] : bounds.min[0],
-            corner & 2 ? bounds.max[1] : bounds.min[1],
-            corner & 4 ? bounds.max[2] : bounds.min[2],
+            corner & 1 ? subj.max[0] : subj.min[0],
+            corner & 2 ? subj.max[1] : subj.min[1],
+            corner & 4 ? subj.max[2] : subj.min[2],
           ]
           const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12]
           const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13]
@@ -8128,7 +8158,7 @@ function createGLRenderer(canvas) {
         if (worst <= 1.02) break
         dist *= worst * 1.03
         eye = eyeAt(dist)
-        proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + size * 6)
+        proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + sceneSize * 6)
         view = M4.lookAt(eye, target, [0, 0, 1])
         viewProj = M4.mul(proj, view)
       }
@@ -8172,7 +8202,7 @@ function createGLRenderer(canvas) {
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, shadowTex)
 
-      if (!floorReady) buildFloor(Math.max(size * 3, 600))
+      if (!floorReady) buildFloor(Math.max(sceneSize * 3, 600))
       gl.useProgram(floorProg)
       gl.uniformMatrix4fv(uni(floorProg, 'uViewProj'), false, viewProj)
       gl.uniformMatrix4fv(uni(floorProg, 'uLightViewProj'), false, lightViewProj)
@@ -8181,8 +8211,9 @@ function createGLRenderer(canvas) {
       gl.uniform1f(uni(floorProg, 'uShadowTexel'), 1 / SHADOW)
       gl.uniform1f(uni(floorProg, 'uHasShadow'), 1)
       gl.uniform3f(uni(floorProg, 'uPlateColor'), 0.028, 0.037, 0.048)
-      gl.uniform1f(uni(floorProg, 'uExtent'), Math.max(size * 3, 600))
-      gl.uniform1f(uni(floorProg, 'uGridMm'), size > 600 ? 100 : 50)
+      gl.uniform1f(uni(floorProg, 'uExtent'), Math.max(sceneSize * 3, 600))
+      gl.uniform1f(uni(floorProg, 'uGridMm'), sceneSize > 3000 ? 500 : sceneSize > 600 ? 100 : 50)
+      gl.uniform1f(uni(floorProg, 'uContactMm'), (opts && opts.subjectR) || Math.min(size * 0.9, 800))
       gl.uniform1f(uni(floorProg, 'uShowGrid'), opts && opts.grid ? 1 : 0)
       gl.bindVertexArray(floorVao)
       gl.depthMask(false)
@@ -10349,6 +10380,30 @@ function Studio() {
 
   // The overlay rides the machine in plan, but its points live ON the terrain:
   // yaw+translate in x/y, then each point takes the ramp height under it.
+  // camera chases the machine, not the course: course dressing can span
+  // metres while cam.dist is framed on the machine's own dimensions
+  const machBounds = useMemo(() => boundsOfMesh(mesh), [mesh])
+  const camFocus = useMemo(() => {
+    if (!chassis) return null
+    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    const cy = (machBounds.min[1] + machBounds.max[1]) / 2
+    const cz = (machBounds.min[2] + machBounds.max[2]) / 2
+    return [
+      cx * c - cy * sn + chassis.x * 1000,
+      cx * sn + cy * c + chassis.y * 1000,
+      terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
+    ]
+  }, [chassis, machBounds, benchEnv])
+  // floor contact-shadow radius tracks the machine, not the (possibly huge) course
+  const subjectR = useMemo(() => {
+    const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
+    return Math.min(1600, Math.max(160, Math.max(...d) * 0.8))
+  }, [machBounds])
+  const viewOpts = useMemo(
+    () => ({ ...opts, subjectR, subjectBounds: machBounds, focus: camFocus }),
+    [opts, subjectR, machBounds, camFocus],
+  )
   const benchOvWorld = useMemo(() => {
     if (!benchOv || !chassis) return benchOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
@@ -10356,11 +10411,12 @@ function Studio() {
     const d = benchOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
-      const wx = d[i] * c - d[i + 1] * sn + chassis.x
-      const wy = d[i] * sn + d[i + 1] * c + chassis.y
-      out[i] = wx
-      out[i + 1] = wy
-      out[i + 2] = terrainHeight(wx, slope, benchEnv.course)
+      // overlay verts are mm (design space); chassis state is metres
+      const wx = (d[i] * c - d[i + 1] * sn) / 1000 + chassis.x
+      const wy = (d[i] * sn + d[i + 1] * c) / 1000 + chassis.y
+      out[i] = wx * 1000
+      out[i + 1] = wy * 1000
+      out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
     return { data: out, verts: benchOv.verts }
@@ -10965,7 +11021,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts, design, analysis, overlay: benchOvWorld }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,

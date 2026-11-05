@@ -176,6 +176,7 @@ uniform float uHasShadow;
 uniform vec3 uPlateColor;
 uniform float uExtent;
 uniform float uGridMm;
+uniform float uContactMm;
 uniform float uShowGrid;
 out vec4 fragColor;
 
@@ -210,8 +211,8 @@ void main() {
   vec3 base = uPlateColor * (0.35 + 0.65 * shade);
   base += vec3(0.05, 0.07, 0.09) * line * gridFade * 0.35 * uShowGrid;
 
-  // contact darkening right under the machine
-  float contact = 1.0 - smoothstep(0.0, uExtent * 0.30, r);
+  // contact darkening right under the machine — sized to the subject, not the course
+  float contact = 1.0 - smoothstep(0.0, uContactMm, r);
   base *= 1.0 - 0.45 * contact;
 
   base = toSRGB(base);
@@ -456,14 +457,32 @@ function createGLRenderer(canvas) {
       const h = canvas.height
       if (!w || !h || !mesh || !mesh.length) return
 
-      const cx = bounds ? (bounds.min[0] + bounds.max[0]) / 2 : 0
-      const cy = bounds ? (bounds.min[1] + bounds.max[1]) / 2 : 0
-      const cz = bounds ? (bounds.min[2] + bounds.max[2]) / 2 : 0
-      const size = bounds ? Math.max(
+      // Framing subject = the machine (opts.subjectBounds); the full scene
+      // bounds may include a course spanning metres, which must not stretch
+      // the camera or shrink the robot to a speck.
+      let subj = (opts && opts.subjectBounds) || bounds
+      if (opts && opts.focus && subj) {
+        // subjectBounds are in local machine space; the fit loop needs the
+        // world-space box so a driving machine frames correctly
+        const hx = (subj.max[0] - subj.min[0]) / 2
+        const hy = (subj.max[1] - subj.min[1]) / 2
+        const hz = (subj.max[2] - subj.min[2]) / 2
+        const f = opts.focus
+        subj = { min: [f[0] - hx, f[1] - hy, f[2] - hz], max: [f[0] + hx, f[1] + hy, f[2] + hz] }
+      }
+      const cx = subj ? (subj.min[0] + subj.max[0]) / 2 : 0
+      const cy = subj ? (subj.min[1] + subj.max[1]) / 2 : 0
+      const cz = subj ? (subj.min[2] + subj.max[2]) / 2 : 0
+      const size = subj ? Math.max(
+        subj.max[0] - subj.min[0],
+        subj.max[1] - subj.min[1],
+        subj.max[2] - subj.min[2],
+      ) : 300
+      const sceneSize = bounds ? Math.max(
         bounds.max[0] - bounds.min[0],
         bounds.max[1] - bounds.min[1],
         bounds.max[2] - bounds.min[2],
-      ) : 300
+      ) : size
       // Frame the machine by its own bounds: a 1170mm gantry and a 90mm board
       // must both fill the view, and nothing may be cropped off-screen. The
       // wheel still works, because cam.dist scales the fitted distance.
@@ -482,7 +501,7 @@ function createGLRenderer(canvas) {
 
       // Bias the subject up and to the left so the title block in the bottom
       // right never sits on top of the machine.
-      const target = [cx, cy, cz + size * 0.02]
+      const target = (opts && opts.focus) || [cx, cy, cz + size * 0.02]
       const yaw = cam.yaw
       const pitch = cam.pitch
       // Z-up, matching the studio's model space: height is z, so the orbit
@@ -493,7 +512,7 @@ function createGLRenderer(canvas) {
         target[2] + d * Math.sin(pitch),
       ]
       let eye = eyeAt(dist)
-      let proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + size * 6)
+      let proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + sceneSize * 6)
       let view = M4.lookAt(eye, target, [0, 0, 1])
       let viewProj = M4.mul(proj, view)
 
@@ -509,9 +528,9 @@ function createGLRenderer(canvas) {
         let worst = 1
         for (let corner = 0; corner < 8; corner += 1) {
           const p = [
-            corner & 1 ? bounds.max[0] : bounds.min[0],
-            corner & 2 ? bounds.max[1] : bounds.min[1],
-            corner & 4 ? bounds.max[2] : bounds.min[2],
+            corner & 1 ? subj.max[0] : subj.min[0],
+            corner & 2 ? subj.max[1] : subj.min[1],
+            corner & 4 ? subj.max[2] : subj.min[2],
           ]
           const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12]
           const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13]
@@ -528,7 +547,7 @@ function createGLRenderer(canvas) {
         if (worst <= 1.02) break
         dist *= worst * 1.03
         eye = eyeAt(dist)
-        proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + size * 6)
+        proj = M4.persp(FOV, w / h, Math.max(1, dist * 0.02), dist * 8 + sceneSize * 6)
         view = M4.lookAt(eye, target, [0, 0, 1])
         viewProj = M4.mul(proj, view)
       }
@@ -572,7 +591,7 @@ function createGLRenderer(canvas) {
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, shadowTex)
 
-      if (!floorReady) buildFloor(Math.max(size * 3, 600))
+      if (!floorReady) buildFloor(Math.max(sceneSize * 3, 600))
       gl.useProgram(floorProg)
       gl.uniformMatrix4fv(uni(floorProg, 'uViewProj'), false, viewProj)
       gl.uniformMatrix4fv(uni(floorProg, 'uLightViewProj'), false, lightViewProj)
@@ -581,8 +600,9 @@ function createGLRenderer(canvas) {
       gl.uniform1f(uni(floorProg, 'uShadowTexel'), 1 / SHADOW)
       gl.uniform1f(uni(floorProg, 'uHasShadow'), 1)
       gl.uniform3f(uni(floorProg, 'uPlateColor'), 0.028, 0.037, 0.048)
-      gl.uniform1f(uni(floorProg, 'uExtent'), Math.max(size * 3, 600))
-      gl.uniform1f(uni(floorProg, 'uGridMm'), size > 600 ? 100 : 50)
+      gl.uniform1f(uni(floorProg, 'uExtent'), Math.max(sceneSize * 3, 600))
+      gl.uniform1f(uni(floorProg, 'uGridMm'), sceneSize > 3000 ? 500 : sceneSize > 600 ? 100 : 50)
+      gl.uniform1f(uni(floorProg, 'uContactMm'), (opts && opts.subjectR) || Math.min(size * 0.9, 800))
       gl.uniform1f(uni(floorProg, 'uShowGrid'), opts && opts.grid ? 1 : 0)
       gl.bindVertexArray(floorVao)
       gl.depthMask(false)

@@ -957,11 +957,12 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const fallback = useRef(false)
   const target = useMemo(() => {
+    if (focus) return focus
     if (!mesh.length) return [0, 0, 120]
     const min = [Infinity, Infinity, Infinity]
     const max = [-Infinity, -Infinity, -Infinity]
@@ -970,7 +971,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       if (p[i] > max[i]) max[i] = p[i]
     }
     return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]
-  }, [mesh])
+  }, [mesh, focus])
 
   useEffect(() => {
     const cv = ref.current
