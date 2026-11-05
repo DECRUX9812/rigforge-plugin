@@ -460,6 +460,10 @@ function createGripTeleop(design) {
   return {
     kind: 'grip',
     state,
+    design,
+    // the same rating the bench HUD prints — certification must test the
+    // number the sizing checks claim, not a friendlier one
+    holdKg: (design.metrics && design.metrics.gripMassKg) || 0,
     /** cmd: {grip: space held, gripEdge: space keydown edge}; returns desired angle or null. */
     step(cmd) {
       const held = !!(cmd && cmd.grip)

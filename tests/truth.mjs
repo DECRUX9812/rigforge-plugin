@@ -790,7 +790,9 @@ check('autotest grip: jaw cycles open/closed on command', () => {
   at.start()
   for (let i = 0; i < 60 * 15 && at.running; i++) grip.step(at.tick(1 / 60))
   assert(at.done && at.results[0] && at.results[0].pass, `jaw test: ${at.results[0] && at.results[0].detail}`)
-  return at.results[0].detail
+  const hold = at.results.find((r) => r.id === 'hold')
+  assert(hold && hold.pass, `hold test: ${hold && hold.detail} (rated ${design.metrics.gripMassKg.toFixed(1)}kg)`)
+  return `${at.results[0].detail} · ${hold.detail}`
 })
 
 check('autotest sense: stimulus sweep fires a real threshold alert', () => {
