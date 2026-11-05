@@ -452,6 +452,7 @@ function Studio() {
   const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
+  const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -623,6 +624,7 @@ function Studio() {
   const gpBtnRef = useRef(false)
   const autotestRef = useRef(null)
   const autoReportOffRef = useRef(false)
+  const certLoggedRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -757,6 +759,29 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      }
+      // a finished certification run goes into persistent history once —
+      // the card and REPORT can then show "best for this machine"
+      const atDone = autotestRef.current
+      if (atDone && atDone.done && !certLoggedRef.current) {
+        certLoggedRef.current = true
+        try {
+          const entry = {
+            arch: design.archetype || (design.brief && design.brief.archetype) || '?',
+            mode: drive ? 'drive' : ik ? 'ik' : gait ? 'gait' : grip ? 'grip' : sense ? 'sense' : '?',
+            passes: atDone.results.filter((r) => r.pass).length,
+            total: atDone.results.length,
+            ts: Date.now(),
+            phases: atDone.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}`).join(' '),
+          }
+          setCertHistory((h) => {
+            const next = [...h, entry].slice(-30)
+            if (CTX) CTX.storage.set('certHistory', next)
+            return next
+          })
+        } catch { /* storage may be unavailable */ }
+      } else if (atDone && atDone.running) {
+        certLoggedRef.current = false
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
@@ -936,6 +961,10 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
+  const certArch = design.archetype || (design.brief && design.brief.archetype)
+  const certBest = certHistory.filter((x) => x.arch === certArch)
+    .reduce((m, x) => (!m || x.passes > m.passes ? x : m), null)
+
   const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
     [benchLive, driveHud, propHud, gripHud, powerHud, brief])
 
@@ -1163,7 +1192,7 @@ function Studio() {
   const warns = analysis.checks.filter((c) => c.level === 'warn').length
 
   const panel = tab === 'spec' ? h(TabSpec, { design, analysis })
-    : tab === 'test' ? h(TabTest, { design, analysis })
+    : tab === 'test' ? h(TabTest, { design, analysis, certHistory })
     : tab === 'parts' ? h(TabParts, { design, analysis })
       : tab === 'pins' ? h(TabPins, { analysis })
         : tab === 'power' ? h(TabPower, { analysis })
@@ -1646,6 +1675,10 @@ function Studio() {
               title: 'dismiss — results stay in REPORT',
               onClick: () => { autoReportOffRef.current = true },
             }, '×')),
+          certBest ? h('div', {
+            style: { fontSize: '9.5px', color: C.faint, marginBottom: '4px' },
+            title: certHistory.filter((x) => x.arch === certArch).map((x) => `${x.passes}/${x.total} · ${x.phases}`).join('\n'),
+          }, `best for this machine: ${certBest.passes}/${certBest.total}`) : null,
           ...autotestRef.current.results.map((r) => h('div', {
             key: r.id || r.label,
             style: { display: 'flex', gap: '8px', alignItems: 'baseline', padding: '2px 0' },
