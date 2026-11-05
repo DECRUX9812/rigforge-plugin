@@ -1,14 +1,81 @@
-// ── chassis drive: throttle, steer, traction — the machine actually moves ────
+// ── chassis drive: throttle, steer, traction, slopes — the machine moves ────
 // Differential-drive model on the numbers the design already computed:
-//   · per-side tractive force = 2 wheels × torquePerWheel / wheel radius
-//   · traction cap = μ·m·g (rubber on the studio floor, μ = 0.8)
+//   · tractive force at the contact patch = 2 wheels × torquePerWheel / wheelR
+//   · traction cap = μ·m·g·cos(grade) — demand beyond it is wheelspin
+//   · gravity along the slope = m·g·sin(grade)·cos(yaw) — honest rollback
 //   · yaw from differential wheel speeds about the track width
 //   · speed asymptotes to the design's own speedMps (motor rpm × wheel Ø)
-// Only wheeled archetypes get a drive state — legged gait is a different
-// problem (footfall IK) and static nodes honestly have nothing to drive.
+// Only wheeled archetypes get a drive state — legged gait is footfall IK,
+// a different problem, and static nodes honestly have nothing to drive.
 
-const DRIVE_MU = 0.8 // rubber pneumatic-ish on sealed floor
-const DRIVE_VMAX_CAP = 1.4 // m/s — bench scale, not a highway
+/** Bench surfaces — rubber-ish wheels on each. μ is honest, not generous. */
+const DRIVE_SURFACES = {
+  concrete: { mu: 0.9, label: 'dry concrete' },
+  hardwood: { mu: 0.8, label: 'hardwood' },
+  tile: { mu: 0.35, label: 'glazed tile' },
+  ice: { mu: 0.12, label: 'wet ice' },
+}
+
+/** The traction rack: a wedge rising along +X, then a plateau. */
+const RAMP = { x0: 1.4, x1: 3.0, halfW: 1.1, topX: 5.2 }
+
+/** Terrain height at world x — flat, ramp grade, then plateau. */
+function terrainHeight(x, slopeDeg) {
+  if (x <= RAMP.x0) return 0
+  const h = (RAMP.x1 - RAMP.x0) * Math.tan((slopeDeg * Math.PI) / 180)
+  if (x >= RAMP.x1) return h
+  return (x - RAMP.x0) * Math.tan((slopeDeg * Math.PI) / 180)
+}
+
+/** Local grade (radians, + = uphill toward +X) at world x. */
+function terrainGrade(x, slopeDeg) {
+  if (x <= RAMP.x0 || x >= RAMP.x1) return 0
+  return (slopeDeg * Math.PI) / 180
+}
+
+/**
+ * Wedge + plateau test-rack geometry as render tris. `mat` is a viewport
+ * material key; the ramp reads as aluminium test equipment with an amber
+ * edge stripe so it never blends into the floor.
+ */
+function benchRampTris(slopeDeg) {
+  const h = (RAMP.x1 - RAMP.x0) * Math.tan((slopeDeg * Math.PI) / 180)
+  const { x0, x1, halfW, topX } = RAMP
+  const W = halfW
+  const tris = []
+  const T = (a, b, c, mat, node) => tris.push({ pts: [a, b, c], mat, node })
+  const s0 = [x0, -W, 0], s1 = [x1, -W, h], s2 = [x1, W, h], s3 = [x0, W, 0]
+  const p0 = [x1, -W, h], p1 = [topX, -W, h], p2 = [topX, W, h], p3 = [x1, W, h]
+  // top surface: two quads → four tris (winding fixed by renderer anyway)
+  T(s0, s1, s2, 'metal', 'bench-ramp'); T(s0, s2, s3, 'metal', 'bench-ramp')
+  T(p0, p1, p2, 'metal', 'bench-ramp'); T(p0, p2, p3, 'metal', 'bench-ramp')
+  // front skirt (y=-W): slope face + plateau face + bottom edge
+  T([x0, -W, 0], [x0, -W, 0], [x1, -W, h], 'metal', 'bench-ramp')
+  T([x0, -W, 0], [x1, -W, h], [x1, -W, 0], 'metal', 'bench-ramp')
+  T([x1, -W, h], [x1, -W, 0], [topX, -W, h], 'metal', 'bench-ramp')
+  T([x1, -W, 0], [topX, -W, 0], [topX, -W, h], 'metal', 'bench-ramp')
+  // back skirt (y=+W), mirrored
+  T([x0, W, 0], [x1, W, h], [x0, W, 0], 'metal', 'bench-ramp')
+  T([x1, W, h], [x1, W, 0], [x0, W, 0], 'metal', 'bench-ramp')
+  T([x1, W, h], [topX, W, h], [x1, W, 0], 'metal', 'bench-ramp')
+  T([topX, W, h], [topX, W, 0], [x1, W, 0], 'metal', 'bench-ramp')
+  // toe face at x0 (vertical triangle under the ramp lip)
+  T([x0, -W, 0], [x0, W, 0], [x1, -W, h], 'metal', 'bench-ramp')
+  T([x0, W, 0], [x1, W, h], [x1, -W, h], 'metal', 'bench-ramp')
+  // end face at topX
+  T([topX, -W, h], [topX, W, h], [topX, W, 0], 'metal', 'bench-ramp')
+  T([topX, -W, h], [topX, W, 0], [topX, -W, 0], 'metal', 'bench-ramp')
+  // amber edge stripe along both lips of the driving surface
+  const stripe = (ya, yb) => {
+    const a = [x0, ya, 0.012], b = [x1, yb, h + 0.012], c = [x1, yb, h - 0.012], d = [x0, ya, -0.012]
+    T(a, b, c, 'accent', 'bench-ramp'); T(a, c, d, 'accent', 'bench-ramp')
+    const e = [x1, ya, h + 0.012], f = [topX, yb, h + 0.012], g = [topX, yb, h - 0.012], hh = [x1, ya, h - 0.012]
+    T(e, f, g, 'accent', 'bench-ramp'); T(e, g, hh, 'accent', 'bench-ramp')
+  }
+  stripe(-W + 0.03, -W + 0.03)
+  stripe(W - 0.03, W - 0.03)
+  return tris
+}
 
 /** Returns null for machines with nothing to drive. */
 function createDrive(design, analysis) {
@@ -17,76 +84,131 @@ function createDrive(design, analysis) {
   const motor = PARTS[m.motor]
   const wheelR = m.wheelD / 2000 // m
   const track = (m.trackMm || 300) / 1000 // m
-  const mass = m.massKg
-  // two driven wheels per side on a 4WD machine; torquePerWheel is N·m at the
-  // wheel, so F = τ/r per wheel
-  const fSide = 2 * (m.torquePerWheel || (motor && motor.torque) || 0.5) / Math.max(wheelR, 0.01)
-  const vmax = Math.min(m.speedMps || 1, DRIVE_VMAX_CAP)
-  // tractive limit: the floor can only push back μ·N before the wheels spin
-  const fMax = DRIVE_MU * mass * 9.81
-  const aMax = Math.min(fSide / mass, fMax / mass, 6) // m/s², capped for feel
+  const baseMass = m.massKg
+  // Tractive capability: two motor channels (one per side, each driving a
+  // wheel pair) at ~35% of stall torque — what a brushed DC gearmotor actually
+  // sustains, not the peak it dies at. F = τ/r per channel.
+  const motorTorque = (motor && motor.torque) || m.torquePerWheel || 0.5
+  const fMotor = (2 * motorTorque * 0.35) / Math.max(wheelR, 0.01)
+  const vmax = Math.min(m.speedMps || 1, 1.4) // bench scale, not a highway
+
+  const env = { surface: 'hardwood', slopeDeg: 0, payloadKg: 0 }
+  const mass = () => baseMass + (env.payloadKg || 0)
 
   return {
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
     vmax,
-    fSide,
-    aMax,
-    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, throttle: 0, steer: 0 },
+    fMotor,
+    env,
+    surfaces: DRIVE_SURFACES,
+    /** Merge bench controls; physics picks them up next step. */
+    setEnv(patch) { Object.assign(env, patch) },
+    state: { x: 0, y: 0, yaw: 0, v: 0, w: 0, throttle: 0, steer: 0, grade: 0, z: 0, slip: false, stall: false },
     /** cmd: {throttle: -1..1, steer: -1..1}; dt seconds. Mutates state. */
     step(cmd, dt) {
       const s = this.state
+      dt = Math.min(dt, 0.05)
       s.throttle = Math.max(-1, Math.min(1, cmd.throttle || 0))
       s.steer = Math.max(-1, Math.min(1, cmd.steer || 0))
-      // command velocity: throttle scales vmax; steer yaw rate falls off with
-      // speed so the machine can still turn on the spot
+      const mNow = mass()
+      const mu = (DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood).mu
+      const grade = terrainGrade(s.x, env.slopeDeg)
+      s.grade = grade
+      s.z = terrainHeight(s.x, env.slopeDeg)
+
+      // command velocity; steer yaw rate falls off with speed so the machine
+      // can still turn on the spot
       const vCmd = s.throttle * vmax
       const wCmd = -s.steer * (vmax / Math.max(track * 0.5, 0.05)) * (Math.abs(s.throttle) > 0.05 ? 1 : 0.6)
-      // accelerate toward the command with a 0.3 s time constant, capped by
-      // what the contact patches can actually transmit (μ·N) — that cap IS
-      // the traction model: demand beyond it is wheelspin, not motion
-      const aWant = (vCmd - s.v) / 0.3
-      s.v += Math.sign(aWant) * Math.min(Math.abs(aWant), aMax) * dt
+
+      // Torque-speed curve: full tractive effort at stall, fading linearly to
+      // nothing at the commanded speed — so partial throttle means partial
+      // speed, and a slope that eats the torque shows up as lost speed.
+      const vT = Math.abs(vCmd) + 0.05
+      const speedFrac = Math.min(1, Math.abs(s.v) / vT)
+      const tAvail = fMotor * Math.max(0, 1 - speedFrac)
+      const Fdem = s.throttle * tAvail
+      const N = mNow *  G * Math.cos(grade)
+      const Fcap = mu * N
+      s.slip = Math.abs(Fdem) > Fcap + 1e-6
+      const F = Math.sign(Fdem) * Math.min(Math.abs(Fdem), Fcap)
+      const uphill = Math.cos(s.yaw) // heading · +X — ramp runs along +X
+      const aGrav = - G * Math.sin(grade) * uphill
+      // rolling resistance + viscous drag: the machine actually stops when you
+      // let go, instead of coasting forever on a frictionless floor
+      const aRoll = -Math.sign(s.v) * (0.35 + 0.25 * Math.abs(s.v))
+      s.v += Math.max(-4, Math.min(4, F / mNow + aGrav + aRoll)) * dt
+
       const wWant = (wCmd - s.w) / 0.18
-      const wMax = 3.2 // rad/s² yaw accel — steering geometry, not traction
+      const wMax = 3.2
       s.w += Math.sign(wWant) * Math.min(Math.abs(wWant), wMax) * dt
       s.x += s.v * Math.cos(s.yaw) * dt
       s.y += s.v * Math.sin(s.yaw) * dt
       s.yaw += s.w * dt
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2
       if (s.yaw < -Math.PI) s.yaw += Math.PI * 2
+      // stall = asking for climb the machine cannot make (motor OR traction)
+      s.stall = s.throttle > 0.3 && s.v < 0.05 && grade > 0.03
       return s
     },
-    /** Reset to the origin, facing +X. */
-    reset() { const s = this.state; s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0; s.throttle = 0; s.steer = 0 },
+    /** Reset to the origin, facing +X (the ramp's toe). */
+    reset() {
+      const s = this.state
+      s.x = 0; s.y = 0; s.yaw = 0; s.v = 0; s.w = 0
+      s.throttle = 0; s.steer = 0; s.slip = false; s.stall = false
+    },
     /** Telemetry for the HUD. */
     hud() {
       const s = this.state
-      return { speed: Math.abs(s.v), yawDeg: Math.round((s.yaw * 180) / Math.PI), throttle: s.throttle, steer: s.steer }
+      const surf = DRIVE_SURFACES[env.surface] || DRIVE_SURFACES.hardwood
+      return {
+        speed: Math.abs(s.v),
+        yawDeg: Math.round((s.yaw * 180) / Math.PI),
+        throttle: s.throttle,
+        steer: s.steer,
+        gradeDeg: Math.round((s.grade * 180) / Math.PI),
+        surface: surf.label,
+        mu: surf.mu,
+        mass: mass(),
+        slip: s.slip,
+        stall: s.stall,
+      }
     },
   }
 }
 
 /**
- * Transform every triangle of the viewport mesh by the chassis pose —
- * translate (x,y) then rotate about Z through the origin (machines are
- * modelled nose-on-+X, centred near origin). Returns a new array; the input
- * mesh is untouched so STL/exports never see the drive offset.
+ * Rigid-body transform of every viewport triangle by the chassis pose:
+ * pitch about the local Y axis through the terrain grade, yaw about Z,
+ * then translate to (x, y) and lift by the terrain height under the hull.
+ * A stable `out` array can be passed to keep mesh identity for caches.
  */
-function chassisTransformTris(mesh, st) {
+function applyChassis(mesh, st, slopeDeg, out) {
   if (!st) return mesh
+  const g = st.grade || 0
+  const cp = Math.cos(-g), sp = Math.sin(-g)
   const c = Math.cos(st.yaw), sn = Math.sin(st.yaw)
-  const out = new Array(mesh.length)
+  const zBase = terrainHeight(st.x, slopeDeg || 0)
+  const res = out || new Array(mesh.length)
   for (let i = 0; i < mesh.length; i++) {
     const t = mesh[i]
-    const pts = new Array(3)
+    let slot = res[i]
+    if (!slot) {
+      slot = { ...t, pts: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] }
+      res[i] = slot
+    }
+    const pts = slot.pts
     for (let k = 0; k < 3; k++) {
       const p = t.pts[k]
-      const rx = p[0] * c - p[1] * sn + st.x
-      const ry = p[0] * sn + p[1] * c + st.y
-      pts[k] = [rx, ry, p[2]]
+      // pitch about local Y (nose-up when climbing), then yaw about Z
+      const px = p[0] * cp + p[2] * sp
+      const pz = -p[0] * sp + p[2] * cp
+      const py = p[1]
+      pts[k][0] = px * c - py * sn + st.x
+      pts[k][1] = px * sn + py * c + st.y
+      pts[k][2] = pz + zBase
     }
-    out[i] = { ...t, pts }
   }
-  return out
+  return res
 }

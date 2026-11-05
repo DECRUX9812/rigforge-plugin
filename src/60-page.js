@@ -597,6 +597,7 @@ function Studio() {
   const [driveAvail, setDriveAvail] = useState(false)
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
+  const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
   const keysRef = useRef({})
 
   useEffect(() => {
@@ -604,6 +605,10 @@ function Studio() {
     setDriveAvail(!!driveRef.current)
     setChassis(null)
   }, [design, analysis])
+
+  useEffect(() => {
+    if (driveRef.current) driveRef.current.setEnv(benchEnv)
+  }, [benchEnv])
 
   useEffect(() => {
     if (!driveOn || !driveRef.current) return undefined
@@ -648,49 +653,52 @@ function Studio() {
     return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up) }
   }, [driveOn])
 
-  // The displayed mesh: same tri objects, transformed verts — the array
-  // identity stays stable so the renderer's topology/tint cache still hits.
+  // The displayed mesh: applyChassis mutates verts in place on persistent tri
+  // objects so the array identity — and the renderer's topology/tint cache —
+  // survives every frame. The traction rack rides along as extra world-space
+  // tris appended once per (mesh, slope, drive) change.
   const xfRef = useRef(null)
   const viewMesh = useMemo(() => {
     if (!chassis) return mesh
+    const slope = benchEnv.slopeDeg
     let xf = xfRef.current
-    if (!xf || xf.src !== mesh) {
-      xf = { src: mesh, orig: [], out: [] }
-      for (const t of mesh) {
-        xf.orig.push(t.pts.map((p) => [p[0], p[1], p[2]]))
-        xf.out.push({ ...t, pts: t.pts.map((p) => [p[0], p[1], p[2]]) })
+    if (!xf || xf.src !== mesh || xf.slope !== slope || xf.ramp !== driveOn) {
+      xf = {
+        src: mesh, slope, ramp: driveOn,
+        mach: new Array(mesh.length),
+        rt: driveOn ? benchRampTris(slope) : null,
+        combined: null,
       }
       xfRef.current = xf
     }
-    const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
-    for (let i = 0; i < xf.out.length; i++) {
-      const op = xf.orig[i]
-      const tp = xf.out[i].pts
-      for (let k = 0; k < 3; k++) {
-        const px = op[k][0], py = op[k][1]
-        tp[k][0] = px * c - py * sn + chassis.x
-        tp[k][1] = px * sn + py * c + chassis.y
-        tp[k][2] = op[k][2]
-      }
+    const mach = applyChassis(mesh, chassis, slope, xf.mach)
+    if (!xf.combined) {
+      const n = mach.length + (xf.rt ? xf.rt.length : 0)
+      xf.combined = new Array(n)
+      for (let i = 0; i < mach.length; i++) xf.combined[i] = mach[i]
+      if (xf.rt) for (let i = 0; i < xf.rt.length; i++) xf.combined[mach.length + i] = xf.rt[i]
     }
-    return xf.out
-  }, [mesh, chassis])
+    return xf.combined
+  }, [mesh, chassis, benchEnv, driveOn])
 
-  // The overlay rides the machine: transform its world-space segments too.
+  // The overlay rides the machine in plan, but its points live ON the terrain:
+  // yaw+translate in x/y, then each point takes the ramp height under it.
   const benchOvWorld = useMemo(() => {
     if (!benchOv || !chassis) return benchOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
+    const slope = benchEnv.slopeDeg
     const d = benchOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
-      const px = d[i], py = d[i + 1]
-      out[i] = px * c - py * sn + chassis.x
-      out[i + 1] = px * sn + py * c + chassis.y
-      out[i + 2] = d[i + 2]
+      const wx = d[i] * c - d[i + 1] * sn + chassis.x
+      const wy = d[i] * sn + d[i + 1] * c + chassis.y
+      out[i] = wx
+      out[i + 1] = wy
+      out[i + 2] = terrainHeight(wx, slope)
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
     return { data: out, verts: benchOv.verts }
-  }, [benchOv, chassis])
+  }, [benchOv, chassis, benchEnv])
 
   const driveHud = driveOn && chassis ? driveRef.current.hud() : null
 
@@ -1238,12 +1246,57 @@ function Studio() {
             fontFamily: C.mono, fontSize: '10.5px', color: C.cyan,
             background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
             borderRadius: '7px', padding: '5px 9px', pointerEvents: 'none',
-            display: 'flex', gap: '10px', alignItems: 'center',
+            display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
           },
         },
           h('span', {}, `v ${driveHud.speed.toFixed(2)} m/s`),
           h('span', {}, `hdg ${driveHud.yawDeg}°`),
-          h('span', { style: { color: C.faint } }, 'WASD drive · R reset · gamepad ok')) : null,
+          driveHud.gradeDeg ? h('span', {}, `grade ${driveHud.gradeDeg}°`) : null,
+          h('span', { style: { color: C.faint } }, `${driveHud.surface} μ${driveHud.mu}`),
+          driveHud.mass > 0 ? h('span', { style: { color: C.faint } }, `${driveHud.mass.toFixed(1)}kg`) : null,
+          driveHud.slip ? h('span', { style: { color: C.amber } }, 'WHEELSPIN') : null,
+          driveHud.stall ? h('span', { style: { color: C.red } }, 'STALL') : null,
+          h('span', { style: { color: C.faint } }, 'WASD · R reset')) : null,
+        driveOn ? h('div', {
+          style: {
+            position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10px', color: C.dim,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '7px 10px', width: '188px',
+            display: 'flex', flexDirection: 'column', gap: '6px',
+          },
+        },
+          h('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+            Object.keys(DRIVE_SURFACES).map((sk) => h('button', {
+              key: sk,
+              onClick: () => setBenchEnv((e) => ({ ...e, surface: sk })),
+              style: {
+                fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.4px',
+                padding: '2px 7px', borderRadius: '4px', cursor: 'pointer',
+                border: `1px solid ${benchEnv.surface === sk ? C.cyan : C.line}`,
+                background: benchEnv.surface === sk ? 'rgba(0,229,255,0.12)' : 'transparent',
+                color: benchEnv.surface === sk ? C.cyan : C.dim,
+              },
+            }, sk.toUpperCase()))),
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
+            h('span', { style: { width: '52px', color: C.faint } }, 'RAMP'),
+            h('input', {
+              type: 'range', min: 0, max: 35, step: 1, value: benchEnv.slopeDeg,
+              onChange: (e) => setBenchEnv((b) => ({ ...b, slopeDeg: Number(e.target.value) })),
+              style: { flex: 1, accentColor: C.cyan },
+              'aria-label': 'ramp angle',
+            }),
+            h('span', { style: { width: '30px', textAlign: 'right', color: C.cyan } }, `${benchEnv.slopeDeg}°`)),
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px' } },
+            h('span', { style: { width: '52px', color: C.faint } }, 'LOAD'),
+            h('input', {
+              type: 'range', min: 0, max: 2, step: 0.1, value: benchEnv.payloadKg,
+              onChange: (e) => setBenchEnv((b) => ({ ...b, payloadKg: Number(e.target.value) })),
+              style: { flex: 1, accentColor: C.amber },
+              'aria-label': 'payload mass',
+            }),
+            h('span', { style: { width: '30px', textAlign: 'right', color: C.amber } }, `${benchEnv.payloadKg.toFixed(1)}kg`)),
+        ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
