@@ -5142,8 +5142,8 @@ function createDrive(design, analysis) {
     shove(forceN) {
       const s = this.state
       const mNow = mass()
-      s.vl += (forceN * 0.12) / mNow // N·s impulse over ~0.12 s contact
-      s.w += (forceN * 0.05) / Math.max(mNow * 0.4, 0.5) // off-centre hits spin it
+      s.vl += (forceN * 0.25) / mNow // N·s impulse over ~0.25 s contact
+      s.w += (forceN * 0.12) / Math.max(mNow * 0.3, 0.5) // off-centre hits spin it
       return s
     },
     /** Reset to the origin, facing +X (the ramp's toe). */
@@ -5497,6 +5497,56 @@ function createGripTeleop(design) {
       return { kind: 'grip', open: state.open }
     },
   }
+}
+
+// ── desk bench: weighted pick-place props for the reach mode ────────────────
+// Three honest objects on the bench at pick heights — the light bin, the
+// printed part, the steel block. The IK HUD names whichever one the
+// end-effector is over and flags it when its mass beats the arm's payload
+// rating. Props are world-space tris appended to the viewport mesh.
+
+const DESK_PROPS = [
+  { id: 'bin', name: 'parts bin', massG: 80, size: [120, 80, 90], pos: [300, -70, 205], mat: 'accent' },
+  { id: 'print', name: 'printed part', massG: 350, size: [60, 60, 40], pos: [350, 50, 180], mat: 'pcb' },
+  { id: 'steel', name: 'steel block', massG: 1200, size: [80, 80, 80], pos: [390, -10, 200], mat: 'steel' },
+]
+// the bench slab the props sit on: top at z=160, spanning the workspace
+const DESK_SLICE = { size: [560, 340, 14], pos: [280, -10, 153], mat: 'metal' }
+
+function deskBoxTris(cx, cy, cz, sx, sy, sz, mat, node) {
+  const x0 = cx - sx / 2, x1 = cx + sx / 2
+  const y0 = cy - sy / 2, y1 = cy + sy / 2
+  const z0 = cz - sz / 2, z1 = cz + sz / 2
+  const P = (x, y, z) => [x, y, z]
+  const T = (a, b, c) => ({ pts: [a, b, c], mat, node })
+  return [
+    T(P(x0,y0,z0),P(x1,y0,z0),P(x1,y1,z0)), T(P(x0,y0,z0),P(x1,y1,z0),P(x0,y1,z0)), // bottom
+    T(P(x0,y0,z1),P(x0,y1,z1),P(x1,y1,z1)), T(P(x0,y0,z1),P(x1,y1,z1),P(x1,y0,z1)), // top
+    T(P(x0,y0,z0),P(x0,y0,z1),P(x1,y0,z1)), T(P(x0,y0,z0),P(x1,y0,z1),P(x1,y0,z0)), // -y
+    T(P(x1,y1,z0),P(x1,y1,z1),P(x0,y1,z1)), T(P(x1,y1,z0),P(x0,y1,z1),P(x0,y1,z0)), // +y
+    T(P(x0,y0,z0),P(x0,y1,z0),P(x0,y1,z1)), T(P(x0,y0,z0),P(x0,y1,z1),P(x0,y0,z1)), // -x
+    T(P(x1,y0,z0),P(x1,y0,z1),P(x1,y1,z1)), T(P(x1,y0,z0),P(x1,y1,z1),P(x1,y1,z0)), // +x
+  ]
+}
+
+let _deskTris = null
+function deskPropsTris() {
+  if (_deskTris) return _deskTris
+  _deskTris = deskBoxTris(DESK_SLICE.pos[0], DESK_SLICE.pos[1], DESK_SLICE.pos[2], ...DESK_SLICE.size, DESK_SLICE.mat, 'desk')
+  for (const p of DESK_PROPS) {
+    _deskTris.push(...deskBoxTris(p.pos[0], p.pos[1], p.pos[2], ...p.size, p.mat, `prop-${p.id}`))
+  }
+  return _deskTris
+}
+
+/** Nearest desk prop to a world point, within `r` mm — for the reach HUD. */
+function deskPropNear(x, y, z, r = 110) {
+  let best = null, bd = r
+  for (const p of DESK_PROPS) {
+    const d = Math.hypot(p.pos[0] - x, p.pos[1] - y, (p.pos[2] - z) * 0.7)
+    if (d < bd) { bd = d; best = p }
+  }
+  return best ? { prop: best, dist: bd } : null
 }
 
 // ── endurance power: battery SoC, bus sag, servo thermals ──────────────────
@@ -9513,20 +9563,27 @@ function Studio() {
   // survives every frame. The traction rack rides along as extra world-space
   // tris appended once per (mesh, slope, drive) change.
   const xfRef = useRef(null)
+  // World-space bench props ride along as extra tris: the traction rack for
+  // drive mode, the pick-place desk for reach mode. Identity-stable per
+  // (mesh, mode, slope) so the renderer caches survive every frame.
+  const rtTris = useMemo(
+    () => (driveOn && teleopKind === 'drive' ? benchRampTris(benchEnv.slopeDeg)
+      : driveOn && teleopKind === 'ik' ? deskPropsTris() : null),
+    [driveOn, teleopKind, benchEnv.slopeDeg],
+  )
   const viewMesh = useMemo(() => {
-    if (!chassis) return mesh
-    const slope = benchEnv.slopeDeg
+    if (!chassis && !rtTris) return mesh
+    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : 'desk') : null
     let xf = xfRef.current
-    if (!xf || xf.src !== mesh || xf.slope !== slope || xf.ramp !== driveOn) {
+    if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
-        src: mesh, slope, ramp: driveOn,
-        mach: new Array(mesh.length),
-        rt: driveOn ? benchRampTris(slope) : null,
-        combined: null,
+        src: mesh, rtSig,
+        mach: chassis ? new Array(mesh.length) : null,
+        rt: rtTris, combined: null,
       }
       xfRef.current = xf
     }
-    const mach = applyChassis(mesh, chassis, slope, xf.mach)
+    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach) : mesh
     if (!xf.combined) {
       const n = mach.length + (xf.rt ? xf.rt.length : 0)
       xf.combined = new Array(n)
@@ -9534,7 +9591,7 @@ function Studio() {
       if (xf.rt) for (let i = 0; i < xf.rt.length; i++) xf.combined[mach.length + i] = xf.rt[i]
     }
     return xf.combined
-  }, [mesh, chassis, benchEnv, driveOn])
+  }, [mesh, chassis, rtTris, teleopKind, benchEnv])
 
   // The overlay rides the machine in plan, but its points live ON the terrain:
   // yaw+translate in x/y, then each point takes the ramp height under it.
@@ -9560,6 +9617,16 @@ function Studio() {
     ? teleop.hud()
     : null
   const powerHud = powerRef.current ? powerRef.current.hud() : null
+  // Desk-bench verdict: which pick-place prop is the end-effector over, and
+  // does its mass beat the arm's payload rating?
+  const propHud = useMemo(() => {
+    if (teleopKind !== 'ik' || !ikRef.current || !ikRef.current.state.ready) return null
+    const s = ikRef.current.state
+    const near = deskPropNear(s.tx, s.ty, s.tz)
+    if (!near) return null
+    const ratingG = ((design.metrics && design.metrics.payloadKg) || 0) * 1000
+    return { name: near.prop.name, massG: near.prop.massG, over: ratingG > 0 && near.prop.massG > ratingG }
+  }, [driveHud, teleopKind, design])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -10112,6 +10179,11 @@ function Studio() {
             ? [
                 h('span', { key: 'a' }, `IK err ${driveHud.err.toFixed(0)}mm`),
                 h('span', { key: 'b', style: { color: C.faint } }, `tgt ${driveHud.tx},${driveHud.ty},${driveHud.tz}`),
+                propHud ? h('span', {
+                  key: 'prop',
+                  style: { color: propHud.over ? C.red : C.green },
+                  title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
+                }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'

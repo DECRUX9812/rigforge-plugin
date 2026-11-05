@@ -288,3 +288,53 @@ function createGripTeleop(design) {
     },
   }
 }
+
+// ── desk bench: weighted pick-place props for the reach mode ────────────────
+// Three honest objects on the bench at pick heights — the light bin, the
+// printed part, the steel block. The IK HUD names whichever one the
+// end-effector is over and flags it when its mass beats the arm's payload
+// rating. Props are world-space tris appended to the viewport mesh.
+
+const DESK_PROPS = [
+  { id: 'bin', name: 'parts bin', massG: 80, size: [120, 80, 90], pos: [300, -70, 205], mat: 'accent' },
+  { id: 'print', name: 'printed part', massG: 350, size: [60, 60, 40], pos: [350, 50, 180], mat: 'pcb' },
+  { id: 'steel', name: 'steel block', massG: 1200, size: [80, 80, 80], pos: [390, -10, 200], mat: 'steel' },
+]
+// the bench slab the props sit on: top at z=160, spanning the workspace
+const DESK_SLICE = { size: [560, 340, 14], pos: [280, -10, 153], mat: 'metal' }
+
+function deskBoxTris(cx, cy, cz, sx, sy, sz, mat, node) {
+  const x0 = cx - sx / 2, x1 = cx + sx / 2
+  const y0 = cy - sy / 2, y1 = cy + sy / 2
+  const z0 = cz - sz / 2, z1 = cz + sz / 2
+  const P = (x, y, z) => [x, y, z]
+  const T = (a, b, c) => ({ pts: [a, b, c], mat, node })
+  return [
+    T(P(x0,y0,z0),P(x1,y0,z0),P(x1,y1,z0)), T(P(x0,y0,z0),P(x1,y1,z0),P(x0,y1,z0)), // bottom
+    T(P(x0,y0,z1),P(x0,y1,z1),P(x1,y1,z1)), T(P(x0,y0,z1),P(x1,y1,z1),P(x1,y0,z1)), // top
+    T(P(x0,y0,z0),P(x0,y0,z1),P(x1,y0,z1)), T(P(x0,y0,z0),P(x1,y0,z1),P(x1,y0,z0)), // -y
+    T(P(x1,y1,z0),P(x1,y1,z1),P(x0,y1,z1)), T(P(x1,y1,z0),P(x0,y1,z1),P(x0,y1,z0)), // +y
+    T(P(x0,y0,z0),P(x0,y1,z0),P(x0,y1,z1)), T(P(x0,y0,z0),P(x0,y1,z1),P(x0,y0,z1)), // -x
+    T(P(x1,y0,z0),P(x1,y0,z1),P(x1,y1,z1)), T(P(x1,y0,z0),P(x1,y1,z1),P(x1,y1,z0)), // +x
+  ]
+}
+
+let _deskTris = null
+function deskPropsTris() {
+  if (_deskTris) return _deskTris
+  _deskTris = deskBoxTris(DESK_SLICE.pos[0], DESK_SLICE.pos[1], DESK_SLICE.pos[2], ...DESK_SLICE.size, DESK_SLICE.mat, 'desk')
+  for (const p of DESK_PROPS) {
+    _deskTris.push(...deskBoxTris(p.pos[0], p.pos[1], p.pos[2], ...p.size, p.mat, `prop-${p.id}`))
+  }
+  return _deskTris
+}
+
+/** Nearest desk prop to a world point, within `r` mm — for the reach HUD. */
+function deskPropNear(x, y, z, r = 110) {
+  let best = null, bd = r
+  for (const p of DESK_PROPS) {
+    const d = Math.hypot(p.pos[0] - x, p.pos[1] - y, (p.pos[2] - z) * 0.7)
+    if (d < bd) { bd = d; best = p }
+  }
+  return best ? { prop: best, dist: bd } : null
+}

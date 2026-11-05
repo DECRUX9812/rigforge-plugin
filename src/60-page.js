@@ -727,20 +727,27 @@ function Studio() {
   // survives every frame. The traction rack rides along as extra world-space
   // tris appended once per (mesh, slope, drive) change.
   const xfRef = useRef(null)
+  // World-space bench props ride along as extra tris: the traction rack for
+  // drive mode, the pick-place desk for reach mode. Identity-stable per
+  // (mesh, mode, slope) so the renderer caches survive every frame.
+  const rtTris = useMemo(
+    () => (driveOn && teleopKind === 'drive' ? benchRampTris(benchEnv.slopeDeg)
+      : driveOn && teleopKind === 'ik' ? deskPropsTris() : null),
+    [driveOn, teleopKind, benchEnv.slopeDeg],
+  )
   const viewMesh = useMemo(() => {
-    if (!chassis) return mesh
-    const slope = benchEnv.slopeDeg
+    if (!chassis && !rtTris) return mesh
+    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : 'desk') : null
     let xf = xfRef.current
-    if (!xf || xf.src !== mesh || xf.slope !== slope || xf.ramp !== driveOn) {
+    if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
-        src: mesh, slope, ramp: driveOn,
-        mach: new Array(mesh.length),
-        rt: driveOn ? benchRampTris(slope) : null,
-        combined: null,
+        src: mesh, rtSig,
+        mach: chassis ? new Array(mesh.length) : null,
+        rt: rtTris, combined: null,
       }
       xfRef.current = xf
     }
-    const mach = applyChassis(mesh, chassis, slope, xf.mach)
+    const mach = chassis ? applyChassis(mesh, chassis, benchEnv.slopeDeg, xf.mach) : mesh
     if (!xf.combined) {
       const n = mach.length + (xf.rt ? xf.rt.length : 0)
       xf.combined = new Array(n)
@@ -748,7 +755,7 @@ function Studio() {
       if (xf.rt) for (let i = 0; i < xf.rt.length; i++) xf.combined[mach.length + i] = xf.rt[i]
     }
     return xf.combined
-  }, [mesh, chassis, benchEnv, driveOn])
+  }, [mesh, chassis, rtTris, teleopKind, benchEnv])
 
   // The overlay rides the machine in plan, but its points live ON the terrain:
   // yaw+translate in x/y, then each point takes the ramp height under it.
@@ -774,6 +781,16 @@ function Studio() {
     ? teleop.hud()
     : null
   const powerHud = powerRef.current ? powerRef.current.hud() : null
+  // Desk-bench verdict: which pick-place prop is the end-effector over, and
+  // does its mass beat the arm's payload rating?
+  const propHud = useMemo(() => {
+    if (teleopKind !== 'ik' || !ikRef.current || !ikRef.current.state.ready) return null
+    const s = ikRef.current.state
+    const near = deskPropNear(s.tx, s.ty, s.tz)
+    if (!near) return null
+    const ratingG = ((design.metrics && design.metrics.payloadKg) || 0) * 1000
+    return { name: near.prop.name, massG: near.prop.massG, over: ratingG > 0 && near.prop.massG > ratingG }
+  }, [driveHud, teleopKind, design])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1326,6 +1343,11 @@ function Studio() {
             ? [
                 h('span', { key: 'a' }, `IK err ${driveHud.err.toFixed(0)}mm`),
                 h('span', { key: 'b', style: { color: C.faint } }, `tgt ${driveHud.tx},${driveHud.ty},${driveHud.tz}`),
+                propHud ? h('span', {
+                  key: 'prop',
+                  style: { color: propHud.over ? C.red : C.green },
+                  title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
+                }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'
