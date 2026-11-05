@@ -727,7 +727,7 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
     if (pose) pose.forEach((a, j) => { actual[j] = a }) // engine has no servo lag — apply instantly
   }
   assert(at.done, 'reach tour did not finish')
-  assert(at.results.length === 7, `expected 7 results (3 reach + home + 3 lift), got ${at.results.length}`)
+  assert(at.results.length === 8, `expected 8 results (3 reach + home + 3 lift + limits), got ${at.results.length}`)
   const steel = at.results.find((r) => r.id === 'reach-steel')
   assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
   const bin = at.results.find((r) => r.id === 'reach-bin')
@@ -739,6 +739,8 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
   assert(liftBin && liftBin.pass, `80g bin should be liftable — ${liftBin && liftBin.detail}`)
   assert(liftSteel && !liftSteel.pass, `1.2kg steel should fail the torque check — ${liftSteel && liftSteel.detail}`)
   assert(/stall|carry/.test(liftSteel.detail), 'lift verdict lacks the measured margin')
+  const limits = at.results.find((r) => r.id === 'limits')
+  assert(limits && limits.pass, `limits sweep should pass on this arm — ${limits && limits.detail}`)
   return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
 })
 
