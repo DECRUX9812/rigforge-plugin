@@ -15,6 +15,39 @@
 //   src:    ali | amzn | pololu | hw (local hardware) | print
 
 const PARTS = {
+  // ── structure: the parts a metre-class machine is actually made of ───────
+  extrusion_2040: {
+    name: '2040 aluminium extrusion', cat: 'frame', price: 12, mass: 950, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [20, 40, 1000], conn: 'T-slot + M5 corner brackets',
+    sku: '2040 V-slot extrusion per metre', src: 'ali', shop: false,
+    note: 'Sold by the metre, cut to length. 950g/m — this is where machine mass comes from.',
+  },
+  extrusion_2020: {
+    name: '2020 aluminium extrusion', cat: 'frame', price: 8, mass: 620, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [20, 20, 1000], conn: 'T-slot + M5 corner brackets',
+    sku: '2020 V-slot extrusion per metre', src: 'ali', shop: false,
+    note: 'Frame and bracing. Cheap, stiff, and cuts with a hacksaw and a printed mitre guide.',
+  },
+  spindle_500w: {
+    name: '500W spindle + ER11 collet', cat: 'actuator', price: 72, mass: 900, volts: 48,
+    curr: { idle: 0.1, typ: 1.4, peak: 2.4 }, torque: 0, speed: 12000,
+    dims: [65, 65, 210], conn: '52mm clamp + 3-pin power', mount: '52mm spindle clamp',
+    sku: '500W air-cooled spindle ER11', src: 'ali', shop: false,
+    note: 'Cuts plywood and alu slowly. A trim router is cheaper but louder and faster.',
+  },
+  drag_chain: {
+    name: 'Cable drag chain (1m)', cat: 'harness', price: 9, mass: 120, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [15, 30, 1000], conn: 'screw ends',
+    sku: '10x20 drag chain 1m', src: 'ali', shop: false,
+    note: 'Keeps the harness from snagging mid-cut. Not optional at this size.',
+  },
+  bed_plate: {
+    name: 'Bed plate (MDF/ply 12mm)', cat: 'frame', price: 18, mass: 2400, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [800, 600, 12], conn: 'bolted to the frame',
+    sku: '12mm birch ply sheet cut to size', src: 'hw', shop: false,
+    note: 'The spoilboard. Replaced when it gets chewed up, so do not make it precious.',
+  },
+
   // ── MCUs ──────────────────────────────────────────────────────────────────
   esp32s3: {
     name: 'ESP32-S3 DevKitC-1',
@@ -397,27 +430,32 @@ const PARTS = {
     note: 'A yaw axis that carries weight wants this, not a radial bearing.',
   },
   hw_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 hardware kit (screws/nuts/inserts)', cat: 'mech', price: 12, mass: 80, volts: 0,
     sku: 'M3 screw nut assortment box', src: 'hw',
     note: 'Button-head screws + heat-set inserts. Buy the kit, not the bag.',
   },
   m3_screws: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 socket-head screws (per 10)', cat: 'mech', price: 2.5, mass: 25, volts: 0,
     dims: [3, 3, 10], sku: 'M3x8/10/12/16 SHCS class 12.9', src: 'hw',
     note: 'Sold in 10s here so the BOM shows the real count. Socket heads, not Phillips.',
   },
   m2_screws: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M2/M2.5 micro screw kit', cat: 'mech', price: 9, mass: 60, volts: 0,
     sku: 'M2 M2.5 screw assortment kit', src: 'hw',
     note: 'Micro servos, cameras and tiny boards live on M2. Separate kit, separate drawer.',
   },
   insert_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 heat-set inserts (per 10)', cat: 'mech', price: 1.5, mass: 4, volts: 0,
     dims: [4.6, 4.6, 5.7], mount: 'press into Ø4.2 hole at ~200°C',
     sku: 'M3x5.7 heat set threaded inserts', src: 'hw',
     note: 'The only thread a printed part should ever take a load on.',
   },
   standoff_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 standoff kit (brass/nylon)', cat: 'mech', price: 8, mass: 80, volts: 0,
     dims: [5, 5, 10], sku: 'M3 standoff spacer assortment', src: 'hw',
     note: 'Boards go on standoffs, not flat against a printed face with solder spikes.',
@@ -440,21 +478,25 @@ const PARTS = {
     note: '2mm per rev, self-locking. Slow, strong, quiet — the clamp axis.',
   },
   springkit: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'Extension spring assortment', cat: 'mech', price: 8, mass: 90, volts: 0,
     sku: 'extension spring assortment box', src: 'hw',
     note: 'Counterbalance springs for arms and lids — cheap torque that never browns out.',
   },
   jst_kit: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
     conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
   wire22: {
+    shop: true, // consumable: bought once, lasts many builds
     name: '22AWG silicone wire (6 colours)', cat: 'mech', price: 9, mass: 60, volts: 0,
     conn: 'signal/servo runs to ~1.5A', sku: '22AWG silicone wire kit 6 colors', src: 'amzn',
     note: 'Stranded silicone survives joints that move.',
   },
   wire18: {
+    shop: true, // consumable: bought once, lasts many builds
     name: '18AWG silicone pair (2m)', cat: 'mech', price: 8, mass: 70, volts: 0,
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',

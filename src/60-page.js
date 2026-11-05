@@ -22,6 +22,10 @@ function summarise(design, analysis, brief) {
     printHours: Number(analysis.print.hours.toFixed(1)),
     peakAmps: Number(analysis.power.peak.toFixed(2)),
     partCount: design.parts.reduce((s, p) => s + p.qty, 0),
+    parts: design.parts.map((p) => {
+      const part = PARTS[p.key] || {}
+      return { key: p.key, name: part.name || p.key, sku: part.sku || '', qty: p.qty, price: part.price || 0, shop: !!part.shop }
+    }),
     checks: analysis.checks.slice(0, 6).map((c) => ({ level: c.level, msg: c.msg.slice(0, 200) })),
   }
 }
@@ -63,14 +67,149 @@ function Select({ label, value, options, hint, onChange }) {
     hint ? h('div', { style: S.hint }, hint) : null)
 }
 
+/**
+ * A live 3D mini of an archetype, drawn by the same engine as the viewport.
+ * Cards that show the machine read as a catalogue of things you can build; a
+ * card that shows an icon reads as a form field.
+ */
+function Thumb({ archetype }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv) return undefined
+    let alive = true
+    let raf = 0
+    const draw = () => {
+      const preset = PRESETS.find((p) => p.brief.archetype === archetype)
+      const b = preset ? { ...DEFAULT_BRIEF, ...preset.brief } : DEFAULT_BRIEF
+      let mesh = []
+      try {
+        const { design } = composeDesign(b)
+        mesh = buildMesh(design)
+      } catch {
+        return
+      }
+      if (!alive || !mesh.length) return
+      let r = 60
+      for (const t of mesh) for (const p of t.pts) {
+        const d = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2])
+        if (d > r) r = d
+      }
+      drawScene(cv, mesh, { yaw: -0.7, pitch: 0.34, dist: r * 3.0, ortho: false }, [0, 0, r * 0.35], {
+        grid: false, reflect: false, shadow: false, outline: true, colour: true, dims: false, wire: false, ao: false, gizmo: false,
+      })
+    }
+    // decoration only: build thumbnails in idle time so the page paints first
+    const idle = window.requestIdleCallback
+    const handle = idle ? idle(draw, { timeout: 900 }) : (raf = requestAnimationFrame(draw))
+    return () => {
+      alive = false
+      if (idle && window.cancelIdleCallback) window.cancelIdleCallback(handle)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [archetype])
+  return h('canvas', { ref, style: S.thumb, 'aria-hidden': 'true' })
+}
+
+
+/** Live-price strip: what has a real supplier number, and what is still a guess. */
+function LivePrices({ design }) {
+  const [prices, setPrices] = useState(() => (CTX && CTX.storage.get('livePrices', null)) || null)
+  const [busy, setBusy] = useState(false)
+  const askPrices = async () => {
+    setBusy(true)
+    const prompt = [
+      'Get live prices for the build currently loaded in Rigforge and hand them back to the studio.',
+      `Build: ${design.title} — ${design.parts.length} line items.`,
+      'Call the rigforge_prices tool, then put its directive on its own line so the studio can render it.',
+      'Only report a price as live if it came from the supplier; estimates stay labelled as estimates.',
+    ].join('\n')
+    try {
+      const staged = await host.composer.setDraft(null, prompt)
+      host.composer.focus(null)
+      host.notify({ kind: staged ? 'success' : 'error', message: staged ? 'Price request handed to Hermes — press Enter' : 'Copied the price request instead' })
+      if (!staged) await navigator.clipboard?.writeText(prompt)
+    } catch {
+      host.notify({ kind: 'info', message: 'Ask Hermes for live prices (rigforge_prices tool)' })
+    }
+    setBusy(false)
+  }
+  const age = prices && prices.fetched ? Math.max(0, Math.round(Date.now() / 1000 - prices.fetched)) : null
+  const ageText = age == null ? '' : age < 90 ? 'just now' : age < 5400 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)}h ago`
+  return h('div', { style: { border: `1px solid ${C.line}`, borderRadius: '9px', padding: '9px 11px', marginBottom: '14px', background: C.panel } },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } },
+      h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.14em', color: C.faint } }, 'PRICES'),
+      h('button', { style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px' }, onClick: askPrices, disabled: busy },
+        busy ? '…' : 'GET LIVE PRICES')),
+    prices
+      ? h('div', { style: { fontSize: '11.5px', color: C.text, marginTop: '6px', lineHeight: 1.5 } },
+        `${prices.liveLines} of ${prices.lines} lines priced live — $${(prices.liveTotal || 0).toFixed(2)}`,
+        h('span', { style: { color: C.faint } }, ` · ${(prices.estimateTotal || 0).toFixed(2)} still estimated · ${ageText}`))
+      : h('div', { style: { fontSize: '11px', color: C.faint, marginTop: '6px', lineHeight: 1.45 } },
+        'The totals here are catalogue estimates. Ask Hermes for live LCSC prices and they replace the guessed lines.'))
+}
+
+/** The plain-language panel: what it costs, what to buy, what to print. */
+function SimplePanel({ design, analysis, exports, onEngineer }) {
+  const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
+  rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
+  const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
+  const big = (k, v, sub, color) => h('div', { style: S.bigCard },
+    h('div', { style: S.bigKey }, k),
+    h('div', { style: { ...S.bigVal, color: color || C.text } }, v),
+    sub ? h('div', { style: S.bigSub }, sub) : null)
+
+  return h('div', { style: { padding: '14px 0 8px' } },
+    h('div', { style: S.simpleHead }, 'Your machine, in plain words'),
+    h('div', { style: S.simpleGrid },
+      big('COST', money(analysis.cost), 'parts, at hobby prices', C.accent),
+      big('PRINT TIME', `${fmt(analysis.print.hours, 0)} h`, `${Math.round(analysis.print.grams)}g of filament`, C.amber),
+      big('WEIGHT', `${Math.round(analysis.mass.totalG)} g`, 'finished machine', C.cyan)),
+    h(LivePrices, { design }),
+    (analysis.checks.filter((c) => c.level !== 'ok').length
+      ? h('div', {},
+        h('div', { style: S.simpleLabel }, 'HEADS UP, BEFORE YOU BUY'),
+        h('div', { style: { marginBottom: '14px' } },
+          analysis.checks.filter((c) => c.level !== 'ok').slice(0, 3).map((c, i) => h('div', {
+            key: 'w' + i,
+            style: {
+              display: 'flex', gap: '7px', alignItems: 'flex-start', padding: '6px 8px',
+              borderRadius: '6px', marginBottom: '5px', lineHeight: 1.45, fontSize: '11px',
+              color: C.text, background: levelBg(c.level), borderLeft: `2px solid ${levelColor(c.level)}`,
+            },
+          },
+            h('span', { style: { color: levelColor(c.level), flex: '0 0 auto', fontFamily: C.mono } }, c.level === 'fail' ? '✕' : '!'),
+            h('span', {}, c.msg)))))
+      : null),
+    h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
+    h('div', { style: { marginBottom: '14px' } }, rows.slice(0, 6).map((r) => h('div', { key: r.key, style: S.buyRow },
+      h('span', { style: S.buyName }, r.part.name),
+      h('span', { style: S.buyQty }, `×${r.qty}`),
+      h('span', { style: S.buyPrice }, money(r.part.price * r.qty)))),
+      rows.length > 6 ? h('div', { style: S.buyMore }, `+ ${rows.length - 6} more line items`) : null),
+    h('div', { style: S.simpleLabel }, 'WHAT TO PRINT'),
+    h('div', { style: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim, lineHeight: 1.6, marginBottom: '16px' } },
+      `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
+      h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
+        'One file per part, already oriented and bed-checked.')),
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+      '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
+    h('button', {
+      style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
+      onClick: onEngineer,
+    }, '⌁ SHOW ME THE ENGINEERING'))
+}
+
 const ARCHETYPES = [
-  ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'],
-  ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['iot', 'IoT'], ['gadget', 'ESP32'], ['gripper', 'GRIPPER'], ['arm', 'ARM'], ['rover', 'ROVER'],
+  ['quadruped', 'QUAD'], ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['gantry', 'GANTRY'],
 ]
 
 // Plain words next to every preset — the cards are how a first-timer builds
 // without ever typing a brief.
 const PRESET_BLURBS = {
+  iot: 'one sensor, one case, one afternoon',
+  gantry: 'metre-scale, belts + rails',
   arm: 'lifts and sorts small parts',
   rover: 'a rolling robot that explores',
   quad: 'a robot dog that walks',
@@ -85,7 +224,7 @@ function plainVerdict(checks) {
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
-  if (warns) return { icon: '!', color: C.amber, text: `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} below first.` }
+  if (warns) return { icon: '!', color: C.amber, text: `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} first.` }
   return { icon: '✓', color: C.green, text: 'Ready to build — every engineering check passed.' }
 }
 
@@ -97,6 +236,8 @@ function Studio() {
   const [brief, setBrief] = useState(() => (CTX && CTX.storage.get('lastBrief', null)) || DEFAULT_BRIEF)
   const [mission, setMission] = useState(() => brief.mission)
   const [tab, setTab] = useState('spec')
+  const [simple, setSimple] = useState(() => (CTX && CTX.storage.get('simple', true)) !== false)
+  const [guideOff, setGuideOff] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
@@ -287,11 +428,27 @@ function Studio() {
         h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g`, title: 'how much the finished machine weighs' }),
         h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, title: 'the most current the motors can ever pull at once', color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
         h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h`, title: 'estimated 3D-print time for the custom parts' }),
-        h(StatChip, { k: 'CHECKS', v: fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS', title: 'the studio\'s engineering self-checks on this design', color: fails ? C.red : warns ? C.amber : C.green }),
+        h('button', {
+          style: { ...S.statChip, cursor: 'pointer', textAlign: 'left', borderColor: fails ? C.red : warns ? 'rgba(255,194,74,0.4)' : C.line },
+          title: 'jump to the engineering self-checks for this design',
+          onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+        },
+          h('span', { style: S.statKey }, 'CHECKS'),
+          h('span', { style: { ...S.statVal, color: fails ? C.red : warns ? C.amber : C.green } }, fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS')),
         h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', title: 'is the Hermes agent backend connected', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
         h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
         h('div', { style: { position: 'relative' } },
-          h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
+          h('button', {
+          style: simple ? { ...S.btn, borderColor: C.cyan, color: C.cyan } : S.btn,
+          title: simple ? 'show the engineering tabs' : 'hide the engineering, plain words only',
+          onClick: () => {
+            const next = !simple
+            setSimple(next)
+            if (CTX) CTX.storage.set('simple', next)
+            if (!next) setTab('spec')
+          },
+        }, simple ? 'SIMPLE' : 'ENGINEER'),
+        h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
           menu
             ? h('div', { style: S.menu },
               exports.map(([label, fn]) => h('div', {
@@ -309,6 +466,21 @@ function Studio() {
       // left rail: the brief
       h('div', { style: S.rail },
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
+        (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRun },
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 1'),
+            h('div', { style: S.firstRunText }, 'Pick a machine. Each card is a real, buildable design.')),
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 2'),
+            h('div', { style: S.firstRunText }, 'Set one number — payload or reach. Everything rescales.')),
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 3'),
+            h('div', { style: S.firstRunText }, 'Press BUILD. You get parts, files and code.')),
+          h('button', {
+            style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px', flex: '0 0 auto' },
+            'aria-label': 'Dismiss the guide',
+            onClick: () => { if (CTX) { CTX.storage.set('seenFirstRun', true); setGuideOff(true) } },
+          }, 'GOT IT')),
         h('div', { style: S.cards },
           PRESETS.map((p) => h('button', {
             key: p.id,
@@ -316,6 +488,7 @@ function Studio() {
             'aria-label': `Build a ${p.label}`,
             onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
           },
+            h(Thumb, { archetype: p.brief.archetype }),
             h('span', { style: S.cardTitle }, p.label.toUpperCase()),
             h('span', { style: S.cardSub }, PRESET_BLURBS[p.id] || '')))),
 
@@ -506,13 +679,15 @@ function Studio() {
 
       // right rail: the spec
       h('div', { style: S.col },
-        h('div', { style: S.tabs },
+        simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
+          h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          : h('div', { style: S.tabs },
           TABS.map(([id, label]) => h('button', {
             key: id, style: tab === id ? S.tabOn : S.tab,
             onClick: () => setTab(id),
           }, label))),
-        h('div', { style: S.tabBody }, panel),
-        h('div', { style: S.footer },
+        simple ? null : h('div', { style: S.tabBody }, panel),
+        simple ? null : h('div', { style: S.footer },
           h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.1em' } },
             `${design.parts.length} LINE ITEMS`),
           h('span', { style: { marginLeft: 'auto', fontFamily: C.mono, fontSize: '14px', fontWeight: 600, color: C.accent } }, money(analysis.cost)))),

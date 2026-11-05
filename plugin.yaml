@@ -26,6 +26,7 @@ tags:
 provides_tools:
   - rigforge_build
   - rigforge_state
+  - rigforge_prices
 provides_hooks: []
 provides_middleware: []
 requires_env: []

@@ -12,44 +12,107 @@ const CAM0 = { yaw: -0.62, pitch: 0.42, dist: 900, ortho: false }
 // albedo in 0-255, spec = highlight strength, shine = highlight tightness,
 // metal = how much the albedo tints that highlight (0 plastic, 1 metal), glow
 // = self-lit parts so a PCB or an LED strip does not go black in shadow.
+// ── colour management ───────────────────────────────────────────────────────
+// Everything below works in linear light and is encoded to sRGB only at the
+// last moment. Shading sRGB numbers directly is what makes a render look like
+// an old game instead of a photograph: the darks collapse and the highlights
+// clip.
+const srgbToLin = (c) => {
+  const v = c <= 1 ? c : c / 255
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+}
+const EXPOSURE = 0.92
+/** linear radiance → 0-255 sRGB, through an ACES-ish filmic curve. */
+function encode8(x) {
+  const v = x * EXPOSURE
+  const t = (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14)
+  const g = t <= 0.0031308 ? t * 12.92 : 1.055 * Math.pow(t, 1 / 2.4) - 0.055
+  return (g < 0 ? 0 : g > 1 ? 1 : g) * 255 | 0
+}
+const L = (r, g, b) => [srgbToLin(r), srgbToLin(g), srgbToLin(b)]
+
+// ── materials ───────────────────────────────────────────────────────────────
+// albedo is stored LINEAR (converted once at load). spec = highlight strength,
+// shine = highlight tightness, metal = albedo tints the reflection and the
+// highlight (0 plastic, 1 metal), glow = self-lit.
 const MAT = {
-  shell: { alb: [234, 229, 218], spec: 0.20, shine: 26, metal: 0.0, glow: 0 },
-  accent: { alb: [255, 118, 28], spec: 0.30, shine: 34, metal: 0.0, glow: 0 },
-  metal: { alb: [186, 195, 206], spec: 0.85, shine: 70, metal: 0.85, glow: 0 },
-  steel: { alb: [104, 118, 134], spec: 0.75, shine: 60, metal: 1.0, glow: 0 },
-  brass: { alb: [216, 172, 88], spec: 0.8, shine: 64, metal: 1.0, glow: 0 },
-  pcb: { alb: [26, 112, 82], spec: 0.25, shine: 44, metal: 0.0, glow: 0.05 },
-  rubber: { alb: [30, 33, 38], spec: 0.06, shine: 12, metal: 0.0, glow: 0 },
-  glass: { alb: [128, 226, 246], spec: 0.9, shine: 96, metal: 0.0, glow: 0.18 },
-  servo: { alb: [44, 54, 78], spec: 0.34, shine: 40, metal: 0.15, glow: 0 },
-  belt: { alb: [42, 44, 50], spec: 0.09, shine: 16, metal: 0.0, glow: 0 },
+  shell: { alb: L(234, 229, 218), spec: 0.22, shine: 26, metal: 0.0, glow: 0, rough: 0.62 },
+  accent: { alb: L(255, 118, 28), spec: 0.30, shine: 34, metal: 0.0, glow: 0, rough: 0.55 },
+  metal: { alb: L(206, 214, 222), spec: 0.85, shine: 70, metal: 0.92, glow: 0, rough: 0.24 },
+  steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
+  brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
+  pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
+  glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
+  servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
+  belt: { alb: L(48, 50, 56), spec: 0.09, shine: 16, metal: 0.0, glow: 0, rough: 0.85 },
 }
 
 // Multi-colour print: printed shell parts take a filament colour by node order,
 // so a machine reads as an assembled multi-material build — the maker look.
 const FILAMENT = [
-  [226, 74, 46], // vermilion
-  [38, 152, 142], // teal
-  [232, 178, 58], // amber
-  [124, 96, 190], // violet
-  [58, 108, 184], // cobalt
-  [228, 236, 232], // white
-  [198, 148, 88], // copper
-  [96, 176, 96], // leaf
+  L(226, 74, 46), // vermilion
+  L(38, 152, 142), // teal
+  L(232, 178, 58), // amber
+  L(124, 96, 190), // violet
+  L(58, 108, 184), // cobalt
+  L(228, 236, 232), // white
+  L(198, 148, 88), // copper
+  L(96, 176, 96), // leaf
 ]
 
 // three-point studio rig: [direction toward the light, colour, intensity]
 const LIGHTS = [
-  [norm3([0.46, -0.50, 0.72]), [1.0, 0.955, 0.9], 1.32], // warm key, upper front-left
-  [norm3([-0.66, -0.14, 0.26]), [0.38, 0.6, 1.0], 0.34], // cool fill, left rear
-  [norm3([0.05, 0.66, 0.34]), [0.5, 0.92, 1.0], 0.42], // cyan rim, behind
+  [norm3([0.46, -0.50, 0.72]), L(255, 244, 230), 1.38], // warm key, upper front-left
+  [norm3([-0.66, -0.14, 0.26]), L(120, 170, 255), 0.42], // cool fill, left rear
+  [norm3([0.05, 0.66, 0.34]), L(150, 226, 255), 0.46], // cyan rim, behind
 ]
-const SKY = [0.17, 0.21, 0.29]
-const GROUND = [0.045, 0.052, 0.07]
+const SKY = [0.13, 0.16, 0.22]
+const GROUND = [0.035, 0.04, 0.05]
+const SHADOW_DIR = norm3([-0.46, 0.5, -0.72]) // opposite the key light
 
 function norm3(v) {
-  const l = Math.hypot(v[0], v[1], v[2]) || 1
+  const l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1
   return [v[0] / l, v[1] / l, v[2] / l]
+}
+
+/**
+ * The studio the parts reflect. No HDRI file to ship: two softboxes over a dim
+ * room, sampled by direction. This is the term that turns dead grey metal into
+ * brushed aluminium — a metal is mostly the room it sits in.
+ */
+function envAt(dx, dy, dz) {
+  let r = 0.07
+  let g = 0.085
+  let b = 0.115
+  const up = dz > 0 ? dz : 0
+  r += 0.13 * up
+  g += 0.17 * up
+  b += 0.24 * up
+  // broad warm softbox, upper front-left (integer powers: Math.pow is slow here)
+  const kd = dx * 0.42 + dy * -0.52 + dz * 0.74
+  if (kd > 0) {
+    const k2 = kd * kd
+    const k = k2 * k2 * kd * 2.3
+    r += k
+    g += k * 0.95
+    b += k * 0.86
+  }
+  // narrow cool strip, rear-right
+  const cd = dx * -0.55 + dy * 0.62 + dz * 0.18
+  if (cd > 0) {
+    const c3 = cd * cd * cd
+    const k = c3 * c3 * cd * 1.9
+    r += k * 0.5
+    g += k * 0.75
+    b += k
+  }
+  // floor bounce
+  const dn = dz < 0 ? -dz : 0
+  r += dn * 0.02
+  g += dn * 0.018
+  b += dn * 0.016
+  return [r, g, b]
 }
 
 function camBasis(cam, target) {
@@ -70,11 +133,13 @@ function camBasis(cam, target) {
 
 function project(p, cam, target, w, h) {
   const b = cam._basis || camBasis(cam, target)
-  const rel = [p[0] - b.eye[0], p[1] - b.eye[1], p[2] - b.eye[2]]
-  const vx = rel[0] * b.x[0] + rel[1] * b.x[1]
-  const vy = rel[0] * b.y[0] + rel[1] * b.y[1] + rel[2] * b.y[2]
-  const depth = -(rel[0] * b.back[0] + rel[1] * b.back[1] + rel[2] * b.back[2])
-  const f = (w < h ? w : h) * 0.9 / (cam.dist > 1 ? cam.dist : 1)
+  const rel0 = p[0] - b.eye[0]
+  const rel1 = p[1] - b.eye[1]
+  const rel2 = p[2] - b.eye[2]
+  const vx = rel0 * b.x[0] + rel1 * b.x[1]
+  const vy = rel0 * b.y[0] + rel1 * b.y[1] + rel2 * b.y[2]
+  const depth = -(rel0 * b.back[0] + rel1 * b.back[1] + rel2 * b.back[2])
+  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
   const s = cam.ortho ? f : f * (cam.dist / (depth > 1 ? depth : 1))
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
 }
@@ -83,8 +148,6 @@ function project(p, cam, target, w, h) {
 function materialFor(t, tint) {
   const m = MAT[t.mat] || MAT.shell
   if (!tint || t.mat !== 'shell') return m
-  // blend the filament colour into the shell albedo — still reads as plastic,
-  // not as a sticker.
   const k = 0.82
   return {
     alb: [
@@ -96,60 +159,85 @@ function materialFor(t, tint) {
     shine: m.shine,
     metal: m.metal,
     glow: m.glow,
+    rough: m.rough,
   }
 }
 
 /**
- * Radiance for one normal, seen from one view vector. Directional lights, so
- * the only per-vertex inputs are the normal and the rim term — which is what
- * turns a faceted cylinder into a smooth one.
+ * Linear radiance for one normal, seen from one view vector, at one occlusion
+ * value. Directional lights, so the only per-vertex inputs are the normal, the
+ * view vector and the baked AO — which is what turns a faceted cylinder into a
+ * smooth one and keeps a crevice dark.
  */
-function shadeNormal(n, vx, vy, vz, m, specTerm) {
-  const up = 0.5 + 0.5 * n[2]
-  const amb = SKY[0] * up * 0.92 + GROUND[0] * (1 - up) * 2.2
+function shadeNormal(n, vx, vy, vz, m, specTerm, ao) {
   const alb = m.alb
+  const up = 0.5 + 0.5 * n[2]
+  const sky = SKY[0] * up * 0.9 + GROUND[0] * (1 - up) * 1.6
+  const amb = sky * (0.34 + 0.66 * ao)
   let r = alb[0] * amb
   let gg = alb[1] * amb
   let b = alb[2] * amb
 
   for (let i = 0; i < 3; i += 1) {
-    const L = LIGHTS[i]
-    const d = n[0] * L[0][0] + n[1] * L[0][1] + n[2] * L[0][2]
+    const Lt = LIGHTS[i]
+    const d = n[0] * Lt[0][0] + n[1] * Lt[0][1] + n[2] * Lt[0][2]
     if (d <= 0) continue
-    const k = d * L[2] * 0.86
-    r += alb[0] * k * L[1][0]
-    gg += alb[1] * k * L[1][1]
-    b += alb[2] * k * L[1][2]
+    // half-lambert lift keeps the shadow side from going flat black
+    const k = (d * 0.86 + 0.14) * Lt[2] * 0.55 * (0.55 + 0.45 * ao)
+    r += alb[0] * k * Lt[1][0]
+    gg += alb[1] * k * Lt[1][1]
+    b += alb[2] * k * Lt[1][2]
   }
 
-  // rim: grazing angles pick up the cool studio light
-  let ndv = (n[0] * vx + n[1] * vy + n[2] * vz) / (Math.sqrt(vx * vx + vy * vy + vz * vz) || 1)
+  const vlen = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1
+  const nx = vx / vlen
+  const ny = vy / vlen
+  const nz = vz / vlen
+
+  // Schlick fresnel: grazing angles mirror the room, dead-on they do not
+  let ndv = n[0] * nx + n[1] * ny + n[2] * nz
   if (ndv < 0) ndv = -ndv
-  const fr = 1 - ndv
-  const rim = fr * fr * fr * 0.22
-  r += rim * 92
-  gg += rim * 118
-  b += rim * 158
+  const f = 1 - ndv
+  const f2 = f * f
+  const fres = f2 * f2 * f * 0.9 + 0.05
+
+  // reflection vector, sampled against the procedural studio
+  const dnv = 2 * (n[0] * nx + n[1] * ny + n[2] * nz)
+  const rx = dnv * n[0] - nx
+  const ry = dnv * n[1] - ny
+  const rz = dnv * n[2] - nz
+  const env = envAt(rx, ry, rz)
+  const mir = (m.metal || 0) > 0.4
+  const kEnv = mir ? (0.55 + 0.45 * fres) : (0.16 + 0.55 * fres)
+  if (mir) {
+    r += env[0] * kEnv * alb[0] * 2.4
+    gg += env[1] * kEnv * alb[1] * 2.4
+    b += env[2] * kEnv * alb[2] * 2.4
+  } else {
+    r += env[0] * kEnv
+    gg += env[1] * kEnv
+    b += env[2] * kEnv
+  }
 
   if (specTerm > 0) {
-    const sr = specTerm * 255
-    r += m.metal > 0.5 ? sr * (alb[0] / 255) : sr
-    gg += m.metal > 0.5 ? sr * (alb[1] / 255) : sr
-    b += m.metal > 0.5 ? sr * (alb[2] / 255) : sr
+    const sr = specTerm * 2.6
+    r += mir ? sr * alb[0] * 1.5 : sr
+    gg += mir ? sr * alb[1] * 1.5 : sr
+    b += mir ? sr * alb[2] * 1.5 : sr
   }
 
   if (m.glow) {
-    r += m.glow * alb[0] * 0.5
-    gg += m.glow * alb[1] * 0.5
-    b += m.glow * alb[2] * 0.5
+    r += m.glow * alb[0] * 0.8
+    gg += m.glow * alb[1] * 0.8
+    b += m.glow * alb[2] * 0.8
   }
 
-  return [r > 255 ? 255 : r, gg > 255 ? 255 : gg, b > 255 ? 255 : b]
+  return [r, gg, b]
 }
 
 const css = (c, a) => (a == null
-  ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`
-  : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`)
+  ? `rgb(${encode8(c[0])},${encode8(c[1])},${encode8(c[2])})`
+  : `rgba(${encode8(c[0])},${encode8(c[1])},${encode8(c[2])},${a})`)
 
 /** Per-face specular from the Blinn half-vector. */
 function specularFor(n, cx, cy, cz, eye, m) {
@@ -173,6 +261,87 @@ function specularFor(n, cx, cy, cz, eye, m) {
     if (s > best) best = s
   }
   return best > 1 ? 1 : best
+}
+
+function bakeAO(mesh) {
+  // baked ambient occlusion: voxelise the assembly, score every voxel by how
+  // much of its neighbourhood is empty, read it back per vertex corner. Cached
+  // per mesh, so the per-frame cost is one array lookup per vertex.
+  const cornerAO = new Float32Array(mesh.length * 3).fill(1)
+  if (mesh.length > 8) {
+    let lox = Infinity; let loy = Infinity; let loz = Infinity
+    let hix = -Infinity; let hiy = -Infinity; let hiz = -Infinity
+    for (const t of mesh) {
+      for (const p of t.pts) {
+        if (p[0] < lox) lox = p[0]
+        if (p[0] > hix) hix = p[0]
+        if (p[1] < loy) loy = p[1]
+        if (p[1] > hiy) hiy = p[1]
+        if (p[2] < loz) loz = p[2]
+        if (p[2] > hiz) hiz = p[2]
+      }
+    }
+    const span = Math.max(hix - lox, hiy - loy, hiz - loz, 1)
+    const step = span / 42
+    const nx = Math.ceil((hix - lox) / step) + 1
+    const ny = Math.ceil((hiy - loy) / step) + 1
+    const nz = Math.ceil((hiz - loz) / step) + 1
+    const occ = new Float32Array(nx * ny * nz)
+    const mark = (x, y, z) => {
+      const ix = Math.round((x - lox) / step)
+      const iy = Math.round((y - loy) / step)
+      const iz = Math.round((z - loz) / step)
+      if (ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz) return
+      occ[(iz * ny + iy) * nx + ix] = 1
+    }
+    const mid = (a, b, k) => a + (b - a) * k
+    for (const t of mesh) {
+      const [p0, p1, p2] = t.pts
+      mark(p0[0], p0[1], p0[2]); mark(p1[0], p1[1], p1[2]); mark(p2[0], p2[1], p2[2])
+      mark(mid(p0[0], p1[0], 0.5), mid(p0[1], p1[1], 0.5), mid(p0[2], p1[2], 0.5))
+      mark(mid(p1[0], p2[0], 0.5), mid(p1[1], p2[1], 0.5), mid(p1[2], p2[2], 0.5))
+      mark(mid(p0[0], p2[0], 0.5), mid(p0[1], p2[1], 0.5), mid(p0[2], p2[2], 0.5))
+      mark((p0[0] + p1[0] + p2[0]) / 3, (p0[1] + p1[1] + p2[1]) / 3, (p0[2] + p1[2] + p2[2]) / 3)
+    }
+    // separable box filter, radius 3 → occupancy fraction in a 7³ window
+    const R = 3
+    const box = (src, axis) => {
+      const out = new Float32Array(src.length)
+      const dx = axis === 0 ? 1 : 0
+      const dy = axis === 1 ? 1 : 0
+      const dz = axis === 2 ? 1 : 0
+      for (let z = 0; z < nz; z += 1) for (let y = 0; y < ny; y += 1) for (let x = 0; x < nx; x += 1) {
+        let sum = 0
+        let n = 0
+        for (let k = -R; k <= R; k += 1) {
+          const xx = x + k * dx
+          const yy = y + k * dy
+          const zz = z + k * dz
+          if (xx < 0 || yy < 0 || zz < 0 || xx >= nx || yy >= ny || zz >= nz) continue
+          sum += src[(zz * ny + yy) * nx + xx]
+          n += 1
+        }
+        out[(z * ny + y) * nx + x] = sum / n
+      }
+      return out
+    }
+    let f1 = box(occ, 0)
+    f1 = box(f1, 1)
+    f1 = box(f1, 2)
+    for (let i = 0; i < mesh.length; i += 1) {
+      for (let k = 0; k < 3; k += 1) {
+        const p = mesh[i].pts[k]
+        const ix = Math.round((p[0] - lox) / step)
+        const iy = Math.round((p[1] - loy) / step)
+        const iz = Math.round((p[2] - loz) / step)
+        if (ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz) continue
+        const occFrac = f1[(iz * ny + iy) * nx + ix]
+        const open = 1 - occFrac
+        cornerAO[i * 3 + k] = Math.max(0, Math.min(1, (open - 0.34) / 0.36))
+      }
+    }
+  }
+  return cornerAO
 }
 
 // ── per-mesh cache: topology (silhouette), tints, shadow footprints ─────────
@@ -315,9 +484,6 @@ function layer(name, w, h, scale) {
   return { cv, g }
 }
 
-/** Sun direction the shadow is cast along (opposite the key light). */
-const SHADOW_DIR = norm3([-0.46, 0.50, -0.72])
-
 function floorPoint(p) {
   // slide the point along the shadow ray until z = 0
   if (p[2] <= 0.01) return [p[0], p[1], 0]
@@ -379,6 +545,9 @@ function drawScene(canvas, mesh, cam, target, opts) {
   cam._basis = camBasis(cam, target)
   const eye = cam._basis.eye
   const data = mesh.length ? meshData(mesh) : null
+  // ambient occlusion is baked once, on demand: thumbnails and the wire view
+  // do not need it, and a page with seven thumbnails must not pay for seven bakes
+  if (data && opts.ao !== false && !data.cornerAO) data.cornerAO = bakeAO(mesh)
 
   // ── colours: filament tint by node order, so printed links are multicolour ─
   const tints = data && opts.colour !== false ? data.tints : null
@@ -584,7 +753,15 @@ function drawScene(canvas, mesh, cam, target, opts) {
   // behind the parts it encloses, which is what makes a solid shell read as
   // glass; splitting the passes makes an enclosing shell always cover its own
   // interior.
-  const order = wire ? faces : faces.filter((f) => !f.facing).concat(faces.filter((f) => f.facing))
+  // Sort each pass by the NEAREST vertex, not the centroid. A long panel's
+  // centroid can sit behind the parts it encloses; its nearest corner cannot,
+  // so the shell always lands on top of its own interior.
+  let order = faces
+  if (!wire) {
+    const back = faces.filter((f) => !f.facing).sort((p, q) => q.dmax - p.dmax)
+    const front = faces.filter((f) => f.facing).sort((p, q) => q.dmin - p.dmin)
+    order = back.concat(front)
+  }
   for (const f of order) {
     if (!wire && f.area < 0.7) continue // sub-pixel triangles cost a fill and show nothing
     g.beginPath()
@@ -610,12 +787,15 @@ function drawScene(canvas, mesh, cam, target, opts) {
     const n0 = cn ? [cn[f.i * 9] * sgn, cn[f.i * 9 + 1] * sgn, cn[f.i * 9 + 2] * sgn] : f.n
     const n1 = cn ? [cn[f.i * 9 + 3] * sgn, cn[f.i * 9 + 4] * sgn, cn[f.i * 9 + 5] * sgn] : f.n
     const n2 = cn ? [cn[f.i * 9 + 6] * sgn, cn[f.i * 9 + 7] * sgn, cn[f.i * 9 + 8] * sgn] : f.n
+    const ca0 = data && opts.ao !== false ? data.cornerAO[f.i * 3] : 1
+    const ca1 = data && opts.ao !== false ? data.cornerAO[f.i * 3 + 1] : 1
+    const ca2 = data && opts.ao !== false ? data.cornerAO[f.i * 3 + 2] : 1
     if (f.area > (opts.flat ? 1e9 : 260)) {
       // per-vertex radiance → a linear gradient across the face: this is what
       // makes a cylinder look round and a flat panel look printed, not pasted
-      const ca = shadeNormal(n0, vx, vy, vz, f.m, specTerm)
-      const cb = shadeNormal(n1, vx, vy, vz, f.m, specTerm)
-      const cc = shadeNormal(n2, vx, vy, vz, f.m, specTerm)
+      const ca = shadeNormal(n0, vx, vy, vz, f.m, specTerm, ca0)
+      const cb = shadeNormal(n1, vx, vy, vz, f.m, specTerm, ca1)
+      const cc = shadeNormal(n2, vx, vy, vz, f.m, specTerm, ca2)
       const la = ca[0] * 0.3 + ca[1] * 0.56 + ca[2] * 0.14
       const lb = cb[0] * 0.3 + cb[1] * 0.56 + cb[2] * 0.14
       const lc = cc[0] * 0.3 + cc[1] * 0.56 + cc[2] * 0.14
@@ -637,7 +817,7 @@ function drawScene(canvas, mesh, cam, target, opts) {
       g.fillStyle = grad
       g.strokeStyle = grad
     } else {
-      const col = shadeNormal(f.n, vx, vy, vz, f.m, specTerm)
+      const col = shadeNormal(f.n, vx, vy, vz, f.m, specTerm, (ca0 + ca1 + ca2) / 3)
       g.fillStyle = css(col)
       g.strokeStyle = g.fillStyle
     }
@@ -706,6 +886,9 @@ function drawScene(canvas, mesh, cam, target, opts) {
   }
 
   // axis gizmo, bottom-left
+  if (opts.gizmo === false) {
+    // thumbnails: no gizmo, no vignette — the card carries the framing
+  } else {
   const ox = 46
   const oy = h - 40
   const axes = [
@@ -726,6 +909,7 @@ function drawScene(canvas, mesh, cam, target, opts) {
     g.stroke()
     g.fillStyle = color
     g.fillText(label, ox + sx * 1.25 - 3, oy - syv * 1.25 + 3)
+  }
   }
 
   // vignette: keeps the eye on the machine

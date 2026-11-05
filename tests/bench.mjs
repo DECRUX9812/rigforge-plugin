@@ -9,9 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const files = readdirSync(join(here, '../src')).filter((f) => f.endsWith('.js')).sort()
 let code = files.map((f) => readFileSync(join(here, '../src', f), 'utf8')).join('\n')
 code = code.replace(/^import[^\n]*\n/gm, '')
-writeFileSync(join(here, 'tmp/bench-src.mjs'), `const jsx = () => null, jsxs = () => null, useRef = () => null, useMemo = (f) => f(), useEffect = () => null, useState = (v) => [v, () => {}], useCallback = (f) => f\n${code}\nexport { drawScene, composeDesign, buildMesh, parseBrief }\n`)
+writeFileSync(join(here, 'tmp/bench-src.mjs'), `const jsx = () => null, jsxs = () => null, useRef = () => null, useMemo = (f) => f(), useEffect = () => null, useState = (v) => [v, () => {}], useCallback = (f) => f\n${code}\nexport { drawScene, composeDesign, buildMesh, parseBrief, meshData }\n`)
 writeFileSync(join(here, 'tmp/bench-entry.mjs'), `
-import { drawScene, composeDesign, buildMesh, parseBrief } from './bench-src.mjs'
+import { drawScene, composeDesign, buildMesh, parseBrief, meshData } from './bench-src.mjs'
 const { design } = composeDesign(parseBrief('5-DoF arm, 450mm reach, 1kg payload'))
 let mesh = buildMesh(design)
 const only = new URLSearchParams(location.search).get('mat')
@@ -26,6 +26,15 @@ const opts = { grid: q.get('grid') !== '0' }
 for (const k of ['reflect', 'outline', 'flat', 'wire']) if (q.get(k) === '0') opts[k] = false
 if (q.get('wire') === '1') opts.wire = true
 if (q.get('flat') === '1') opts.flat = true
+window.shellStats = () => {
+  const all = meshData(mesh)
+  const shellMesh = mesh.filter((t) => t.mat === 'shell')
+  const sm = meshData(shellMesh)
+  const boundary = sm.edgeList.filter((e) => e.j < 0).length
+  const shared = sm.edgeList.filter((e) => e.j >= 0 && !e.multi).length
+  return { tris: mesh.length, shellTris: shellMesh.length, shellEdges: sm.edgeList.length, boundary, shared, boundaryPct: Math.round(100 * boundary / sm.edgeList.length) }
+}
+window.aoStats = () => { const d = meshData(mesh); const a = Array.from(d.cornerAO); const b = a.map((x) => Math.round(x * 20) / 20); const h = {}; for (const v of b) h[v] = (h[v] || 0) + 1; return { min: Math.min(...a).toFixed(2), max: Math.max(...a).toFixed(2), mean: (a.reduce((x, y) => x + y, 0) / a.length).toFixed(2), hist: h, edges: d.edgeList.length } }
 window.bench = (n) => {
   drawScene(cv, mesh, cam, target, opts)
   const t0 = performance.now()

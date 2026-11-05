@@ -224,11 +224,15 @@ function analyze(design) {
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
 
   let cost = 0
+  let costBuy = 0
   let partMassG = 0
   for (const { key, qty } of design.parts) {
     const p = PARTS[key]
     if (!p) continue
     cost += p.price * qty
+    // Shop stock (wire, screw kits, standoffs) is bought once and used across
+    // builds. Counting it in every project makes a $30 sensor node read as $100.
+    if (!p.shop) costBuy += p.price * qty
     // A spool is not consumed by one build — charge the grams used, not $20.
     if (p.print) continue
     partMassG += p.mass * qty
@@ -239,6 +243,7 @@ function analyze(design) {
   const printHours = printMm3 / 1000 / 18 // ~18cm³/h: 0.4 nozzle, 0.2 layers, real parts
   const spoolCost = (printGrams / 1000) * (PARTS[mat.priceId]?.price || 20)
   cost += spoolCost
+  costBuy += spoolCost
 
   const totalMassG = partMassG + printGrams
   const bbox = boundsOf(design.nodes)
@@ -270,6 +275,8 @@ function analyze(design) {
     pins,
     power,
     cost,
+    costBuy,
+    costShop: cost - costBuy,
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },

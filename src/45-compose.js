@@ -13,6 +13,7 @@ const DEFAULT_BRIEF = {
 }
 
 const PRESETS = [
+  { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
@@ -20,10 +21,13 @@ const PRESETS = [
   { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
+  { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
+  if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
   if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
@@ -71,7 +75,9 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'humanoid' ? buildHumanoid(b)
+  const design = b.archetype === 'iot' ? buildIot(b)
+    : b.archetype === 'gantry' ? buildGantry(b)
+    : b.archetype === 'humanoid' ? buildHumanoid(b)
     : b.archetype === 'robot' ? buildFullRobot(b)
     : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
@@ -106,7 +112,7 @@ function agentPrompt(brief, spec, instruction) {
     '',
     '::rigforge{brief=<json with archetype, mission, payloadKg, reachMm, dof, material, mcu, battery>}',
     '',
-    'Keep it inside these archetypes: arm | rover | quadruped | gripper | gadget.',
+    'Keep it inside these archetypes: iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry.',
     'Only numbers the engine can act on — no prose inside the json.',
   ]
   return lines.filter(Boolean).join('\n')

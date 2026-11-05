@@ -131,6 +131,22 @@ def save_state(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "partCount": int(_num(payload.get("partCount"))),
         "checks": clean_checks,
     }
+    # The parts list is what the price tool needs; a BOM is not a place to be
+    # clever about size, so it is bounded but kept whole.
+    parts_in = payload.get("parts") or []
+    if isinstance(parts_in, list):
+        state["parts"] = [
+            {
+                "key": str(p.get("key", ""))[:40],
+                "name": str(p.get("name", ""))[:80],
+                "sku": str(p.get("sku", ""))[:80],
+                "qty": _num(p.get("qty")) or 1,
+                "price": _num(p.get("price")),
+                "shop": bool(p.get("shop")),
+            }
+            for p in parts_in[:60]
+            if isinstance(p, dict)
+        ]
     _write("state.json", state)
     return state
 
@@ -312,6 +328,79 @@ def rigforge_state(args: Mapping[str, Any] | None = None, **kw: Any) -> str:
     })
 
 
+def rigforge_prices(args: Mapping[str, Any] | None = None, **kw: Any) -> str:
+    """Live prices for the current build, from the LCSC parts index.
+
+    Reads the BOM the studio last posted (state.json), asks a real supplier what
+    each part costs right now, and answers with a table plus a directive the
+    studio can render. Chips get a real number; hobby modules that LCSC does not
+    stock keep the catalogue estimate and are marked as such — the tool never
+    invents a price to fill a row.
+    """
+    try:
+        import prices as price_mod  # type: ignore
+    except Exception:
+        return json.dumps({"ok": False, "error": "price module unavailable"})
+
+    state = load_state()
+    parts = state.get("parts") or []
+    if not parts:
+        return json.dumps({
+            "ok": False,
+            "error": "no BOM posted yet",
+            "hint": "Open the Rigforge studio once — it posts the current build (with its parts) here.",
+        })
+
+    report = price_mod.price_design(parts)
+    rows = report.get("rows") or {}
+    lines = []
+    for sku, row in rows.items():
+        if row.get("kind") == "live":
+            lines.append(f"{sku} — ${row['price']:.2f} ×{row['qty']:g} = ${row['line']:.2f} ({row['sku']}, stock {row.get('stock')})")
+        else:
+            lines.append(f"{sku} — estimate ${row.get('line', 0):.2f} (not stocked by LCSC)")
+    summary = (
+        f"{report['liveLines']}/{report['lines']} lines priced live: "
+        f"${report['liveTotal']:.2f} live + ${report['estimateTotal']:.2f} estimated"
+    )
+    directive = "::rigforge{prices=" + json.dumps({
+        "rows": rows,
+        "liveTotal": report["liveTotal"],
+        "estimateTotal": report["estimateTotal"],
+        "liveLines": report["liveLines"],
+        "lines": report["lines"],
+        "fetched": report["fetched"],
+    }, ensure_ascii=False).replace("}", "}") + "}"
+
+    # keep the last price pass with the build, so the studio can show it
+    try:
+        state["prices"] = report
+        _write("state.json", state)
+    except Exception:
+        pass
+
+    return json.dumps({
+        "ok": True,
+        "summary": summary,
+        "rows": report["rows"],
+        "directive": directive,
+        "note": "Prices are USD list prices from the LCSC parts index, cached 12h.",
+    }, ensure_ascii=False)
+
+
+
+_SCHEMA_PRICES = {
+    "name": "rigforge_prices",
+    "description": (
+        "Get live prices for the robot/BOM currently loaded in the Rigforge studio. "
+        "Asks the LCSC parts index for real unit prices (chips and modules it stocks), "
+        "returns a table and a ::rigforge{prices=...} directive the studio can render. "
+        "HONESTY: parts LCSC does not stock keep the catalogue estimate and are labelled "
+        "as estimates — never present an estimate as a live price."
+    ),
+    "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+
 _SCHEMA_BUILD = {
     "name": "rigforge_build",
     "description": (
@@ -346,5 +435,13 @@ _SCHEMA_STATE = {
     "parameters": {"type": "object", "properties": {}},
 }
 
-SCHEMAS = {"rigforge_build": _SCHEMA_BUILD, "rigforge_state": _SCHEMA_STATE}
-HANDLERS = {"rigforge_build": rigforge_build, "rigforge_state": rigforge_state}
+SCHEMAS = {
+    "rigforge_build": _SCHEMA_BUILD,
+    "rigforge_state": _SCHEMA_STATE,
+    "rigforge_prices": _SCHEMA_PRICES,
+}
+HANDLERS = {
+    "rigforge_build": rigforge_build,
+    "rigforge_state": rigforge_state,
+    "rigforge_prices": rigforge_prices,
+}

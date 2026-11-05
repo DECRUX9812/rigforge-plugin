@@ -49,6 +49,39 @@ const G = 9.80665
 //   src:    ali | amzn | pololu | hw (local hardware) | print
 
 const PARTS = {
+  // ── structure: the parts a metre-class machine is actually made of ───────
+  extrusion_2040: {
+    name: '2040 aluminium extrusion', cat: 'frame', price: 12, mass: 950, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [20, 40, 1000], conn: 'T-slot + M5 corner brackets',
+    sku: '2040 V-slot extrusion per metre', src: 'ali', shop: false,
+    note: 'Sold by the metre, cut to length. 950g/m — this is where machine mass comes from.',
+  },
+  extrusion_2020: {
+    name: '2020 aluminium extrusion', cat: 'frame', price: 8, mass: 620, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [20, 20, 1000], conn: 'T-slot + M5 corner brackets',
+    sku: '2020 V-slot extrusion per metre', src: 'ali', shop: false,
+    note: 'Frame and bracing. Cheap, stiff, and cuts with a hacksaw and a printed mitre guide.',
+  },
+  spindle_500w: {
+    name: '500W spindle + ER11 collet', cat: 'actuator', price: 72, mass: 900, volts: 48,
+    curr: { idle: 0.1, typ: 1.4, peak: 2.4 }, torque: 0, speed: 12000,
+    dims: [65, 65, 210], conn: '52mm clamp + 3-pin power', mount: '52mm spindle clamp',
+    sku: '500W air-cooled spindle ER11', src: 'ali', shop: false,
+    note: 'Cuts plywood and alu slowly. A trim router is cheaper but louder and faster.',
+  },
+  drag_chain: {
+    name: 'Cable drag chain (1m)', cat: 'harness', price: 9, mass: 120, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [15, 30, 1000], conn: 'screw ends',
+    sku: '10x20 drag chain 1m', src: 'ali', shop: false,
+    note: 'Keeps the harness from snagging mid-cut. Not optional at this size.',
+  },
+  bed_plate: {
+    name: 'Bed plate (MDF/ply 12mm)', cat: 'frame', price: 18, mass: 2400, volts: 0,
+    curr: { idle: 0, typ: 0, peak: 0 }, dims: [800, 600, 12], conn: 'bolted to the frame',
+    sku: '12mm birch ply sheet cut to size', src: 'hw', shop: false,
+    note: 'The spoilboard. Replaced when it gets chewed up, so do not make it precious.',
+  },
+
   // ── MCUs ──────────────────────────────────────────────────────────────────
   esp32s3: {
     name: 'ESP32-S3 DevKitC-1',
@@ -431,27 +464,32 @@ const PARTS = {
     note: 'A yaw axis that carries weight wants this, not a radial bearing.',
   },
   hw_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 hardware kit (screws/nuts/inserts)', cat: 'mech', price: 12, mass: 80, volts: 0,
     sku: 'M3 screw nut assortment box', src: 'hw',
     note: 'Button-head screws + heat-set inserts. Buy the kit, not the bag.',
   },
   m3_screws: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 socket-head screws (per 10)', cat: 'mech', price: 2.5, mass: 25, volts: 0,
     dims: [3, 3, 10], sku: 'M3x8/10/12/16 SHCS class 12.9', src: 'hw',
     note: 'Sold in 10s here so the BOM shows the real count. Socket heads, not Phillips.',
   },
   m2_screws: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M2/M2.5 micro screw kit', cat: 'mech', price: 9, mass: 60, volts: 0,
     sku: 'M2 M2.5 screw assortment kit', src: 'hw',
     note: 'Micro servos, cameras and tiny boards live on M2. Separate kit, separate drawer.',
   },
   insert_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 heat-set inserts (per 10)', cat: 'mech', price: 1.5, mass: 4, volts: 0,
     dims: [4.6, 4.6, 5.7], mount: 'press into Ø4.2 hole at ~200°C',
     sku: 'M3x5.7 heat set threaded inserts', src: 'hw',
     note: 'The only thread a printed part should ever take a load on.',
   },
   standoff_m3: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'M3 standoff kit (brass/nylon)', cat: 'mech', price: 8, mass: 80, volts: 0,
     dims: [5, 5, 10], sku: 'M3 standoff spacer assortment', src: 'hw',
     note: 'Boards go on standoffs, not flat against a printed face with solder spikes.',
@@ -474,21 +512,25 @@ const PARTS = {
     note: '2mm per rev, self-locking. Slow, strong, quiet — the clamp axis.',
   },
   springkit: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'Extension spring assortment', cat: 'mech', price: 8, mass: 90, volts: 0,
     sku: 'extension spring assortment box', src: 'hw',
     note: 'Counterbalance springs for arms and lids — cheap torque that never browns out.',
   },
   jst_kit: {
+    shop: true, // consumable: bought once, lasts many builds
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
     conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
   wire22: {
+    shop: true, // consumable: bought once, lasts many builds
     name: '22AWG silicone wire (6 colours)', cat: 'mech', price: 9, mass: 60, volts: 0,
     conn: 'signal/servo runs to ~1.5A', sku: '22AWG silicone wire kit 6 colors', src: 'amzn',
     note: 'Stranded silicone survives joints that move.',
   },
   wire18: {
+    shop: true, // consumable: bought once, lasts many builds
     name: '18AWG silicone pair (2m)', cat: 'mech', price: 8, mass: 70, volts: 0,
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
@@ -2142,6 +2184,224 @@ void loop() {
 }`
 }
 
+// ── iot node: the smallest thing worth building ─────────────────────────────
+// One board, one sensor, one battery, one printed shell. This is the bottom of
+// the ladder: it has to cost a coffee, print in an hour, and be wired by
+// someone who has never held an iron.
+
+function buildIot(brief) {
+  const d = newDesign('iot', brief)
+  const mission = (brief.mission || '').toLowerCase()
+  const wants = {
+    display: /display|oled|screen|clock|readout|gauge/.test(mission) || brief.reachMm === 0,
+    motion: /motion|pir|presence|occupancy|intruder/.test(mission),
+    air: /temp|humid|air|co2|climate|weather|bme/.test(mission) || !/pir|soil|weight/.test(mission),
+    soil: /soil|plant|garden|moisture/.test(mission),
+    weight: /scale|weight|load|hx711/.test(mission),
+  }
+  const W = 62
+  const H = 44
+  const D = 30
+
+  d.title = wants.display ? 'Desk sensor node' : 'Pocket sensor node'
+  d.subtitle = `${W}×${H}×${D}mm printed case · one sensor · one board`
+  d.metrics = {}
+
+  // shell: base tray, lid, four ears, a window over the display, a USB notch
+  rbox(d, 'tray', [W, H, D - 8], [0, 0, (D - 8) / 2], 2.5, 'shell', { print: true })
+  rbox(d, 'lid', [W, H, 4], [0, 0, D - 2], 2.5, 'shell', { print: true })
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'shell', { print: true })
+    cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'z', 'rubber')
+  }
+  // front window + bezel
+  const frontZ = D / 2
+  rbox(d, 'bezel', [34, 26, 2], [0, 0, frontZ + 1], 1.5, 'accent', { print: true })
+  box(d, 'window', [24, 16, 1.4], [0, 0, frontZ + 2.2], 'glass')
+  // side cut-outs: USB-C, sensor grille
+  box(d, 'usb-notch', [10, 6, 5], [W / 2 - 1, 0, D / 2 - 4], 'rubber')
+  for (let i = -2; i <= 2; i += 1) box(d, `vent-${i}`, [1.6, 22, 1.6], [-W / 2 + 1, i * 4, D / 2 + 0.4], 'rubber')
+
+  // the board sits on standoffs, the sensor on the lid, the cell underneath
+  rbox(d, 'mcu', [26, 18, 5], [-8, 0, 18], 1, 'pcb')
+  rbox(d, 'sensor', [14, 12, 4], [12, 6, 22], 0.8, 'pcb')
+  rbox(d, 'cell', [40, 26, 8], [0, 0, 10], 2, 'steel')
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    cyl(d, `standoff-${sx}${sy}`, 2.4, 10, [sx * 10 - 8, sy * 7, 15], 'z', 'metal')
+  }
+  if (wants.display) {
+    rbox(d, 'oled', [26, 16, 2], [0, 0, frontZ + 0.6], 0.6, 'pcb')
+  }
+
+  // ── parts ────────────────────────────────────────────────────────────────
+  addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  if (wants.air) addPart(d, 'bme280', 1, 'temperature / humidity / pressure')
+  if (wants.motion) addPart(d, 'pir', 1, 'motion')
+  if (wants.soil) addPart(d, 'soil', 1, 'soil moisture probe')
+  if (wants.weight) addPart(d, 'hx711', 1, 'load cell amplifier')
+  if (wants.display) addPart(d, 'ssd1306', 1, 'status display')
+  const power = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'lipo2s')
+  addPart(d, power, 1, power === 'pd5v' ? 'USB power' : 'battery')
+  addPart(d, 'rocker', 1, 'power switch')
+  addPart(d, 'jst_kit', 1, 'sensor leads')
+  addPart(d, 'wire22', 1, 'harness')
+  addPart(d, 'm2_screws', 1, 'case + board fasteners')
+  addPart(d, 'insert_m3', 0, '')
+  d.parts = d.parts.filter((p) => p.qty > 0)
+  addPart(d, MATERIALS[brief.material] ? MATERIALS[brief.material].priceId : 'petg_kg', 1, 'printed case')
+
+  const bat = PARTS[power]
+  const load = 0.05 + (wants.display ? 0.02 : 0) + (wants.motion ? 0.001 : 0)
+  const runtimeH = bat.mah > 0 ? (bat.mah * 0.8) / (load * 1000) : null
+  if (runtimeH && runtimeH < 8) {
+    d.checks.push({ level: 'warn', msg: `${bat.name} lasts about ${fmt(runtimeH, 1)}h at ${fmt(load * 1000, 0)}mA. A bigger cell or a sleep cycle in firmware would cover a day.` })
+  }
+  d.notes.push('Deep sleep between readings is where the runtime comes from — the sketch sleeps, wakes on a timer, publishes and sleeps again.')
+  Object.assign(d.metrics, {
+    loadA: load,
+    runtimeH,
+    battery: power,
+    printedG: Math.round(printedVolume(d.nodes) / 1000 * (MATERIALS[brief.material] || MATERIALS.petg).density),
+  })
+  d.checks.push({ level: 'ok', msg: 'One board, one sensor, one printed shell — this is a first build, not a project.' })
+  return d
+}
+
+// ── gantry: the top of the ladder ───────────────────────────────────────────
+// A metre-class machine: 2m of aluminium extrusion, three steppers, belts on X
+// and Y, a leadscrew on Z. Nothing here is a toy, so the checks are the ones
+// that actually bite at this size — beam deflection across the span, belt sag,
+// motor torque against a moving gantry mass, and a bed that no hobby printer
+// can hold in one piece.
+
+function buildGantry(brief) {
+  const d = newDesign('gantry', brief)
+  const spanX = clamp(Math.round(brief.reachMm || 800), 400, 2000) // travel in X, mm
+  const spanY = clamp(Math.round(spanX * 0.75), 300, 1600)
+  const spanZ = clamp(Math.round(spanX * 0.35), 150, 700)
+
+  const railW = 60 // gantry beam depth, mm
+  const beamH = 80
+  const z0 = 90 // gantry height above the bed
+  const bedZ = 0
+
+  d.title = `${spanX}mm gantry machine`
+  d.subtitle = `${spanX}×${spanY}×${spanZ}mm travel · belt XY · leadscrew Z`
+  d.metrics = { spanX, spanY, spanZ }
+
+  // ── frame: two side rails, a bed, and the moving gantry bridge ───────────
+  for (const sx of [-1, 1]) {
+    rbox(d, `side-rail-${sx > 0 ? 'r' : 'l'}`, [20, spanY + 120, railW], [sx * (spanX / 2 + 40), 0, railW / 2], 2, 'metal')
+    for (const fy of [-1, 1]) {
+      rbox(d, `foot-${sx}${fy}`, [90, 90, 12], [sx * (spanX / 2 + 40), fy * (spanY / 2 + 30), 6], 2, 'metal')
+      for (const bx of [-1, 1]) for (const by of [-1, 1]) {
+        bolt(d, `foot-bolt-${sx}${fy}${bx}${by}`, [sx * (spanX / 2 + 40) + bx * 32, fy * (spanY / 2 + 30) + by * 32, 12], 'z', 12)
+      }
+    }
+  }
+  rbox(d, 'bed', [spanX - 60, spanY - 40, 6], [0, 0, bedZ + railW + 3], 2, 'metal')
+  for (let i = -2; i <= 2; i += 1) {
+    rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
+  }
+
+  // gantry bridge: one beam carrying X, two uprights riding Y
+  rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false })
+  for (const sy of [-1, 1]) {
+    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false })
+    // Y carriage: rail block + rollers
+    rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal')
+    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel')
+  }
+  // X carriage + Z column
+  rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal')
+  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false })
+  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal')
+  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel')
+
+  // drive: motors, belts (as flat straps), leadscrew, limit switches
+  cyl(d, 'motor-x', 21, 40, [spanX / 2 + 10, -(spanY / 2 + 10), z0 + beamH + 6], 'x', 'servo')
+  cyl(d, 'motor-y', 21, 40, [0, -(spanY / 2 + 10), railW + 10], 'y', 'servo')
+  cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo')
+  rbox(d, 'belt-x', [8, spanY + 40, 6], [spanX / 2 + 10, 0, z0 + beamH - 10], 1, 'belt')
+  rbox(d, 'belt-y', [spanX, 8, 6], [0, -(spanY / 2 + 10), railW + 22], 1, 'belt')
+  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel')
+  for (const [ax, pos] of [['x', [spanX / 2 - 20, -(spanY / 2 + 10), z0 + 10]], ['y', [0, -(spanY / 2 + 20), railW + 10]], ['z', [30, 0, z0 + beamH + 40]]]) {
+    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb')
+  }
+
+  // printed corner brackets + motor mounts: the only custom geometry, and the
+  // reason a metre-class machine still needs a 3D printer
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    rbox(d, `corner-${sx}${sy}`, [70, 70, 30], [sx * (spanX / 2 + 22), sy * (spanY / 2 + 22), railW + 12], 3, 'accent', { print: true })
+  }
+  for (const sy of [-1, 1]) {
+    rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
+  }
+  rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true })
+  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true })
+
+  // ── parts ────────────────────────────────────────────────────────────────
+  const railMetres = Math.ceil((2 * (spanY + 120) + 2 * spanX + 4 * 400) / 1000 * 2) / 2
+  const braceMetres = Math.ceil((2 * spanX + 2 * spanY) / 1000 * 2) / 2
+  addPart(d, 'extrusion_2040', railMetres, 'rails, legs, beam')
+  addPart(d, 'extrusion_2020', braceMetres, 'bracing + bed frame')
+  addPart(d, 'bed_plate', 1, 'spoilboard')
+  addPart(d, 'spindle_500w', 1, 'cutting spindle')
+  addPart(d, 'drag_chain', 1, 'harness')
+  addPart(d, 'nema17', 3, 'X / Y / Z drive')
+  addPart(d, 'drv8825', 3, 'stepper drivers')
+  addPart(d, brief.mcu || 'esp32s3', 1, 'controller (GRBL-firmware)')
+  addPart(d, 'gt2_kit', 1, 'X/Y belts + pulleys')
+  addPart(d, 'leadscrew_t8', 1, 'Z axis')
+  addPart(d, 'mgn12', 3, 'linear rails')
+  addPart(d, 'limit_sw', 3, 'homes')
+  addPart(d, 'buck5a', 1, 'logic rail')
+  addPart(d, 'fuse', 1, 'main protection')
+  addPart(d, 'rocker', 1, 'power switch')
+  addPart(d, 'cap1000', 1, 'motor rail')
+  const supply = PARTS[brief.battery] && PARTS[brief.battery].volts >= 11 ? brief.battery : 'pack3s'
+  addPart(d, supply, 1, 'machine power')
+  addPart(d, 'hw_m3', 2, 'frame fasteners')
+  addPart(d, 'm3_screws', 2, 'rail + carriage hardware')
+  addPart(d, 'wire18', 1, 'motor harness')
+  addPart(d, 'jst_kit', 1, 'connectors')
+  addPart(d, 'xt60', 1, 'pack connector')
+
+  // ── the numbers that actually matter at this size ────────────────────────
+  const gantryMassKg = 2.4 + (spanY / 1000) * 1.7 // beam + carriages + spindle
+  const rpm = PARTS.nema17.speed || 200
+  const torque = PARTS.nema17.torque
+  const pulleyR = 0.0125 // GT2 20T ≈ 12.5 mm pitch radius
+  const force = torque / pulleyR // N at the belt
+  const accelNeed = (gantryMassKg * 2.0) // F = ma, 2 m/s²
+  const beltDeflect = Math.pow(Math.max(1, spanY) / 1000, 3) * 0.42 // mm, ~N/1kg preload, empirical
+  const beamDeflect = (gantryMassKg * G * Math.pow(spanX / 1000, 3)) / (48 * 70000e6 * 1.2e-7) * 1000 // mm, I≈1.2e-7 m⁴ for 60×80 extrusion
+
+  d.notes.push(`Belt drive on X and Y: ${fmt(force, 0)}N available at the pulley, ${fmt(accelNeed, 0)}N wanted for ${fmt(gantryMassKg, 1)}kg at 2m/s².`)
+  d.notes.push(`Y belt sag over ${spanY}mm is about ${fmt(beltDeflect, 2)}mm unless it is tensioned hard — that is your ripple in the surface finish.`)
+  d.notes.push(`Bridge beam deflects ~${fmt(beamDeflect, 3)}mm at the middle under its own carriage — fine. Past ~1.2m span it is not: go to a taller extrusion or two beams.`)
+
+  if (spanX > 1000) {
+    d.checks.push({ level: 'warn', msg: `${spanX}mm travel: the print/step files for the bed and side rails exceed a 256mm bed several times over. Plan a 4-part bed with dowel joins, or buy extrusion by the metre and cut it.` })
+  }
+  if (beamDeflect > 0.5) {
+    d.checks.push({ level: 'warn', msg: `Bridge deflection ${fmt(beamDeflect, 2)}mm across the span is visible in a cut. Stiffen the beam or shorten X.` })
+  }
+  if (force < accelNeed) {
+    d.checks.push({ level: 'warn', msg: `NEMA17 at the belt gives ${fmt(force, 0)}N against ${fmt(accelNeed, 0)}N demanded — reduce gantry mass or gear the pulleys down.` })
+  }
+  d.checks.push({ level: 'ok', msg: 'Frame, rails, drivers and homes are all standard parts — the only custom geometry is the mounts.' })
+
+  Object.assign(d.metrics, {
+    gantryMassKg,
+    beltForce: force,
+    beamDeflect,
+    beltDeflect,
+    motors: 3,
+  })
+  return d
+}
+
 // ── analysis: the numbers that make it a spec, not a mood board ─────────────
 
 const I2C = { sda: 8, scl: 9 }
@@ -2368,11 +2628,15 @@ function analyze(design) {
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
 
   let cost = 0
+  let costBuy = 0
   let partMassG = 0
   for (const { key, qty } of design.parts) {
     const p = PARTS[key]
     if (!p) continue
     cost += p.price * qty
+    // Shop stock (wire, screw kits, standoffs) is bought once and used across
+    // builds. Counting it in every project makes a $30 sensor node read as $100.
+    if (!p.shop) costBuy += p.price * qty
     // A spool is not consumed by one build — charge the grams used, not $20.
     if (p.print) continue
     partMassG += p.mass * qty
@@ -2383,6 +2647,7 @@ function analyze(design) {
   const printHours = printMm3 / 1000 / 18 // ~18cm³/h: 0.4 nozzle, 0.2 layers, real parts
   const spoolCost = (printGrams / 1000) * (PARTS[mat.priceId]?.price || 20)
   cost += spoolCost
+  costBuy += spoolCost
 
   const totalMassG = partMassG + printGrams
   const bbox = boundsOf(design.nodes)
@@ -2414,6 +2679,8 @@ function analyze(design) {
     pins,
     power,
     cost,
+    costBuy,
+    costShop: cost - costBuy,
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
@@ -3488,6 +3755,7 @@ const DEFAULT_BRIEF = {
 }
 
 const PRESETS = [
+  { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400 } },
@@ -3495,10 +3763,13 @@ const PRESETS = [
   { id: 'humanoid', label: 'Humanoid', brief: { archetype: 'humanoid', mission: '550mm bipedal humanoid, 23 joints, balance IMU', payloadKg: 0.5, reachMm: 550 } },
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130 } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
+  { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
 ]
 
 function detectArchetype(text) {
   const t = text.toLowerCase()
+  if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
+  if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
   if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
@@ -3546,7 +3817,9 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'humanoid' ? buildHumanoid(b)
+  const design = b.archetype === 'iot' ? buildIot(b)
+    : b.archetype === 'gantry' ? buildGantry(b)
+    : b.archetype === 'humanoid' ? buildHumanoid(b)
     : b.archetype === 'robot' ? buildFullRobot(b)
     : b.archetype === 'rover' ? buildRover(b)
     : b.archetype === 'quadruped' ? buildQuadruped(b)
@@ -3581,7 +3854,7 @@ function agentPrompt(brief, spec, instruction) {
     '',
     '::rigforge{brief=<json with archetype, mission, payloadKg, reachMm, dof, material, mcu, battery>}',
     '',
-    'Keep it inside these archetypes: arm | rover | quadruped | gripper | gadget.',
+    'Keep it inside these archetypes: iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry.',
     'Only numbers the engine can act on — no prose inside the json.',
   ]
   return lines.filter(Boolean).join('\n')
@@ -3615,44 +3888,107 @@ const CAM0 = { yaw: -0.62, pitch: 0.42, dist: 900, ortho: false }
 // albedo in 0-255, spec = highlight strength, shine = highlight tightness,
 // metal = how much the albedo tints that highlight (0 plastic, 1 metal), glow
 // = self-lit parts so a PCB or an LED strip does not go black in shadow.
+// ── colour management ───────────────────────────────────────────────────────
+// Everything below works in linear light and is encoded to sRGB only at the
+// last moment. Shading sRGB numbers directly is what makes a render look like
+// an old game instead of a photograph: the darks collapse and the highlights
+// clip.
+const srgbToLin = (c) => {
+  const v = c <= 1 ? c : c / 255
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+}
+const EXPOSURE = 0.92
+/** linear radiance → 0-255 sRGB, through an ACES-ish filmic curve. */
+function encode8(x) {
+  const v = x * EXPOSURE
+  const t = (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14)
+  const g = t <= 0.0031308 ? t * 12.92 : 1.055 * Math.pow(t, 1 / 2.4) - 0.055
+  return (g < 0 ? 0 : g > 1 ? 1 : g) * 255 | 0
+}
+const L = (r, g, b) => [srgbToLin(r), srgbToLin(g), srgbToLin(b)]
+
+// ── materials ───────────────────────────────────────────────────────────────
+// albedo is stored LINEAR (converted once at load). spec = highlight strength,
+// shine = highlight tightness, metal = albedo tints the reflection and the
+// highlight (0 plastic, 1 metal), glow = self-lit.
 const MAT = {
-  shell: { alb: [234, 229, 218], spec: 0.20, shine: 26, metal: 0.0, glow: 0 },
-  accent: { alb: [255, 118, 28], spec: 0.30, shine: 34, metal: 0.0, glow: 0 },
-  metal: { alb: [186, 195, 206], spec: 0.85, shine: 70, metal: 0.85, glow: 0 },
-  steel: { alb: [104, 118, 134], spec: 0.75, shine: 60, metal: 1.0, glow: 0 },
-  brass: { alb: [216, 172, 88], spec: 0.8, shine: 64, metal: 1.0, glow: 0 },
-  pcb: { alb: [26, 112, 82], spec: 0.25, shine: 44, metal: 0.0, glow: 0.05 },
-  rubber: { alb: [30, 33, 38], spec: 0.06, shine: 12, metal: 0.0, glow: 0 },
-  glass: { alb: [128, 226, 246], spec: 0.9, shine: 96, metal: 0.0, glow: 0.18 },
-  servo: { alb: [44, 54, 78], spec: 0.34, shine: 40, metal: 0.15, glow: 0 },
-  belt: { alb: [42, 44, 50], spec: 0.09, shine: 16, metal: 0.0, glow: 0 },
+  shell: { alb: L(234, 229, 218), spec: 0.22, shine: 26, metal: 0.0, glow: 0, rough: 0.62 },
+  accent: { alb: L(255, 118, 28), spec: 0.30, shine: 34, metal: 0.0, glow: 0, rough: 0.55 },
+  metal: { alb: L(206, 214, 222), spec: 0.85, shine: 70, metal: 0.92, glow: 0, rough: 0.24 },
+  steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
+  brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
+  pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
+  glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
+  servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
+  belt: { alb: L(48, 50, 56), spec: 0.09, shine: 16, metal: 0.0, glow: 0, rough: 0.85 },
 }
 
 // Multi-colour print: printed shell parts take a filament colour by node order,
 // so a machine reads as an assembled multi-material build — the maker look.
 const FILAMENT = [
-  [226, 74, 46], // vermilion
-  [38, 152, 142], // teal
-  [232, 178, 58], // amber
-  [124, 96, 190], // violet
-  [58, 108, 184], // cobalt
-  [228, 236, 232], // white
-  [198, 148, 88], // copper
-  [96, 176, 96], // leaf
+  L(226, 74, 46), // vermilion
+  L(38, 152, 142), // teal
+  L(232, 178, 58), // amber
+  L(124, 96, 190), // violet
+  L(58, 108, 184), // cobalt
+  L(228, 236, 232), // white
+  L(198, 148, 88), // copper
+  L(96, 176, 96), // leaf
 ]
 
 // three-point studio rig: [direction toward the light, colour, intensity]
 const LIGHTS = [
-  [norm3([0.46, -0.50, 0.72]), [1.0, 0.955, 0.9], 1.32], // warm key, upper front-left
-  [norm3([-0.66, -0.14, 0.26]), [0.38, 0.6, 1.0], 0.34], // cool fill, left rear
-  [norm3([0.05, 0.66, 0.34]), [0.5, 0.92, 1.0], 0.42], // cyan rim, behind
+  [norm3([0.46, -0.50, 0.72]), L(255, 244, 230), 1.38], // warm key, upper front-left
+  [norm3([-0.66, -0.14, 0.26]), L(120, 170, 255), 0.42], // cool fill, left rear
+  [norm3([0.05, 0.66, 0.34]), L(150, 226, 255), 0.46], // cyan rim, behind
 ]
-const SKY = [0.17, 0.21, 0.29]
-const GROUND = [0.045, 0.052, 0.07]
+const SKY = [0.13, 0.16, 0.22]
+const GROUND = [0.035, 0.04, 0.05]
+const SHADOW_DIR = norm3([-0.46, 0.5, -0.72]) // opposite the key light
 
 function norm3(v) {
-  const l = Math.hypot(v[0], v[1], v[2]) || 1
+  const l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1
   return [v[0] / l, v[1] / l, v[2] / l]
+}
+
+/**
+ * The studio the parts reflect. No HDRI file to ship: two softboxes over a dim
+ * room, sampled by direction. This is the term that turns dead grey metal into
+ * brushed aluminium — a metal is mostly the room it sits in.
+ */
+function envAt(dx, dy, dz) {
+  let r = 0.07
+  let g = 0.085
+  let b = 0.115
+  const up = dz > 0 ? dz : 0
+  r += 0.13 * up
+  g += 0.17 * up
+  b += 0.24 * up
+  // broad warm softbox, upper front-left (integer powers: Math.pow is slow here)
+  const kd = dx * 0.42 + dy * -0.52 + dz * 0.74
+  if (kd > 0) {
+    const k2 = kd * kd
+    const k = k2 * k2 * kd * 2.3
+    r += k
+    g += k * 0.95
+    b += k * 0.86
+  }
+  // narrow cool strip, rear-right
+  const cd = dx * -0.55 + dy * 0.62 + dz * 0.18
+  if (cd > 0) {
+    const c3 = cd * cd * cd
+    const k = c3 * c3 * cd * 1.9
+    r += k * 0.5
+    g += k * 0.75
+    b += k
+  }
+  // floor bounce
+  const dn = dz < 0 ? -dz : 0
+  r += dn * 0.02
+  g += dn * 0.018
+  b += dn * 0.016
+  return [r, g, b]
 }
 
 function camBasis(cam, target) {
@@ -3673,11 +4009,13 @@ function camBasis(cam, target) {
 
 function project(p, cam, target, w, h) {
   const b = cam._basis || camBasis(cam, target)
-  const rel = [p[0] - b.eye[0], p[1] - b.eye[1], p[2] - b.eye[2]]
-  const vx = rel[0] * b.x[0] + rel[1] * b.x[1]
-  const vy = rel[0] * b.y[0] + rel[1] * b.y[1] + rel[2] * b.y[2]
-  const depth = -(rel[0] * b.back[0] + rel[1] * b.back[1] + rel[2] * b.back[2])
-  const f = (w < h ? w : h) * 0.9 / (cam.dist > 1 ? cam.dist : 1)
+  const rel0 = p[0] - b.eye[0]
+  const rel1 = p[1] - b.eye[1]
+  const rel2 = p[2] - b.eye[2]
+  const vx = rel0 * b.x[0] + rel1 * b.x[1]
+  const vy = rel0 * b.y[0] + rel1 * b.y[1] + rel2 * b.y[2]
+  const depth = -(rel0 * b.back[0] + rel1 * b.back[1] + rel2 * b.back[2])
+  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
   const s = cam.ortho ? f : f * (cam.dist / (depth > 1 ? depth : 1))
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
 }
@@ -3686,8 +4024,6 @@ function project(p, cam, target, w, h) {
 function materialFor(t, tint) {
   const m = MAT[t.mat] || MAT.shell
   if (!tint || t.mat !== 'shell') return m
-  // blend the filament colour into the shell albedo — still reads as plastic,
-  // not as a sticker.
   const k = 0.82
   return {
     alb: [
@@ -3699,60 +4035,85 @@ function materialFor(t, tint) {
     shine: m.shine,
     metal: m.metal,
     glow: m.glow,
+    rough: m.rough,
   }
 }
 
 /**
- * Radiance for one normal, seen from one view vector. Directional lights, so
- * the only per-vertex inputs are the normal and the rim term — which is what
- * turns a faceted cylinder into a smooth one.
+ * Linear radiance for one normal, seen from one view vector, at one occlusion
+ * value. Directional lights, so the only per-vertex inputs are the normal, the
+ * view vector and the baked AO — which is what turns a faceted cylinder into a
+ * smooth one and keeps a crevice dark.
  */
-function shadeNormal(n, vx, vy, vz, m, specTerm) {
-  const up = 0.5 + 0.5 * n[2]
-  const amb = SKY[0] * up * 0.92 + GROUND[0] * (1 - up) * 2.2
+function shadeNormal(n, vx, vy, vz, m, specTerm, ao) {
   const alb = m.alb
+  const up = 0.5 + 0.5 * n[2]
+  const sky = SKY[0] * up * 0.9 + GROUND[0] * (1 - up) * 1.6
+  const amb = sky * (0.34 + 0.66 * ao)
   let r = alb[0] * amb
   let gg = alb[1] * amb
   let b = alb[2] * amb
 
   for (let i = 0; i < 3; i += 1) {
-    const L = LIGHTS[i]
-    const d = n[0] * L[0][0] + n[1] * L[0][1] + n[2] * L[0][2]
+    const Lt = LIGHTS[i]
+    const d = n[0] * Lt[0][0] + n[1] * Lt[0][1] + n[2] * Lt[0][2]
     if (d <= 0) continue
-    const k = d * L[2] * 0.86
-    r += alb[0] * k * L[1][0]
-    gg += alb[1] * k * L[1][1]
-    b += alb[2] * k * L[1][2]
+    // half-lambert lift keeps the shadow side from going flat black
+    const k = (d * 0.86 + 0.14) * Lt[2] * 0.55 * (0.55 + 0.45 * ao)
+    r += alb[0] * k * Lt[1][0]
+    gg += alb[1] * k * Lt[1][1]
+    b += alb[2] * k * Lt[1][2]
   }
 
-  // rim: grazing angles pick up the cool studio light
-  let ndv = (n[0] * vx + n[1] * vy + n[2] * vz) / (Math.sqrt(vx * vx + vy * vy + vz * vz) || 1)
+  const vlen = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1
+  const nx = vx / vlen
+  const ny = vy / vlen
+  const nz = vz / vlen
+
+  // Schlick fresnel: grazing angles mirror the room, dead-on they do not
+  let ndv = n[0] * nx + n[1] * ny + n[2] * nz
   if (ndv < 0) ndv = -ndv
-  const fr = 1 - ndv
-  const rim = fr * fr * fr * 0.22
-  r += rim * 92
-  gg += rim * 118
-  b += rim * 158
+  const f = 1 - ndv
+  const f2 = f * f
+  const fres = f2 * f2 * f * 0.9 + 0.05
+
+  // reflection vector, sampled against the procedural studio
+  const dnv = 2 * (n[0] * nx + n[1] * ny + n[2] * nz)
+  const rx = dnv * n[0] - nx
+  const ry = dnv * n[1] - ny
+  const rz = dnv * n[2] - nz
+  const env = envAt(rx, ry, rz)
+  const mir = (m.metal || 0) > 0.4
+  const kEnv = mir ? (0.55 + 0.45 * fres) : (0.16 + 0.55 * fres)
+  if (mir) {
+    r += env[0] * kEnv * alb[0] * 2.4
+    gg += env[1] * kEnv * alb[1] * 2.4
+    b += env[2] * kEnv * alb[2] * 2.4
+  } else {
+    r += env[0] * kEnv
+    gg += env[1] * kEnv
+    b += env[2] * kEnv
+  }
 
   if (specTerm > 0) {
-    const sr = specTerm * 255
-    r += m.metal > 0.5 ? sr * (alb[0] / 255) : sr
-    gg += m.metal > 0.5 ? sr * (alb[1] / 255) : sr
-    b += m.metal > 0.5 ? sr * (alb[2] / 255) : sr
+    const sr = specTerm * 2.6
+    r += mir ? sr * alb[0] * 1.5 : sr
+    gg += mir ? sr * alb[1] * 1.5 : sr
+    b += mir ? sr * alb[2] * 1.5 : sr
   }
 
   if (m.glow) {
-    r += m.glow * alb[0] * 0.5
-    gg += m.glow * alb[1] * 0.5
-    b += m.glow * alb[2] * 0.5
+    r += m.glow * alb[0] * 0.8
+    gg += m.glow * alb[1] * 0.8
+    b += m.glow * alb[2] * 0.8
   }
 
-  return [r > 255 ? 255 : r, gg > 255 ? 255 : gg, b > 255 ? 255 : b]
+  return [r, gg, b]
 }
 
 const css = (c, a) => (a == null
-  ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`
-  : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`)
+  ? `rgb(${encode8(c[0])},${encode8(c[1])},${encode8(c[2])})`
+  : `rgba(${encode8(c[0])},${encode8(c[1])},${encode8(c[2])},${a})`)
 
 /** Per-face specular from the Blinn half-vector. */
 function specularFor(n, cx, cy, cz, eye, m) {
@@ -3776,6 +4137,87 @@ function specularFor(n, cx, cy, cz, eye, m) {
     if (s > best) best = s
   }
   return best > 1 ? 1 : best
+}
+
+function bakeAO(mesh) {
+  // baked ambient occlusion: voxelise the assembly, score every voxel by how
+  // much of its neighbourhood is empty, read it back per vertex corner. Cached
+  // per mesh, so the per-frame cost is one array lookup per vertex.
+  const cornerAO = new Float32Array(mesh.length * 3).fill(1)
+  if (mesh.length > 8) {
+    let lox = Infinity; let loy = Infinity; let loz = Infinity
+    let hix = -Infinity; let hiy = -Infinity; let hiz = -Infinity
+    for (const t of mesh) {
+      for (const p of t.pts) {
+        if (p[0] < lox) lox = p[0]
+        if (p[0] > hix) hix = p[0]
+        if (p[1] < loy) loy = p[1]
+        if (p[1] > hiy) hiy = p[1]
+        if (p[2] < loz) loz = p[2]
+        if (p[2] > hiz) hiz = p[2]
+      }
+    }
+    const span = Math.max(hix - lox, hiy - loy, hiz - loz, 1)
+    const step = span / 42
+    const nx = Math.ceil((hix - lox) / step) + 1
+    const ny = Math.ceil((hiy - loy) / step) + 1
+    const nz = Math.ceil((hiz - loz) / step) + 1
+    const occ = new Float32Array(nx * ny * nz)
+    const mark = (x, y, z) => {
+      const ix = Math.round((x - lox) / step)
+      const iy = Math.round((y - loy) / step)
+      const iz = Math.round((z - loz) / step)
+      if (ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz) return
+      occ[(iz * ny + iy) * nx + ix] = 1
+    }
+    const mid = (a, b, k) => a + (b - a) * k
+    for (const t of mesh) {
+      const [p0, p1, p2] = t.pts
+      mark(p0[0], p0[1], p0[2]); mark(p1[0], p1[1], p1[2]); mark(p2[0], p2[1], p2[2])
+      mark(mid(p0[0], p1[0], 0.5), mid(p0[1], p1[1], 0.5), mid(p0[2], p1[2], 0.5))
+      mark(mid(p1[0], p2[0], 0.5), mid(p1[1], p2[1], 0.5), mid(p1[2], p2[2], 0.5))
+      mark(mid(p0[0], p2[0], 0.5), mid(p0[1], p2[1], 0.5), mid(p0[2], p2[2], 0.5))
+      mark((p0[0] + p1[0] + p2[0]) / 3, (p0[1] + p1[1] + p2[1]) / 3, (p0[2] + p1[2] + p2[2]) / 3)
+    }
+    // separable box filter, radius 3 → occupancy fraction in a 7³ window
+    const R = 3
+    const box = (src, axis) => {
+      const out = new Float32Array(src.length)
+      const dx = axis === 0 ? 1 : 0
+      const dy = axis === 1 ? 1 : 0
+      const dz = axis === 2 ? 1 : 0
+      for (let z = 0; z < nz; z += 1) for (let y = 0; y < ny; y += 1) for (let x = 0; x < nx; x += 1) {
+        let sum = 0
+        let n = 0
+        for (let k = -R; k <= R; k += 1) {
+          const xx = x + k * dx
+          const yy = y + k * dy
+          const zz = z + k * dz
+          if (xx < 0 || yy < 0 || zz < 0 || xx >= nx || yy >= ny || zz >= nz) continue
+          sum += src[(zz * ny + yy) * nx + xx]
+          n += 1
+        }
+        out[(z * ny + y) * nx + x] = sum / n
+      }
+      return out
+    }
+    let f1 = box(occ, 0)
+    f1 = box(f1, 1)
+    f1 = box(f1, 2)
+    for (let i = 0; i < mesh.length; i += 1) {
+      for (let k = 0; k < 3; k += 1) {
+        const p = mesh[i].pts[k]
+        const ix = Math.round((p[0] - lox) / step)
+        const iy = Math.round((p[1] - loy) / step)
+        const iz = Math.round((p[2] - loz) / step)
+        if (ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz) continue
+        const occFrac = f1[(iz * ny + iy) * nx + ix]
+        const open = 1 - occFrac
+        cornerAO[i * 3 + k] = Math.max(0, Math.min(1, (open - 0.34) / 0.36))
+      }
+    }
+  }
+  return cornerAO
 }
 
 // ── per-mesh cache: topology (silhouette), tints, shadow footprints ─────────
@@ -3918,9 +4360,6 @@ function layer(name, w, h, scale) {
   return { cv, g }
 }
 
-/** Sun direction the shadow is cast along (opposite the key light). */
-const SHADOW_DIR = norm3([-0.46, 0.50, -0.72])
-
 function floorPoint(p) {
   // slide the point along the shadow ray until z = 0
   if (p[2] <= 0.01) return [p[0], p[1], 0]
@@ -3982,6 +4421,9 @@ function drawScene(canvas, mesh, cam, target, opts) {
   cam._basis = camBasis(cam, target)
   const eye = cam._basis.eye
   const data = mesh.length ? meshData(mesh) : null
+  // ambient occlusion is baked once, on demand: thumbnails and the wire view
+  // do not need it, and a page with seven thumbnails must not pay for seven bakes
+  if (data && opts.ao !== false && !data.cornerAO) data.cornerAO = bakeAO(mesh)
 
   // ── colours: filament tint by node order, so printed links are multicolour ─
   const tints = data && opts.colour !== false ? data.tints : null
@@ -4129,7 +4571,7 @@ function drawScene(canvas, mesh, cam, target, opts) {
     mark('reflect')
     // ── cast shadow: cached world footprints slid along the key ray ────────
     if (!opts.wire && data) {
-      const sh = layer('shadow', w, h, 0.25)
+      const sh = layer('shadow', w, h, 0.12)
       const sg = sh.g
       sg.fillStyle = 'rgba(3,6,9,0.9)'
       sg.beginPath()
@@ -4148,13 +4590,12 @@ function drawScene(canvas, mesh, cam, target, opts) {
         sg.closePath()
       }
       sg.fill()
-      // a handful of offset taps turns a hard hull shadow into a penumbra
+      // the hull is drawn at one-eighth scale and blown back up: one composite,
+      // and an eight-pixel penumbra for free
       g.imageSmoothingEnabled = true
       g.imageSmoothingQuality = 'high'
-      g.globalAlpha = 0.20
-      for (const [ox, oy] of [[0, 0], [-5, 3], [5, -3], [-3, -5], [4, 5], [-7, -2]]) {
-        g.drawImage(sh.cv, ox, oy, w, h)
-      }
+      g.globalAlpha = 0.7
+      g.drawImage(sh.cv, 0, 0, w, h)
       g.globalAlpha = 1
     }
 
@@ -4188,7 +4629,15 @@ function drawScene(canvas, mesh, cam, target, opts) {
   // behind the parts it encloses, which is what makes a solid shell read as
   // glass; splitting the passes makes an enclosing shell always cover its own
   // interior.
-  const order = wire ? faces : faces.filter((f) => !f.facing).concat(faces.filter((f) => f.facing))
+  // Sort each pass by the NEAREST vertex, not the centroid. A long panel's
+  // centroid can sit behind the parts it encloses; its nearest corner cannot,
+  // so the shell always lands on top of its own interior.
+  let order = faces
+  if (!wire) {
+    const back = faces.filter((f) => !f.facing).sort((p, q) => q.dmax - p.dmax)
+    const front = faces.filter((f) => f.facing).sort((p, q) => q.dmin - p.dmin)
+    order = back.concat(front)
+  }
   for (const f of order) {
     if (!wire && f.area < 0.7) continue // sub-pixel triangles cost a fill and show nothing
     g.beginPath()
@@ -4214,12 +4663,15 @@ function drawScene(canvas, mesh, cam, target, opts) {
     const n0 = cn ? [cn[f.i * 9] * sgn, cn[f.i * 9 + 1] * sgn, cn[f.i * 9 + 2] * sgn] : f.n
     const n1 = cn ? [cn[f.i * 9 + 3] * sgn, cn[f.i * 9 + 4] * sgn, cn[f.i * 9 + 5] * sgn] : f.n
     const n2 = cn ? [cn[f.i * 9 + 6] * sgn, cn[f.i * 9 + 7] * sgn, cn[f.i * 9 + 8] * sgn] : f.n
+    const ca0 = data && opts.ao !== false ? data.cornerAO[f.i * 3] : 1
+    const ca1 = data && opts.ao !== false ? data.cornerAO[f.i * 3 + 1] : 1
+    const ca2 = data && opts.ao !== false ? data.cornerAO[f.i * 3 + 2] : 1
     if (f.area > (opts.flat ? 1e9 : 260)) {
       // per-vertex radiance → a linear gradient across the face: this is what
       // makes a cylinder look round and a flat panel look printed, not pasted
-      const ca = shadeNormal(n0, vx, vy, vz, f.m, specTerm)
-      const cb = shadeNormal(n1, vx, vy, vz, f.m, specTerm)
-      const cc = shadeNormal(n2, vx, vy, vz, f.m, specTerm)
+      const ca = shadeNormal(n0, vx, vy, vz, f.m, specTerm, ca0)
+      const cb = shadeNormal(n1, vx, vy, vz, f.m, specTerm, ca1)
+      const cc = shadeNormal(n2, vx, vy, vz, f.m, specTerm, ca2)
       const la = ca[0] * 0.3 + ca[1] * 0.56 + ca[2] * 0.14
       const lb = cb[0] * 0.3 + cb[1] * 0.56 + cb[2] * 0.14
       const lc = cc[0] * 0.3 + cc[1] * 0.56 + cc[2] * 0.14
@@ -4241,7 +4693,7 @@ function drawScene(canvas, mesh, cam, target, opts) {
       g.fillStyle = grad
       g.strokeStyle = grad
     } else {
-      const col = shadeNormal(f.n, vx, vy, vz, f.m, specTerm)
+      const col = shadeNormal(f.n, vx, vy, vz, f.m, specTerm, (ca0 + ca1 + ca2) / 3)
       g.fillStyle = css(col)
       g.strokeStyle = g.fillStyle
     }
@@ -4310,6 +4762,9 @@ function drawScene(canvas, mesh, cam, target, opts) {
   }
 
   // axis gizmo, bottom-left
+  if (opts.gizmo === false) {
+    // thumbnails: no gizmo, no vignette — the card carries the framing
+  } else {
   const ox = 46
   const oy = h - 40
   const axes = [
@@ -4330,6 +4785,7 @@ function drawScene(canvas, mesh, cam, target, opts) {
     g.stroke()
     g.fillStyle = color
     g.fillText(label, ox + sx * 1.25 - 3, oy - syv * 1.25 + 3)
+  }
   }
 
   // vignette: keeps the eye on the machine
@@ -4423,206 +4879,291 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis }) {
 }
 
 // ── the studio ──────────────────────────────────────────────────────────────
-// A dark instrument surface on purpose: this is a CAD viewport, and a machine
-// reads better against graphite than against a light chat theme. Everything
-// else in the app stays themed; this page is the workbench.
+// Surface: CONFIGURE (pick a machine, set two numbers, build) with an INSPECT
+// secondary (the viewport and the spec rail). So: dense, calm, workmanlike —
+// hierarchy from scale and spacing, not from boxes and icons.
+//
+// Design system
+//   type    one sans for everything you read, one mono for anything that is a
+//           number or a label. Mono-as-body is what made this read as a
+//           terminal instead of a product.
+//   colour  graphite workbench, one accent (safety orange), cyan for the
+//           machine's own instrumentation, green/amber/red for verdicts only.
+//   space   4 · 6 · 8 · 12 · 16 · 20 · 28 — nothing in between.
+//   motion  120 ms ease for state, 180 ms for surfaces. Nothing loops.
 
 const C = {
   bg: '#0A0D10',
-  panel: '#0E1318',
-  panel2: '#121920',
-  raise: '#172130',
-  line: '#1F2A34',
-  lineSoft: '#18212A',
-  text: '#E8EFF5',
-  dim: '#8FA3B3',
-  faint: '#5D6F7D',
+  panel: '#0D1217',
+  panel2: '#111820',
+  raise: '#17212C',
+  line: '#1E2A35',
+  lineSoft: '#16202A',
+  text: '#E9F0F6',
+  dim: '#B2C2CF',
+  faint: '#7E93A2',
   accent: '#FF6A1A',
-  accentDim: 'rgba(255,106,26,0.14)',
+  accentSoft: 'rgba(255,106,26,0.12)',
+  accentLine: 'rgba(255,106,26,0.45)',
   cyan: '#39D3E8',
   green: '#4ED08A',
   amber: '#FFC24A',
   red: '#FF5F56',
+  sans: 'var(--ui-font, "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif)',
   mono: 'ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace',
 }
 
 const S = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
-    background: C.bg, color: C.text, fontFamily: 'var(--ui-font, system-ui, sans-serif)',
-    fontSize: '13px',
+    background: C.bg, color: C.text, fontFamily: C.sans,
+    fontSize: '13.5px', lineHeight: 1.5, WebkitFontSmoothing: 'antialiased',
   },
+
+  // ── top bar ─────────────────────────────────────────────────────────────
   top: {
-    display: 'flex', alignItems: 'center', gap: '18px', padding: '0 16px',
-    height: '54px', flex: '0 0 54px', borderBottom: `1px solid ${C.line}`,
+    display: 'flex', alignItems: 'center', gap: '20px', padding: '0 20px',
+    height: '58px', flex: '0 0 58px', borderBottom: `1px solid ${C.line}`,
     background: `linear-gradient(180deg, ${C.panel2}, ${C.panel})`,
   },
-  mark: { display: 'flex', alignItems: 'baseline', gap: '9px' },
+  mark: { display: 'flex', alignItems: 'center', gap: '10px' },
   wordmark: {
-    fontFamily: C.mono, fontWeight: 700, letterSpacing: '0.22em', fontSize: '13px',
+    fontFamily: C.sans, fontWeight: 700, letterSpacing: '0.16em', fontSize: '13px',
     color: C.text,
   },
-  tagline: { fontSize: '11px', color: C.faint, letterSpacing: '0.04em' },
-  topStats: { display: 'flex', gap: '10px', marginLeft: 'auto', alignItems: 'center' },
+  tagline: { fontSize: '11.5px', color: C.faint, letterSpacing: '0.01em' },
+  topStats: { display: 'flex', gap: '8px', marginLeft: 'auto', alignItems: 'center' },
   statChip: {
-    display: 'flex', flexDirection: 'column', gap: '1px', padding: '4px 10px',
-    border: `1px solid ${C.line}`, borderRadius: '6px', background: C.panel,
-    minWidth: '62px',
+    display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 11px',
+    border: `1px solid ${C.line}`, borderRadius: '8px', background: C.panel,
+    minWidth: '64px',
   },
-  statKey: { fontSize: '9px', letterSpacing: '0.12em', color: C.faint, fontFamily: C.mono },
-  statVal: { fontSize: '12px', fontFamily: C.mono, color: C.text, fontWeight: 600 },
+  statKey: { fontSize: '9.5px', letterSpacing: '0.13em', color: C.faint, fontFamily: C.mono },
+  statVal: { fontSize: '12.5px', fontFamily: C.mono, color: C.text, fontWeight: 600 },
+
+  // ── controls ────────────────────────────────────────────────────────────
   btn: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px',
-    padding: '0 12px', borderRadius: '6px', border: `1px solid ${C.line}`,
-    background: C.panel2, color: C.text, fontSize: '12px', cursor: 'pointer',
-    fontFamily: C.mono, letterSpacing: '0.03em', whiteSpace: 'nowrap',
+    display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px',
+    padding: '0 13px', borderRadius: '8px', border: `1px solid ${C.line}`,
+    background: C.panel2, color: C.dim, fontSize: '12px', fontWeight: 500, cursor: 'pointer',
+    fontFamily: C.sans, whiteSpace: 'nowrap',
+    transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
   },
   btnPrimary: {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-    height: '34px', padding: '0 14px', borderRadius: '6px', border: '1px solid #ff8a4a',
-    background: C.accent, color: '#141414', fontSize: '12px', fontWeight: 700,
-    cursor: 'pointer', fontFamily: C.mono, letterSpacing: '0.08em', width: '100%',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+    height: '40px', padding: '0 16px', borderRadius: '9px', border: '1px solid #FF8A4A',
+    background: 'linear-gradient(180deg, #FF7A2A, #FF6A1A)', color: '#180B02', fontSize: '13px',
+    fontWeight: 700, cursor: 'pointer', fontFamily: C.sans, letterSpacing: '0.02em', width: '100%',
+    boxShadow: '0 6px 18px rgba(255,106,26,0.20), inset 0 1px 0 rgba(255,255,255,0.22)',
   },
+  tool: {
+    padding: '5px 9px', textAlign: 'center', borderRadius: '7px',
+    border: `1px solid ${C.line}`, background: 'rgba(13,18,23,0.9)', color: C.faint,
+    fontSize: '9.5px', fontFamily: C.mono, cursor: 'pointer', letterSpacing: '0.07em',
+    transition: 'color 120ms ease, border-color 120ms ease',
+  },
+  toolOn: {
+    padding: '5px 9px', textAlign: 'center', borderRadius: '7px',
+    border: '1px solid rgba(255,106,26,0.45)', background: 'rgba(255,106,26,0.12)', color: C.accent,
+    fontSize: '9.5px', fontFamily: C.mono, cursor: 'pointer', letterSpacing: '0.07em',
+  },
+
+  // ── body grid ───────────────────────────────────────────────────────────
   body: {
-    display: 'grid', gridTemplateColumns: '286px minmax(0,1fr) 382px',
+    display: 'grid', gridTemplateColumns: '300px minmax(0,1fr) 400px',
     gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
   },
   col: { background: C.bg, minHeight: 0, display: 'flex', flexDirection: 'column' },
-  rail: { background: C.panel, minHeight: 0, overflowY: 'auto', padding: '14px' },
+  rail: { background: C.panel, minHeight: 0, overflowY: 'auto', padding: '16px' },
+
   sectionLabel: {
-    fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.18em', color: C.faint,
-    margin: '0 0 8px 0', textTransform: 'uppercase',
+    fontFamily: C.mono, fontSize: '9.5px', letterSpacing: '0.16em', color: C.faint,
+    margin: '0 0 10px 0', textTransform: 'uppercase',
   },
-  field: { marginBottom: '12px' },
+  field: { marginBottom: '14px' },
   label: {
-    display: 'flex', justifyContent: 'space-between', fontSize: '11px',
-    color: C.dim, marginBottom: '4px', fontFamily: C.mono,
+    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px',
+    fontSize: '12px', color: C.dim, marginBottom: '6px', fontFamily: C.sans,
   },
   input: {
     width: '100%', boxSizing: 'border-box', background: C.bg, color: C.text,
-    border: `1px solid ${C.line}`, borderRadius: '6px', padding: '8px 10px',
-    fontSize: '12px', fontFamily: 'inherit', resize: 'vertical', outline: 'none',
-    lineHeight: 1.45,
+    border: `1px solid ${C.line}`, borderRadius: '8px', padding: '9px 11px',
+    fontSize: '12.5px', fontFamily: C.sans, resize: 'vertical', outline: 'none',
+    lineHeight: 1.5,
   },
-  range: { width: '100%', accentColor: C.accent, height: '16px' },
+  range: { width: '100%', accentColor: C.accent, height: '18px' },
+  hint: { fontSize: '11.5px', color: C.faint, marginTop: '5px', lineHeight: 1.4 },
+
   chips: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px' },
   chip: {
-    padding: '4px 9px', borderRadius: '999px', border: `1px solid ${C.line}`,
-    background: C.panel2, color: C.dim, fontSize: '11px', cursor: 'pointer',
-    fontFamily: C.mono, whiteSpace: 'nowrap',
+    padding: '5px 10px', borderRadius: '999px', border: `1px solid ${C.line}`,
+    background: 'transparent', color: C.faint, fontSize: '11px', cursor: 'pointer',
+    fontFamily: C.sans, whiteSpace: 'nowrap',
   },
   chipOn: {
-    padding: '4px 9px', borderRadius: '999px', border: `1px solid ${C.accent}`,
-    background: C.accentDim, color: C.accent, fontSize: '11px', cursor: 'pointer',
-    fontFamily: C.mono, whiteSpace: 'nowrap',
+    padding: '5px 10px', borderRadius: '999px', border: `1px solid ${C.accent}`,
+    background: 'rgba(255,106,26,0.12)', color: C.accent, fontSize: '11px', cursor: 'pointer',
+    fontFamily: C.sans, whiteSpace: 'nowrap', fontWeight: 600,
   },
-  cards: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '14px' },
+
+  // ── machine gallery ─────────────────────────────────────────────────────
+  cards: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' },
   card: {
-    padding: '8px 9px', borderRadius: '7px', border: `1px solid ${C.line}`,
+    padding: '7px 8px 9px', borderRadius: '10px', border: `1px solid ${C.line}`,
     background: C.panel2, cursor: 'pointer', textAlign: 'left',
-    display: 'flex', flexDirection: 'column', gap: '2px',
+    display: 'flex', flexDirection: 'column', gap: '3px',
+    transition: 'border-color 120ms ease, background 120ms ease',
   },
   cardOn: {
-    padding: '8px 9px', borderRadius: '7px', border: `1px solid ${C.accent}`,
-    background: C.accentDim, cursor: 'pointer', textAlign: 'left',
-    display: 'flex', flexDirection: 'column', gap: '2px',
+    padding: '7px 8px 9px', borderRadius: '10px', border: `1px solid ${C.accent}`,
+    background: 'linear-gradient(180deg, rgba(255,106,26,0.16), rgba(255,106,26,0.07))',
+    cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '3px',
+    boxShadow: '0 0 0 1px rgba(255,106,26,0.22), 0 8px 20px rgba(0,0,0,0.32)',
   },
-  cardTitle: { fontFamily: C.mono, fontSize: '11px', fontWeight: 700, color: C.text, letterSpacing: '0.02em' },
-  cardSub: { fontSize: '10px', color: C.faint, lineHeight: 1.35 },
-  hint: { fontSize: '10px', color: C.faint, marginTop: '-6px', marginBottom: '10px', lineHeight: 1.3 },
+  cardTitle: { fontFamily: C.sans, fontSize: '11.5px', fontWeight: 650, color: C.text, letterSpacing: '0.01em' },
+  cardSub: { fontSize: '11px', color: C.faint, lineHeight: 1.35 },
+  thumb: {
+    display: 'block', width: '100%', height: '62px', marginBottom: '3px',
+    borderRadius: '7px', background: 'radial-gradient(circle at 50% 30%, #12202b, #0a1017 70%)',
+    pointerEvents: 'none',
+  },
+
+  // ── viewport ────────────────────────────────────────────────────────────
   viewWrap: { position: 'relative', flex: '1 1 auto', minHeight: 0, overflow: 'hidden', background: '#080b0e' },
   canvas: { display: 'block', width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' },
   hudTL: {
-    position: 'absolute', top: '12px', left: '14px', display: 'flex', flexDirection: 'column',
-    gap: '3px', pointerEvents: 'none',
+    position: 'absolute', top: '14px', left: '16px', display: 'flex', flexDirection: 'column',
+    gap: '4px', pointerEvents: 'none',
   },
   hudRow: { display: 'flex', gap: '8px', alignItems: 'baseline' },
-  hudKey: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.14em', color: C.faint, width: '34px' },
-  hudVal: { fontFamily: C.mono, fontSize: '11px', color: C.dim },
-  hudTR: { position: 'absolute', top: '12px', right: '14px', pointerEvents: 'none' },
-  hudHint: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.05em' },
+  hudKey: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.13em', color: C.faint, width: '34px' },
+  hudVal: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim },
+  hudTR: { position: 'absolute', top: '14px', right: '16px', pointerEvents: 'none' },
+  hudHint: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.04em' },
   viewTitle: {
-    position: 'absolute', bottom: '14px', left: '88px', fontSize: '12px',
-    color: C.dim, pointerEvents: 'none', fontFamily: C.mono, letterSpacing: '0.02em',
+    position: 'absolute', bottom: '16px', left: '92px', fontSize: '12.5px',
+    color: C.dim, pointerEvents: 'none', fontFamily: C.sans, letterSpacing: '0.01em',
   },
   viewSub: { color: C.faint },
   viewTools: {
-    position: 'absolute', top: '44px', right: '14px', display: 'flex', flexDirection: 'column',
-    gap: '4px',
+    position: 'absolute', top: '46px', right: '16px', display: 'flex', flexDirection: 'column',
+    gap: '5px',
   },
-  tool: {
-    width: '58px', padding: '4px 0', textAlign: 'center', borderRadius: '5px',
-    border: `1px solid ${C.line}`, background: 'rgba(14,19,24,0.86)', color: C.dim,
-    fontSize: '9.5px', fontFamily: C.mono, cursor: 'pointer', letterSpacing: '0.08em',
-  },
-  toolOn: {
-    width: '58px', padding: '4px 0', textAlign: 'center', borderRadius: '5px',
-    border: `1px solid ${C.accent}`, background: 'rgba(255,106,26,0.14)', color: C.accent,
-    fontSize: '9.5px', fontFamily: C.mono, cursor: 'pointer', letterSpacing: '0.08em',
-  },
+
+  // ── joint bar ───────────────────────────────────────────────────────────
   jointBar: {
-    display: 'flex', gap: '16px', padding: '12px 16px 14px', borderTop: `1px solid ${C.line}`,
+    display: 'flex', gap: '18px', padding: '12px 18px 14px', borderTop: `1px solid ${C.line}`,
     background: `linear-gradient(180deg, ${C.panel2}, ${C.panel})`, overflowX: 'auto',
     alignItems: 'flex-end', flex: '0 0 auto',
   },
-  joint: { display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '120px', flex: '1 1 120px', maxWidth: '190px' },
+  joint: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '124px', flex: '1 1 124px', maxWidth: '196px' },
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
-  tabs: { display: 'flex', gap: '2px', padding: '0 8px', borderBottom: `1px solid ${C.line}`, background: C.panel },
+
+  // ── spec rail ───────────────────────────────────────────────────────────
+  tabs: { display: 'flex', gap: '2px', padding: '0 6px', borderBottom: `1px solid ${C.line}`, background: C.panel },
   tab: {
-    padding: '9px 8px 8px', fontFamily: C.mono, fontSize: '10px', letterSpacing: '0.1em',
-    color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent', background: 'transparent',
-    border: 'none',
+    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
+    letterSpacing: '0.05em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
+    background: 'transparent', border: 'none',
   },
   tabOn: {
-    padding: '9px 8px 8px', fontFamily: C.mono, fontSize: '10px', letterSpacing: '0.1em',
-    color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`, background: 'transparent',
-    borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 700,
+    letterSpacing: '0.06em', color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`,
+    background: 'transparent', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
   },
-  tabBody: { overflowY: 'auto', padding: '12px 14px 44px', flex: '1 1 auto', minHeight: 0 },
-  table: { width: '100%', borderCollapse: 'collapse', fontFamily: C.mono, fontSize: '10.5px' },
+  tabBody: { overflowY: 'auto', padding: '14px 16px 48px', flex: '1 1 auto', minHeight: 0 },
+
+  table: { width: '100%', borderCollapse: 'collapse', fontFamily: C.sans, fontSize: '11.5px' },
   th: {
-    textAlign: 'left', padding: '4px 6px', color: C.faint, fontWeight: 500,
-    letterSpacing: '0.08em', borderBottom: `1px solid ${C.line}`,
+    textAlign: 'left', padding: '5px 6px', color: C.faint, fontWeight: 600, fontSize: '9.5px',
+    letterSpacing: '0.1em', borderBottom: `1px solid ${C.line}`, fontFamily: C.mono,
   },
-  td: { padding: '5px 6px', borderBottom: `1px solid ${C.lineSoft}`, color: C.dim, verticalAlign: 'top' },
-  tdNum: { padding: '5px 6px', borderBottom: `1px solid ${C.lineSoft}`, color: C.text, textAlign: 'right', whiteSpace: 'nowrap' },
-  kv: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px 12px', alignItems: 'baseline' },
-  kvKey: { color: C.faint, fontSize: '11px', fontFamily: C.mono },
-  kvVal: { color: C.text, fontSize: '11.5px', fontFamily: C.mono, textAlign: 'right' },
+  td: { padding: '6px 6px', borderBottom: `1px solid ${C.lineSoft}`, color: C.dim, verticalAlign: 'top' },
+  tdNum: {
+    padding: '6px 6px', borderBottom: `1px solid ${C.lineSoft}`, color: C.text, textAlign: 'right',
+    whiteSpace: 'nowrap', fontFamily: C.mono, fontVariantNumeric: 'tabular-nums',
+  },
+  kv: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '7px 12px', alignItems: 'baseline' },
+  kvKey: { color: C.faint, fontSize: '11.5px', fontFamily: C.sans },
+  kvVal: { color: C.text, fontSize: '12px', fontFamily: C.mono, textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
   pre: {
-    margin: 0, padding: '10px 12px', background: '#070A0D', border: `1px solid ${C.line}`,
-    borderRadius: '6px', color: '#BFD3E0', fontFamily: C.mono, fontSize: '10.5px',
-    lineHeight: 1.55, overflow: 'auto', maxHeight: '100%',
+    margin: 0, padding: '11px 13px', background: '#070A0D', border: `1px solid ${C.line}`,
+    borderRadius: '8px', color: '#BFD3E0', fontFamily: C.mono, fontSize: '10.5px',
+    lineHeight: 1.6, overflow: 'auto', maxHeight: '100%',
     whiteSpace: 'pre-wrap', wordBreak: 'break-word', tabSize: 2,
   },
   warn: {
-    display: 'flex', gap: '8px', padding: '7px 9px', borderRadius: '5px',
-    fontSize: '11px', lineHeight: 1.45, marginBottom: '6px', alignItems: 'flex-start',
+    display: 'flex', gap: '8px', padding: '8px 10px', borderRadius: '7px',
+    fontSize: '11.5px', lineHeight: 1.5, marginBottom: '6px', alignItems: 'flex-start',
   },
-  step: { display: 'flex', gap: '10px', marginBottom: '12px' },
+  step: { display: 'flex', gap: '11px', marginBottom: '13px' },
   stepNo: {
-    flex: '0 0 auto', width: '20px', height: '20px', borderRadius: '50%',
-    border: `1px solid ${C.accent}`, color: C.accent, display: 'flex', alignItems: 'center',
+    flex: '0 0 auto', width: '22px', height: '22px', borderRadius: '50%',
+    border: '1px solid rgba(255,106,26,0.45)', color: C.accent, display: 'flex', alignItems: 'center',
     justifyContent: 'center', fontFamily: C.mono, fontSize: '10px',
   },
   footer: {
-    display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px',
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px',
     borderTop: `1px solid ${C.line}`, background: C.panel,
   },
   shelfRow: {
-    display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '6px 8px',
-    border: `1px solid ${C.line}`, borderRadius: '5px', marginBottom: '5px',
+    display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '7px 9px',
+    border: `1px solid ${C.line}`, borderRadius: '7px', marginBottom: '5px',
     cursor: 'pointer', background: C.panel2,
   },
   menu: {
-    position: 'absolute', top: '40px', right: '0', zIndex: 20, background: C.panel2,
-    border: `1px solid ${C.line}`, borderRadius: '7px', padding: '5px', minWidth: '186px',
-    boxShadow: '0 18px 40px rgba(0,0,0,0.55)',
+    position: 'absolute', top: '42px', right: '0', zIndex: 20, background: C.raise,
+    border: `1px solid ${C.line}`, borderRadius: '10px', padding: '6px', minWidth: '210px',
+    boxShadow: '0 24px 48px rgba(0,0,0,0.6)',
   },
   menuItem: {
-    display: 'flex', justifyContent: 'space-between', padding: '7px 9px', borderRadius: '5px',
-    fontSize: '11.5px', color: C.text, cursor: 'pointer', fontFamily: C.mono,
+    display: 'flex', justifyContent: 'space-between', padding: '8px 10px', borderRadius: '7px',
+    fontSize: '12px', color: C.text, cursor: 'pointer', fontFamily: C.sans,
   },
+
+  // ── plain-words panel ───────────────────────────────────────────────────
+  simpleHead: {
+    fontFamily: C.sans, fontSize: '10px', fontWeight: 600, letterSpacing: '0.14em',
+    color: C.faint, textTransform: 'uppercase', marginBottom: '10px',
+  },
+  simpleGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '18px' },
+  bigCard: {
+    border: `1px solid ${C.line}`, borderRadius: '10px', padding: '10px 11px',
+    background: `linear-gradient(180deg, ${C.panel2}, ${C.panel})`,
+  },
+  bigKey: { fontFamily: C.mono, fontSize: '8.5px', letterSpacing: '0.13em', color: C.faint },
+  bigVal: {
+    fontSize: '20px', fontWeight: 700, fontFamily: C.mono, marginTop: '5px',
+    letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums',
+  },
+  bigSub: { fontSize: '10.5px', color: C.faint, marginTop: '3px', lineHeight: 1.35 },
+  simpleLabel: {
+    fontFamily: C.sans, fontSize: '10px', fontWeight: 600, letterSpacing: '0.14em',
+    color: C.faint, textTransform: 'uppercase', marginBottom: '7px',
+  },
+  buyRow: {
+    display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', alignItems: 'baseline',
+    padding: '6px 0', borderBottom: `1px solid ${C.lineSoft}`,
+  },
+  buyName: { fontSize: '12px', color: C.text, lineHeight: 1.35 },
+  buyQty: { fontFamily: C.mono, fontSize: '10px', color: C.faint },
+  buyPrice: {
+    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
+
+  // ── first-run strip ─────────────────────────────────────────────────────
+  firstRun: {
+    display: 'flex', gap: '10px', alignItems: 'flex-start',
+    padding: '10px 12px', marginBottom: '14px', borderRadius: '10px',
+    border: `1px solid ${C.line}`, background: `linear-gradient(180deg, ${C.panel2}, ${C.panel})`,
+  },
+  firstRunStep: { flex: '1 1 0', minWidth: 0 },
+  firstRunNum: {
+    fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', color: C.accent, marginBottom: '3px',
+  },
+  firstRunText: { fontSize: '12px', color: C.dim, lineHeight: 1.4 },
 }
 
 // The element factory: jsx() directly, with children folded into props.
@@ -4985,6 +5526,10 @@ function summarise(design, analysis, brief) {
     printHours: Number(analysis.print.hours.toFixed(1)),
     peakAmps: Number(analysis.power.peak.toFixed(2)),
     partCount: design.parts.reduce((s, p) => s + p.qty, 0),
+    parts: design.parts.map((p) => {
+      const part = PARTS[p.key] || {}
+      return { key: p.key, name: part.name || p.key, sku: part.sku || '', qty: p.qty, price: part.price || 0, shop: !!part.shop }
+    }),
     checks: analysis.checks.slice(0, 6).map((c) => ({ level: c.level, msg: c.msg.slice(0, 200) })),
   }
 }
@@ -5026,14 +5571,149 @@ function Select({ label, value, options, hint, onChange }) {
     hint ? h('div', { style: S.hint }, hint) : null)
 }
 
+/**
+ * A live 3D mini of an archetype, drawn by the same engine as the viewport.
+ * Cards that show the machine read as a catalogue of things you can build; a
+ * card that shows an icon reads as a form field.
+ */
+function Thumb({ archetype }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv) return undefined
+    let alive = true
+    let raf = 0
+    const draw = () => {
+      const preset = PRESETS.find((p) => p.brief.archetype === archetype)
+      const b = preset ? { ...DEFAULT_BRIEF, ...preset.brief } : DEFAULT_BRIEF
+      let mesh = []
+      try {
+        const { design } = composeDesign(b)
+        mesh = buildMesh(design)
+      } catch {
+        return
+      }
+      if (!alive || !mesh.length) return
+      let r = 60
+      for (const t of mesh) for (const p of t.pts) {
+        const d = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2])
+        if (d > r) r = d
+      }
+      drawScene(cv, mesh, { yaw: -0.7, pitch: 0.34, dist: r * 3.0, ortho: false }, [0, 0, r * 0.35], {
+        grid: false, reflect: false, shadow: false, outline: true, colour: true, dims: false, wire: false, ao: false, gizmo: false,
+      })
+    }
+    // decoration only: build thumbnails in idle time so the page paints first
+    const idle = window.requestIdleCallback
+    const handle = idle ? idle(draw, { timeout: 900 }) : (raf = requestAnimationFrame(draw))
+    return () => {
+      alive = false
+      if (idle && window.cancelIdleCallback) window.cancelIdleCallback(handle)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [archetype])
+  return h('canvas', { ref, style: S.thumb, 'aria-hidden': 'true' })
+}
+
+
+/** Live-price strip: what has a real supplier number, and what is still a guess. */
+function LivePrices({ design }) {
+  const [prices, setPrices] = useState(() => (CTX && CTX.storage.get('livePrices', null)) || null)
+  const [busy, setBusy] = useState(false)
+  const askPrices = async () => {
+    setBusy(true)
+    const prompt = [
+      'Get live prices for the build currently loaded in Rigforge and hand them back to the studio.',
+      `Build: ${design.title} — ${design.parts.length} line items.`,
+      'Call the rigforge_prices tool, then put its directive on its own line so the studio can render it.',
+      'Only report a price as live if it came from the supplier; estimates stay labelled as estimates.',
+    ].join('\n')
+    try {
+      const staged = await host.composer.setDraft(null, prompt)
+      host.composer.focus(null)
+      host.notify({ kind: staged ? 'success' : 'error', message: staged ? 'Price request handed to Hermes — press Enter' : 'Copied the price request instead' })
+      if (!staged) await navigator.clipboard?.writeText(prompt)
+    } catch {
+      host.notify({ kind: 'info', message: 'Ask Hermes for live prices (rigforge_prices tool)' })
+    }
+    setBusy(false)
+  }
+  const age = prices && prices.fetched ? Math.max(0, Math.round(Date.now() / 1000 - prices.fetched)) : null
+  const ageText = age == null ? '' : age < 90 ? 'just now' : age < 5400 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)}h ago`
+  return h('div', { style: { border: `1px solid ${C.line}`, borderRadius: '9px', padding: '9px 11px', marginBottom: '14px', background: C.panel } },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' } },
+      h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.14em', color: C.faint } }, 'PRICES'),
+      h('button', { style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px' }, onClick: askPrices, disabled: busy },
+        busy ? '…' : 'GET LIVE PRICES')),
+    prices
+      ? h('div', { style: { fontSize: '11.5px', color: C.text, marginTop: '6px', lineHeight: 1.5 } },
+        `${prices.liveLines} of ${prices.lines} lines priced live — $${(prices.liveTotal || 0).toFixed(2)}`,
+        h('span', { style: { color: C.faint } }, ` · ${(prices.estimateTotal || 0).toFixed(2)} still estimated · ${ageText}`))
+      : h('div', { style: { fontSize: '11px', color: C.faint, marginTop: '6px', lineHeight: 1.45 } },
+        'The totals here are catalogue estimates. Ask Hermes for live LCSC prices and they replace the guessed lines.'))
+}
+
+/** The plain-language panel: what it costs, what to buy, what to print. */
+function SimplePanel({ design, analysis, exports, onEngineer }) {
+  const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
+  rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
+  const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
+  const big = (k, v, sub, color) => h('div', { style: S.bigCard },
+    h('div', { style: S.bigKey }, k),
+    h('div', { style: { ...S.bigVal, color: color || C.text } }, v),
+    sub ? h('div', { style: S.bigSub }, sub) : null)
+
+  return h('div', { style: { padding: '14px 0 8px' } },
+    h('div', { style: S.simpleHead }, 'Your machine, in plain words'),
+    h('div', { style: S.simpleGrid },
+      big('COST', money(analysis.cost), 'parts, at hobby prices', C.accent),
+      big('PRINT TIME', `${fmt(analysis.print.hours, 0)} h`, `${Math.round(analysis.print.grams)}g of filament`, C.amber),
+      big('WEIGHT', `${Math.round(analysis.mass.totalG)} g`, 'finished machine', C.cyan)),
+    h(LivePrices, { design }),
+    (analysis.checks.filter((c) => c.level !== 'ok').length
+      ? h('div', {},
+        h('div', { style: S.simpleLabel }, 'HEADS UP, BEFORE YOU BUY'),
+        h('div', { style: { marginBottom: '14px' } },
+          analysis.checks.filter((c) => c.level !== 'ok').slice(0, 3).map((c, i) => h('div', {
+            key: 'w' + i,
+            style: {
+              display: 'flex', gap: '7px', alignItems: 'flex-start', padding: '6px 8px',
+              borderRadius: '6px', marginBottom: '5px', lineHeight: 1.45, fontSize: '11px',
+              color: C.text, background: levelBg(c.level), borderLeft: `2px solid ${levelColor(c.level)}`,
+            },
+          },
+            h('span', { style: { color: levelColor(c.level), flex: '0 0 auto', fontFamily: C.mono } }, c.level === 'fail' ? '✕' : '!'),
+            h('span', {}, c.msg)))))
+      : null),
+    h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
+    h('div', { style: { marginBottom: '14px' } }, rows.slice(0, 6).map((r) => h('div', { key: r.key, style: S.buyRow },
+      h('span', { style: S.buyName }, r.part.name),
+      h('span', { style: S.buyQty }, `×${r.qty}`),
+      h('span', { style: S.buyPrice }, money(r.part.price * r.qty)))),
+      rows.length > 6 ? h('div', { style: S.buyMore }, `+ ${rows.length - 6} more line items`) : null),
+    h('div', { style: S.simpleLabel }, 'WHAT TO PRINT'),
+    h('div', { style: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim, lineHeight: 1.6, marginBottom: '16px' } },
+      `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
+      h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
+        'One file per part, already oriented and bed-checked.')),
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+      '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
+    h('button', {
+      style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
+      onClick: onEngineer,
+    }, '⌁ SHOW ME THE ENGINEERING'))
+}
+
 const ARCHETYPES = [
-  ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['arm', 'ARM'], ['rover', 'ROVER'],
-  ['quadruped', 'QUAD'], ['gripper', 'GRIPPER'], ['gadget', 'ESP32'],
+  ['iot', 'IoT'], ['gadget', 'ESP32'], ['gripper', 'GRIPPER'], ['arm', 'ARM'], ['rover', 'ROVER'],
+  ['quadruped', 'QUAD'], ['humanoid', 'HUMANOID'], ['robot', 'FULL ROBOT'], ['gantry', 'GANTRY'],
 ]
 
 // Plain words next to every preset — the cards are how a first-timer builds
 // without ever typing a brief.
 const PRESET_BLURBS = {
+  iot: 'one sensor, one case, one afternoon',
+  gantry: 'metre-scale, belts + rails',
   arm: 'lifts and sorts small parts',
   rover: 'a rolling robot that explores',
   quad: 'a robot dog that walks',
@@ -5048,7 +5728,7 @@ function plainVerdict(checks) {
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
-  if (warns) return { icon: '!', color: C.amber, text: `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} below first.` }
+  if (warns) return { icon: '!', color: C.amber, text: `Buildable, but read the ${warns} warning${warns > 1 ? 's' : ''} first.` }
   return { icon: '✓', color: C.green, text: 'Ready to build — every engineering check passed.' }
 }
 
@@ -5060,6 +5740,8 @@ function Studio() {
   const [brief, setBrief] = useState(() => (CTX && CTX.storage.get('lastBrief', null)) || DEFAULT_BRIEF)
   const [mission, setMission] = useState(() => brief.mission)
   const [tab, setTab] = useState('spec')
+  const [simple, setSimple] = useState(() => (CTX && CTX.storage.get('simple', true)) !== false)
+  const [guideOff, setGuideOff] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
@@ -5250,11 +5932,27 @@ function Studio() {
         h(StatChip, { k: 'MASS', v: `${Math.round(analysis.mass.totalG)}g`, title: 'how much the finished machine weighs' }),
         h(StatChip, { k: 'PEAK', v: `${fmt(analysis.power.peak, 1)}A`, title: 'the most current the motors can ever pull at once', color: analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text }),
         h(StatChip, { k: 'PRINT', v: `${fmt(analysis.print.hours, 0)}h`, title: 'estimated 3D-print time for the custom parts' }),
-        h(StatChip, { k: 'CHECKS', v: fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS', title: 'the studio\'s engineering self-checks on this design', color: fails ? C.red : warns ? C.amber : C.green }),
+        h('button', {
+          style: { ...S.statChip, cursor: 'pointer', textAlign: 'left', borderColor: fails ? C.red : warns ? 'rgba(255,194,74,0.4)' : C.line },
+          title: 'jump to the engineering self-checks for this design',
+          onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+        },
+          h('span', { style: S.statKey }, 'CHECKS'),
+          h('span', { style: { ...S.statVal, color: fails ? C.red : warns ? C.amber : C.green } }, fails ? `${fails} FAIL` : warns ? `${warns} WARN` : 'PASS')),
         h(StatChip, { k: 'AGENT', v: link === 'live' ? 'LINKED' : link === 'offline' ? 'OFFLINE' : '…', title: 'is the Hermes agent backend connected', color: link === 'live' ? C.green : link === 'offline' ? C.faint : C.dim }),
         h('button', { style: { ...S.btn, borderColor: C.accent, color: C.accent }, onClick: askHermes }, '⌁ ASK HERMES'),
         h('div', { style: { position: 'relative' } },
-          h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
+          h('button', {
+          style: simple ? { ...S.btn, borderColor: C.cyan, color: C.cyan } : S.btn,
+          title: simple ? 'show the engineering tabs' : 'hide the engineering, plain words only',
+          onClick: () => {
+            const next = !simple
+            setSimple(next)
+            if (CTX) CTX.storage.set('simple', next)
+            if (!next) setTab('spec')
+          },
+        }, simple ? 'SIMPLE' : 'ENGINEER'),
+        h('button', { style: S.btn, onClick: () => setMenu((m) => !m) }, 'EXPORT ▾'),
           menu
             ? h('div', { style: S.menu },
               exports.map(([label, fn]) => h('div', {
@@ -5272,6 +5970,21 @@ function Studio() {
       // left rail: the brief
       h('div', { style: S.rail },
         h('div', { style: S.sectionLabel }, 'pick a machine — or describe your own'),
+        (guideOff || (CTX && CTX.storage.get('seenFirstRun', false))) ? null : h('div', { style: S.firstRun },
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 1'),
+            h('div', { style: S.firstRunText }, 'Pick a machine. Each card is a real, buildable design.')),
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 2'),
+            h('div', { style: S.firstRunText }, 'Set one number — payload or reach. Everything rescales.')),
+          h('div', { style: S.firstRunStep },
+            h('div', { style: S.firstRunNum }, 'STEP 3'),
+            h('div', { style: S.firstRunText }, 'Press BUILD. You get parts, files and code.')),
+          h('button', {
+            style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10.5px', flex: '0 0 auto' },
+            'aria-label': 'Dismiss the guide',
+            onClick: () => { if (CTX) { CTX.storage.set('seenFirstRun', true); setGuideOff(true) } },
+          }, 'GOT IT')),
         h('div', { style: S.cards },
           PRESETS.map((p) => h('button', {
             key: p.id,
@@ -5279,6 +5992,7 @@ function Studio() {
             'aria-label': `Build a ${p.label}`,
             onClick: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
           },
+            h(Thumb, { archetype: p.brief.archetype }),
             h('span', { style: S.cardTitle }, p.label.toUpperCase()),
             h('span', { style: S.cardSub }, PRESET_BLURBS[p.id] || '')))),
 
@@ -5469,13 +6183,15 @@ function Studio() {
 
       // right rail: the spec
       h('div', { style: S.col },
-        h('div', { style: S.tabs },
+        simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
+          h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          : h('div', { style: S.tabs },
           TABS.map(([id, label]) => h('button', {
             key: id, style: tab === id ? S.tabOn : S.tab,
             onClick: () => setTab(id),
           }, label))),
-        h('div', { style: S.tabBody }, panel),
-        h('div', { style: S.footer },
+        simple ? null : h('div', { style: S.tabBody }, panel),
+        simple ? null : h('div', { style: S.footer },
           h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.1em' } },
             `${design.parts.length} LINE ITEMS`),
           h('span', { style: { marginLeft: 'auto', fontFamily: C.mono, fontSize: '14px', fontWeight: 600, color: C.accent } }, money(analysis.cost)))),
