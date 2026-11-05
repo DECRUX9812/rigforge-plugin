@@ -772,6 +772,14 @@ function overhangReport(design) {
       maxDim = Math.max(maxDim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
     }
     const cell = Math.min(10, Math.max(1.5, maxDim / 90))
+    // XY footprint for the brim check — bed contact vs the area it could
+    // plausibly cover. A tower on 20% contact wants a brim, not optimism.
+    let fx0 = Infinity, fx1 = -Infinity, fy0 = Infinity, fy1 = -Infinity
+    for (const t of tris) for (const p of t.pts) {
+      fx0 = Math.min(fx0, p[0]); fx1 = Math.max(fx1, p[0])
+      fy0 = Math.min(fy0, p[1]); fy1 = Math.max(fy1, p[1])
+    }
+    const footprint = Math.max(1, (fx1 - fx0) * (fy1 - fy0))
     const cols = new Map() // "ix,iy" -> lowest surface z in that column
     const colMin = (x, y) => {
       const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
@@ -840,15 +848,21 @@ function overhangReport(design) {
       }
     }
     unsupportedMm2 += unsupported; steepMm2 += steep
+    // Shell parts carry inner+outer bottom faces, so `bed` can exceed the
+    // footprint — coverage can't, so cap at 1. brim only cares about the low end.
+    const contact = Math.min(1, bed / footprint)
     parts.push({
       id: node.id, unsupported: Math.round(unsupported * 10) / 10,
       steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
+      footprint: Math.round(footprint), contact: Math.round(contact * 100) / 100,
+      brim: contact < 0.3,
     })
   }
   parts.sort((a, b) => b.unsupported - a.unsupported)
   return {
     parts, unsupportedMm2: Math.round(unsupportedMm2), steepMm2: Math.round(steepMm2),
     worst: parts.find((p) => p.unsupported > 0) || null,
+    brim: parts.filter((p) => p.brim),
   }
 }
 
