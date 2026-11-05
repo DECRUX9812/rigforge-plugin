@@ -171,6 +171,32 @@ check('STL: header count = (size-84)/50; parts centred, on Z=0', () => {
   return `${parts} STL files validated`
 })
 
+// ── 9c. 3MF pack: same parts, slicer format, bed-laid-out ────────────────────
+check('3MF: zip structure, named objects match printed parts, mm units, Z=0', () => {
+  let objs = 0
+  eachPreset((p, { design }) => {
+    const buf = A.to3MF(design, null)
+    const printed = design.nodes.filter((n) => n.print).length
+    if (!printed) { assert(!buf, `${p.id} emitted a 3MF with no printed parts`); return }
+    assert(buf, `${p.id} produced no 3MF`)
+    const raw = Buffer.from(buf).toString('latin1')
+    assert(raw.startsWith('PK'), `${p.id} 3MF is not a zip`)
+    assert(raw.includes('[Content_Types].xml') && raw.includes('3D/3dmodel.model'), `${p.id} 3MF missing package parts`)
+    // zipStore writes method-0 (stored) entries, so the model XML is verbatim
+    const model = raw.slice(raw.indexOf('<model '), raw.indexOf('</model>') + 8)
+    assert(model.includes('unit="millimeter"'), `${p.id} 3MF not in mm`)
+    const nObj = (model.match(/<object /g) || []).length
+    const nItem = (model.match(/<item /g) || []).length
+    near(nObj, printed, 0, `${p.id} object count`)
+    near(nItem, printed, 0, `${p.id} build item count`)
+    const zs = [...model.matchAll(/z="(-?[\d.]+)"/g)].map((m) => Number(m[1]))
+    assert(zs.length > 0, `${p.id} 3MF has no vertices`)
+    near(Math.min(...zs), 0, 0.01, `${p.id} min Z`)
+    objs += nObj
+  })
+  return `${objs} 3MF objects validated across presets`
+})
+
 // ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
 // The dims heuristic used to stand wedges and ring towers on edge — the
 // overhang check caught it, bestBedPerm fixed it. These presets must stay
