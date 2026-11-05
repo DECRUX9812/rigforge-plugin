@@ -581,7 +581,11 @@ function Studio() {
   const exports = [
     ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
-    ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+    // What leaves the app has to match what the machine actually needs: a
+    // printed machine wants STLs, a board wants the fab/assembly three files.
+    design.pcb
+      ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
+      : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design), 'text/csv')],
