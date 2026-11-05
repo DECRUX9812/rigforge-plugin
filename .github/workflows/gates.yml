@@ -45,8 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: install playwright and esbuild
-        run: npm i --no-save --no-package-lock playwright esbuild
+      - name: install playwright, esbuild and react
+        run: npm i --no-save --no-package-lock playwright esbuild react react-dom
       - name: install chromium
         run: npx playwright install --with-deps chromium
       - name: put chrome where the tests look for it
