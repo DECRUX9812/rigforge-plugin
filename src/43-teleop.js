@@ -396,3 +396,69 @@ function gripBenchTris() {
   _gripTris.push(...deskBoxTris(GRIP_BENCH.pos[0], GRIP_BENCH.pos[1], GRIP_BENCH.pos[2], ...GRIP_BENCH.size, GRIP_BENCH.mat, 'grip-testmass'))
   return _gripTris
 }
+
+// ── sensor stimulus bench: inject the environment, watch the readings ────────
+// IoT nodes have no joints — the honest teleop is stimulus, not motion.
+// Sliders set the physical world (temp, humidity, light, soil moisture,
+// weight, motion, button); hud() reports what each fitted sensor would read
+// and which thresholds alert. Nothing animates that isn't sensed.
+
+const SENSOR_DEFS = {
+  air:     { label: 'BME280 air', fields: [
+    { k: 'tempC', label: 'TEMP', min: -10, max: 50, unit: '°C', def: 22, alert: (v) => v > 30 || v < 5 },
+    { k: 'humid', label: 'RHUM', min: 5, max: 100, unit: '%', def: 45, alert: (v) => v > 70 || v < 20 },
+  ]},
+  motion:  { label: 'PIR motion', fields: [
+    { k: 'motion', label: 'PRESENCE', min: 0, max: 1, unit: '', def: 0, alert: (v) => v > 0.5, bool: true },
+  ]},
+  soil:    { label: 'soil probe', fields: [
+    { k: 'soil', label: 'MOIST', min: 0, max: 100, unit: '%', def: 55, alert: (v) => v < 30 },
+  ]},
+  weight:  { label: 'HX711 scale', fields: [
+    { k: 'weightG', label: 'LOAD', min: 0, max: 5000, unit: 'g', def: 0, alert: () => false },
+  ]},
+  display: { label: 'SSD1306 OLED', fields: [] }, // shows the primary reading
+}
+
+function createSensorTeleop(design) {
+  const sensors = (design.metrics && design.metrics.sensors) || []
+  if (!sensors.length) return null
+  const state = {}
+  for (const sk of sensors) {
+    for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) state[f.k] = f.def
+  }
+  // OLED line: whichever real sensor exists leads the display
+  const lead = sensors.find((k) => k !== 'display') || sensors[0]
+  const alerts = () => {
+    const out = []
+    for (const sk of sensors) {
+      for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) {
+        if (f.alert && f.alert(state[f.k])) out.push(`${SENSOR_DEFS[sk].label} ${f.label} ${fmt1(state[f.k])}${f.unit}`)
+      }
+    }
+    return out
+  }
+  const fmt1 = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
+  return {
+    kind: 'sense',
+    state,
+    fields: sensors.flatMap((sk) => (SENSOR_DEFS[sk] || { fields: [] }).fields.map((f) => ({ ...f, sensor: sk, sensorLabel: SENSOR_DEFS[sk].label }))),
+    /** Sliders write straight into state — sensors respond instantly. */
+    set(key, value) { if (key in state) state[key] = value },
+    step() { return null },
+    reset() { for (const sk of sensors) for (const f of (SENSOR_DEFS[sk] || { fields: [] }).fields) state[f.k] = f.def },
+    hud() {
+      const lines = []
+      for (const sk of sensors) {
+        const def = SENSOR_DEFS[sk]
+        if (!def || !def.fields.length) continue
+        lines.push(`${def.label}: ${def.fields.map((f) => `${f.label} ${fmt1(state[f.k])}${f.unit}`).join(' · ')}`)
+      }
+      const al = alerts()
+      const oled = lead && lead !== 'display'
+        ? `${SENSOR_DEFS[lead].label.split(' ')[0]} ${SENSOR_DEFS[lead].fields.map((f) => `${fmt1(state[f.k])}${f.unit}`).join(' ')}`
+        : 'rigforge node'
+      return { kind: 'sense', lines, alerts: al, oled, ok: !al.length }
+    },
+  }
+}

@@ -78,5 +78,7 @@ function buildIot(brief) {
     printedG: Math.round(printedVolume(d.nodes) / 1000 * (MATERIALS[brief.material] || MATERIALS.petg).density),
   })
   d.checks.push({ level: 'ok', msg: 'One board, one sensor, one printed shell — this is a first build, not a project.' })
+  // which stimuli this node can actually sense — the bench drives these
+  d.metrics.sensors = ['air', 'motion', 'soil', 'weight', 'display'].filter((k) => wants[k])
   return d
 }

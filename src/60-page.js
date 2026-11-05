@@ -604,6 +604,7 @@ function Studio() {
   const ikRef = useRef(null)
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
+  const senseRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
@@ -611,6 +612,7 @@ function Studio() {
   const [driveOn, setDriveOn] = useState(false)
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0, course: 'rack' })
+  const [, setSenseTick] = useState(0)
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
   const gpBtnRef = useRef(false)
@@ -620,7 +622,8 @@ function Studio() {
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
     gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
     gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
-    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : null
+    senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
+    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
     setDriveAvail(!!kind)
     setChassis(null)
@@ -716,7 +719,7 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset(); senseRef.current && senseRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
@@ -781,7 +784,7 @@ function Studio() {
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current
+  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -1383,6 +1386,14 @@ function Studio() {
                 }, `${gripHud.ok ? 'HOLD' : 'SLIP'} ${gripHud.blockKg}kg/${gripHud.holdKg.toFixed(1)}kg`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, 'Space toggles'),
               ]
+            : driveHud.kind === 'sense'
+            ? [
+                h('span', { key: 'a' }, `OLED ${driveHud.oled}`),
+                ...(driveHud.lines || []).map((ln, i) => h('span', { key: `s${i}`, style: { color: C.faint } }, ln)),
+                driveHud.alerts && driveHud.alerts.length
+                  ? h('span', { key: 'al', style: { color: C.amber } }, `⚠ ${driveHud.alerts[0]}${driveHud.alerts.length > 1 ? ` +${driveHud.alerts.length - 1}` : ''}`)
+                  : h('span', { key: 'ok', style: { color: C.green } }, 'all readings nominal'),
+              ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
                 h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
@@ -1479,6 +1490,33 @@ function Studio() {
               title: `shove test — ${n}N lateral impulse`,
             }, `SHOVE ${n}N`))),
         ) : null,
+        driveOn && teleopKind === 'sense' && senseRef.current ? h('div', {
+          style: {
+            position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
+            fontFamily: C.mono, fontSize: '10px', color: C.dim,
+            background: 'rgba(10,13,16,0.72)', border: `1px solid ${C.line}`,
+            borderRadius: '7px', padding: '7px 10px', width: '188px',
+            display: 'flex', flexDirection: 'column', gap: '6px',
+          },
+        },
+          (senseRef.current.fields || []).map((f) => h('label', {
+            key: f.k,
+            style: { display: 'flex', alignItems: 'center', gap: '7px' },
+          },
+            h('span', { style: { width: '52px', color: C.faint } }, `${f.sensorLabel.split(' ')[0]} ${f.label}`),
+            h('input', {
+              type: 'range', min: f.min, max: f.max, step: f.bool ? 1 : (f.max - f.min) / 100,
+              value: senseRef.current.state[f.k],
+              onChange: (e) => {
+                senseRef.current.set(f.k, f.bool ? Number(e.target.value) > 0.5 : Number(e.target.value))
+                setSenseTick((t) => t + 1)
+              },
+              style: { flex: 1, accentColor: C.cyan },
+              'aria-label': `stimulus ${f.k}`,
+            }),
+            h('span', { style: { width: '34px', textAlign: 'right', color: C.cyan } },
+              `${f.bool ? (senseRef.current.state[f.k] ? 'YES' : 'no') : `${senseRef.current.state[f.k]}${f.unit}`}`))),
+        ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
@@ -1520,9 +1558,11 @@ function Studio() {
                 ? 'gait mode — W walks (treadmill), release to stand, gamepad left stick'
                 : teleopKind === 'grip'
                 ? 'jaw mode — Space opens/closes the gripper'
+                : teleopKind === 'sense'
+                ? 'sense mode — stimulus sliders inject the environment'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE')) : null,
           powerHud ? h('span', {
             style: {
               fontFamily: C.mono, fontSize: '10px', marginLeft: 'auto',
