@@ -6179,6 +6179,7 @@ function massContributors(design, limit = 4) {
 }
 
 function AuditDialog({ open, onClose, design, analysis }) {
+  const dialogRef = useDialogFocus(open, onClose)
   if (!open) return null
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print)
@@ -6213,8 +6214,9 @@ function AuditDialog({ open, onClose, design, analysis }) {
 
   return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
     h('div', {
+      ref: dialogRef, tabIndex: -1,
       style: { ...S.palette, maxHeight: 'min(78vh, 720px)', width: 'min(660px, 94vw)', overflowY: 'auto', padding: '18px 20px 16px' },
-      role: 'dialog', 'aria-label': 'Show the working',
+      role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Show the working',
     },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '12px' } },
       h('div', {},
@@ -6420,6 +6422,7 @@ function LivePrices({ design }) {
 }
 
 function BuildCodeDialog({ open, onOpen, onClose }) {
+  const dialogRef = useDialogFocus(open, onClose)
   const [code, setCode] = useState('')
   const [err, setErr] = useState('')
   useEffect(() => { if (open) { setCode(''); setErr('') } }, [open])
@@ -6437,7 +6440,7 @@ function BuildCodeDialog({ open, onOpen, onClose }) {
     style: S.paletteBackdrop,
     onClick: (e) => { if (e.target === e.currentTarget) onClose() },
   },
-  h('div', { style: { ...S.palette, maxHeight: 'none', width: 'min(560px, 92vw)', padding: 0 }, role: 'dialog', 'aria-label': 'Open a build code' },
+  h('div', { ref: dialogRef, tabIndex: -1, style: { ...S.palette, maxHeight: 'none', width: 'min(560px, 92vw)', padding: 0 }, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Open a build code' },
     h('div', { style: { padding: '16px 18px 0' } },
       h('div', { style: { ...S.simpleLabel, margin: '0 0 4px' } }, 'open a build code'),
       h('div', { style: { ...S.hint, marginBottom: '10px' } },
@@ -6468,6 +6471,7 @@ function BuildCodeDialog({ open, onOpen, onClose }) {
 }
 
 function CommandPalette({ open, commands, onClose }) {
+  const dialogRef = useDialogFocus(open, onClose)
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef(null)
@@ -6522,7 +6526,7 @@ function CommandPalette({ open, commands, onClose }) {
     style: S.paletteBackdrop,
     onMouseDown: (e) => { if (e.target === e.currentTarget) onClose() },
   },
-    h('div', { style: S.palette, role: 'dialog', 'aria-label': 'Command palette' },
+    h('div', { ref: dialogRef, tabIndex: -1, style: S.palette, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Command palette' },
       h('input', {
         ref: inputRef,
         style: S.paletteInput,
@@ -7389,7 +7393,24 @@ function Studio() {
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
           h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onCompare: () => setCompareOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
-          : h('div', { style: S.tabs, role: 'tablist' },
+          : h('div', {
+            style: S.tabs, role: 'tablist',
+            // arrow keys are what a tablist promises a keyboard user
+            onKeyDown: (e) => {
+              const ids = TABS.map(([id]) => id)
+              const i = ids.indexOf(tab)
+              let next = null
+              if (e.key === 'ArrowRight') next = ids[(i + 1) % ids.length]
+              else if (e.key === 'ArrowLeft') next = ids[(i - 1 + ids.length) % ids.length]
+              else if (e.key === 'Home') next = ids[0]
+              else if (e.key === 'End') next = ids[ids.length - 1]
+              if (!next) return
+              e.preventDefault()
+              setTab(next)
+              const btn = e.currentTarget.querySelector(`[data-tab="${next}"]`)
+              if (btn) btn.focus()
+            },
+          },
           TABS.map(([id, label]) => {
             // a badge is information scent: how much sits behind the tab
             // badges only where the count changes a decision: how much to buy,
@@ -7401,7 +7422,9 @@ function Studio() {
               key: id,
               style: tab === id ? S.tabOn : S.tab,
               role: 'tab',
+              'data-tab': id,
               'aria-selected': tab === id,
+              tabIndex: tab === id ? 0 : -1,
               onClick: () => setTab(id),
             }, label,
             badge ? h('span', { style: { ...S.tabBadge, color: tab === id ? C.accent : C.faint } }, badge) : null)
@@ -7504,11 +7527,12 @@ function briefChanges(a, b) {
 }
 
 function CompareDialog({ open, onClose, currentBrief, history }) {
+  const dialogRef = useDialogFocus(open, onClose)
   if (!open) return null
   const options = (history || []).filter((h) => h && h.brief)
   if (!options.length) {
     return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
-      h('div', { style: { ...S.palette, width: 'min(520px, 92vw)', padding: '20px' }, role: 'dialog', 'aria-label': 'Compare builds' },
+      h('div', { ref: dialogRef, tabIndex: -1, style: { ...S.palette, width: 'min(520px, 92vw)', padding: '20px' }, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Compare builds' },
         h('div', { style: S.simpleLabel }, 'compare'),
         h('div', { style: { fontSize: '12px', color: C.dim, lineHeight: 1.6 } },
           'Nothing to compare against yet. Every build you make is remembered here, so change one number, press BUILD, and come back — you will see what actually moved.'),
@@ -7524,8 +7548,9 @@ function CompareDialog({ open, onClose, currentBrief, history }) {
 
   return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
     h('div', {
+      ref: dialogRef, tabIndex: -1,
       style: { ...S.palette, maxHeight: 'min(80vh, 760px)', width: 'min(720px, 94vw)', overflowY: 'auto', padding: '18px 20px 16px' },
-      role: 'dialog', 'aria-label': 'Compare builds',
+      role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Compare builds',
     },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '4px' } },
       h('div', {},
@@ -7576,6 +7601,64 @@ function CompareDialog({ open, onClose, currentBrief, history }) {
     h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '14px', borderTop: `1px solid ${C.line}`, paddingTop: '10px', lineHeight: 1.5 } },
       `Both machines were recomputed from scratch just now, not read from a cache. Compared against the previous ${options.length > 1 ? `build (${options.length} kept)` : 'build'}.`))
   )
+}
+
+// ── a11y: a dialog should behave like one ───────────────────────────────────
+// Three things people expect from a modal and none of them are free: Escape
+// closes it, Tab stays inside it, and closing puts focus back where you were.
+// Without the third, a keyboard user gets dumped at the top of the document and
+// has to tab back to wherever they were — which, in a studio with a viewport,
+// means past every control on the page.
+
+function useDialogFocus(open, onClose) {
+  const ref = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+
+  useEffect(() => {
+    if (!open) return undefined
+    const el = ref.current
+    const previous = document.activeElement
+
+    const focusables = () => {
+      if (!el) return []
+      return Array.from(el.querySelectorAll('button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])'))
+        .filter((n) => !n.disabled && n.getClientRects().length > 0)
+    }
+
+    const t = setTimeout(() => {
+      const list = focusables()
+      const target = list.find((n) => n.getAttribute('autofocus') !== null) || list[0] || el
+      if (target && target.focus) target.focus()
+    }, 20)
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        closeRef.current()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const list = focusables()
+      if (!list.length) return
+      const i = list.indexOf(document.activeElement)
+      const next = e.shiftKey
+        ? (i <= 0 ? list.length - 1 : i - 1)
+        : (i === -1 || i === list.length - 1 ? 0 : i + 1)
+      e.preventDefault()
+      list[next].focus()
+    }
+
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('keydown', onKey, true)
+      if (previous && previous.focus && document.contains(previous)) previous.focus()
+    }
+  }, [open])
+
+  return ref
 }
 
 // ── registration: page, nav, palette, and the agent's way back in ───────────

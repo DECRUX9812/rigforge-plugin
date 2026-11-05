@@ -29,6 +29,7 @@ function massContributors(design, limit = 4) {
 }
 
 function AuditDialog({ open, onClose, design, analysis }) {
+  const dialogRef = useDialogFocus(open, onClose)
   if (!open) return null
   const mat = MATERIALS[design.brief.material] || MATERIALS.petg
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print)
@@ -63,8 +64,9 @@ function AuditDialog({ open, onClose, design, analysis }) {
 
   return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
     h('div', {
+      ref: dialogRef, tabIndex: -1,
       style: { ...S.palette, maxHeight: 'min(78vh, 720px)', width: 'min(660px, 94vw)', overflowY: 'auto', padding: '18px 20px 16px' },
-      role: 'dialog', 'aria-label': 'Show the working',
+      role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Show the working',
     },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '12px' } },
       h('div', {},

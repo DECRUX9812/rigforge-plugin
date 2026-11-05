@@ -79,11 +79,12 @@ function briefChanges(a, b) {
 }
 
 function CompareDialog({ open, onClose, currentBrief, history }) {
+  const dialogRef = useDialogFocus(open, onClose)
   if (!open) return null
   const options = (history || []).filter((h) => h && h.brief)
   if (!options.length) {
     return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
-      h('div', { style: { ...S.palette, width: 'min(520px, 92vw)', padding: '20px' }, role: 'dialog', 'aria-label': 'Compare builds' },
+      h('div', { ref: dialogRef, tabIndex: -1, style: { ...S.palette, width: 'min(520px, 92vw)', padding: '20px' }, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Compare builds' },
         h('div', { style: S.simpleLabel }, 'compare'),
         h('div', { style: { fontSize: '12px', color: C.dim, lineHeight: 1.6 } },
           'Nothing to compare against yet. Every build you make is remembered here, so change one number, press BUILD, and come back — you will see what actually moved.'),
@@ -99,8 +100,9 @@ function CompareDialog({ open, onClose, currentBrief, history }) {
 
   return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
     h('div', {
+      ref: dialogRef, tabIndex: -1,
       style: { ...S.palette, maxHeight: 'min(80vh, 760px)', width: 'min(720px, 94vw)', overflowY: 'auto', padding: '18px 20px 16px' },
-      role: 'dialog', 'aria-label': 'Compare builds',
+      role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Compare builds',
     },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '4px' } },
       h('div', {},

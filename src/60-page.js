@@ -147,6 +147,7 @@ function LivePrices({ design }) {
 }
 
 function BuildCodeDialog({ open, onOpen, onClose }) {
+  const dialogRef = useDialogFocus(open, onClose)
   const [code, setCode] = useState('')
   const [err, setErr] = useState('')
   useEffect(() => { if (open) { setCode(''); setErr('') } }, [open])
@@ -164,7 +165,7 @@ function BuildCodeDialog({ open, onOpen, onClose }) {
     style: S.paletteBackdrop,
     onClick: (e) => { if (e.target === e.currentTarget) onClose() },
   },
-  h('div', { style: { ...S.palette, maxHeight: 'none', width: 'min(560px, 92vw)', padding: 0 }, role: 'dialog', 'aria-label': 'Open a build code' },
+  h('div', { ref: dialogRef, tabIndex: -1, style: { ...S.palette, maxHeight: 'none', width: 'min(560px, 92vw)', padding: 0 }, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Open a build code' },
     h('div', { style: { padding: '16px 18px 0' } },
       h('div', { style: { ...S.simpleLabel, margin: '0 0 4px' } }, 'open a build code'),
       h('div', { style: { ...S.hint, marginBottom: '10px' } },
@@ -195,6 +196,7 @@ function BuildCodeDialog({ open, onOpen, onClose }) {
 }
 
 function CommandPalette({ open, commands, onClose }) {
+  const dialogRef = useDialogFocus(open, onClose)
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const inputRef = useRef(null)
@@ -249,7 +251,7 @@ function CommandPalette({ open, commands, onClose }) {
     style: S.paletteBackdrop,
     onMouseDown: (e) => { if (e.target === e.currentTarget) onClose() },
   },
-    h('div', { style: S.palette, role: 'dialog', 'aria-label': 'Command palette' },
+    h('div', { ref: dialogRef, tabIndex: -1, style: S.palette, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Command palette' },
       h('input', {
         ref: inputRef,
         style: S.paletteInput,
@@ -1116,7 +1118,24 @@ function Studio() {
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
           h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onCompare: () => setCompareOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
-          : h('div', { style: S.tabs, role: 'tablist' },
+          : h('div', {
+            style: S.tabs, role: 'tablist',
+            // arrow keys are what a tablist promises a keyboard user
+            onKeyDown: (e) => {
+              const ids = TABS.map(([id]) => id)
+              const i = ids.indexOf(tab)
+              let next = null
+              if (e.key === 'ArrowRight') next = ids[(i + 1) % ids.length]
+              else if (e.key === 'ArrowLeft') next = ids[(i - 1 + ids.length) % ids.length]
+              else if (e.key === 'Home') next = ids[0]
+              else if (e.key === 'End') next = ids[ids.length - 1]
+              if (!next) return
+              e.preventDefault()
+              setTab(next)
+              const btn = e.currentTarget.querySelector(`[data-tab="${next}"]`)
+              if (btn) btn.focus()
+            },
+          },
           TABS.map(([id, label]) => {
             // a badge is information scent: how much sits behind the tab
             // badges only where the count changes a decision: how much to buy,
@@ -1128,7 +1147,9 @@ function Studio() {
               key: id,
               style: tab === id ? S.tabOn : S.tab,
               role: 'tab',
+              'data-tab': id,
               'aria-selected': tab === id,
+              tabIndex: tab === id ? 0 : -1,
               onClick: () => setTab(id),
             }, label,
             badge ? h('span', { style: { ...S.tabBadge, color: tab === id ? C.accent : C.faint } }, badge) : null)
