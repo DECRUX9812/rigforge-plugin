@@ -75,6 +75,40 @@ so instead of hiding it. Things it caught in its own output:
 | ![Controller board and its assembly tab](docs/screenshots/board.png) | ![Show the working](docs/screenshots/audit.png) |
 | ![Before and after a change](docs/screenshots/compare.png) | ![The studio, from one sentence](docs/screenshots/hero.png) |
 
+## Proof, not adjectives
+
+Every claim above is backed by a gate that can fail. These run by hand
+(`node tests/<name>.mjs`; the browser ones need `tests/make-preview.mjs` served on
+`127.0.0.1:18734`):
+
+| gate | what it asserts | current |
+|---|---|---|
+| `tests/truth.mjs` | 41 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF structure, DFM overhang, kinematics, autopilot certification, honest refusals | **41/41** |
+| `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
+| `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
+| `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
+| `tests/functional.mjs` | pose a joint, export an STL, verify header + triangle math | **clean** |
+| `tests/bundle-load.mjs` | the shipped bundle registers page/nav/palette/directives via the real host API | **clean** |
+
+### Bugs these gates caught in this product's own output
+
+- **Two masses for one machine.** The stability verdict read ~1.9× the mass the
+  card above it printed, because the bench summed solid geometry and the header
+  summed the BOM. Printed parts now use the same shell volume the print estimate
+  uses, metals get real densities, and the bench headline *is* the BOM mass.
+- **A prescription that could not be followed.** The bench said *fit bigger
+  wheels* while the builder clamped wheels to 130 mm — no wheel size could ever
+  help. The clamp is 220 mm now.
+- **A green tick on nonsense.** A brief naming no machine used to build the
+  smallest enclosure and report every check passed. Unmatched briefs now warn,
+  in the checks and in plain words.
+- **STL parts floating in space.** Per-part exports arrived in world coordinates;
+  they are now bed-oriented by measured contact area — and the same triangles
+  feed the overhang check, so DFM and the slicer can't disagree.
+- **Certification that measured commands, not motion.** The autopilot suite now
+  scores real simulated outcomes — a quadruped whose legs can't reach a stair
+  riser fails OBSTACLE while the humanoid passes; wet ice fails CLIMB.
+
 ## Sharing a design
 
 **Export ▸ Build code** copies one line — `RF1-eyJhcm…`, about 200 characters.
