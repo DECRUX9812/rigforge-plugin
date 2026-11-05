@@ -5487,10 +5487,12 @@ function createGripTeleop(design) {
   return {
     kind: 'grip',
     state,
-    /** cmd: {grip: space held}; returns desired angle or null. */
+    /** cmd: {grip: space held, gripEdge: space keydown edge}; returns desired angle or null. */
     step(cmd) {
       const held = !!(cmd && cmd.grip)
-      if (held && !state.was) state.open = !state.open
+      const edge = !!(cmd && cmd.gripEdge)
+      // edge covers tap-to-toggle: a press shorter than one frame still counts
+      if (edge || (held && !state.was)) state.open = !state.open
       state.was = held
       return [state.open ? j.max : j.min]
     },
@@ -5579,6 +5581,9 @@ function fixSuggestions(s) {
   if (s.prop && s.prop.over) {
     push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
   }
+  if (s.grip && !s.grip.ok) {
+    push('fail', `Fix grip: ${s.grip.blockKg}kg test mass beats ${s.grip.holdKg.toFixed(2)}kg hold — bigger servo/pinion or lighter test piece`)
+  }
   if (s.power) {
     if (s.power.dead) {
       push('fail', 'Fix power: battery flat — bigger pack (3S→4S) or shorter duty cycle')
@@ -5587,6 +5592,21 @@ function fixSuggestions(s) {
     }
   }
   return out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'fail' ? -1 : 1))
+}
+
+
+// ── grip bench: one test mass between the pads ──────────────────────────────
+// The gripper's bench piece: a 1kg test block fixtured at pad height on a
+// dark pedestal. Closing the jaw is the test — hold capacity comes straight
+// from design.metrics.gripMassKg, the same number the sizing checks print.
+
+const GRIP_BENCH = { massG: 1000, size: [36, 24, 30], pos: [0, 0, 82], mat: 'steel' }
+let _gripTris = null
+function gripBenchTris() {
+  if (_gripTris) return _gripTris
+  _gripTris = deskBoxTris(0, 0, 59.5, 50, 40, 15, 'metal', 'grip-pedestal')
+  _gripTris.push(...deskBoxTris(GRIP_BENCH.pos[0], GRIP_BENCH.pos[1], GRIP_BENCH.pos[2], ...GRIP_BENCH.size, GRIP_BENCH.mat, 'grip-testmass'))
+  return _gripTris
 }
 
 // ── endurance power: battery SoC, bus sag, servo thermals ──────────────────
@@ -9488,6 +9508,7 @@ function Studio() {
   const [chassis, setChassis] = useState(null)
   const [benchEnv, setBenchEnv] = useState({ surface: 'hardwood', slopeDeg: 0, payloadKg: 0 })
   const keysRef = useRef({})
+  const spaceEdgeRef = useRef(false)
   const gpBtnRef = useRef(false)
 
   useEffect(() => {
@@ -9572,9 +9593,10 @@ function Studio() {
         const desired = gait.step({ x: gx }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && grip) {
-        const desired = grip.step({ grip: k.space }, dt)
+        const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
         if (desired) setPose(desired)
       }
+      spaceEdgeRef.current = false
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -9587,6 +9609,7 @@ function Studio() {
       const key = e.key.toLowerCase()
       if (['w', 'a', 's', 'd', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
         keysRef.current[key === ' ' ? 'space' : key] = true
+        if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
       if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); powerRef.current && powerRef.current.reset() }
@@ -9608,12 +9631,13 @@ function Studio() {
   // (mesh, mode, slope) so the renderer caches survive every frame.
   const rtTris = useMemo(
     () => (driveOn && teleopKind === 'drive' ? benchRampTris(benchEnv.slopeDeg)
-      : driveOn && teleopKind === 'ik' ? deskPropsTris() : null),
+      : driveOn && teleopKind === 'ik' ? deskPropsTris()
+      : driveOn && teleopKind === 'grip' ? gripBenchTris() : null),
     [driveOn, teleopKind, benchEnv.slopeDeg],
   )
   const viewMesh = useMemo(() => {
     if (!chassis && !rtTris) return mesh
-    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : 'desk') : null
+    const rtSig = rtTris ? (teleopKind === 'drive' ? `ramp${benchEnv.slopeDeg}` : teleopKind === 'ik' ? 'desk' : 'grip') : null
     let xf = xfRef.current
     if (!xf || xf.src !== mesh || xf.rtSig !== rtSig || (xf.mach && !chassis)) {
       xf = {
@@ -9667,11 +9691,18 @@ function Studio() {
     const ratingG = ((design.metrics && design.metrics.payloadKg) || 0) * 1000
     return { name: near.prop.name, massG: near.prop.massG, ratingG, over: ratingG > 0 && near.prop.massG > ratingG }
   }, [driveHud, teleopKind, design])
+  // Grip bench verdict: the 1kg test mass vs this gripper's hold capacity.
+  const gripHud = useMemo(() => {
+    if (teleopKind !== 'grip') return null
+    const hold = design.metrics && design.metrics.gripMassKg
+    if (!hold) return null
+    return { holdKg: hold, blockKg: GRIP_BENCH.massG / 1000, ok: hold >= GRIP_BENCH.massG / 1000 }
+  }, [teleopKind, design])
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, power: powerHud }),
-    [benchLive, driveHud, propHud, powerHud])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, power: powerHud }),
+    [benchLive, driveHud, propHud, gripHud, powerHud])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -10240,6 +10271,11 @@ function Studio() {
             : driveHud.kind === 'grip'
             ? [
                 h('span', { key: 'a' }, `jaw ${driveHud.open ? 'OPEN' : 'SHUT'}`),
+                gripHud ? h('span', {
+                  key: 'g',
+                  style: { color: gripHud.ok ? C.green : C.red },
+                  title: `hold capacity ${gripHud.holdKg.toFixed(2)}kg vs ${gripHud.blockKg}kg test mass`,
+                }, `${gripHud.ok ? 'HOLD' : 'SLIP'} ${gripHud.blockKg}kg/${gripHud.holdKg.toFixed(1)}kg`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, 'Space toggles'),
               ]
             : [

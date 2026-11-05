@@ -275,10 +275,12 @@ function createGripTeleop(design) {
   return {
     kind: 'grip',
     state,
-    /** cmd: {grip: space held}; returns desired angle or null. */
+    /** cmd: {grip: space held, gripEdge: space keydown edge}; returns desired angle or null. */
     step(cmd) {
       const held = !!(cmd && cmd.grip)
-      if (held && !state.was) state.open = !state.open
+      const edge = !!(cmd && cmd.gripEdge)
+      // edge covers tap-to-toggle: a press shorter than one frame still counts
+      if (edge || (held && !state.was)) state.open = !state.open
       state.was = held
       return [state.open ? j.max : j.min]
     },
@@ -367,6 +369,9 @@ function fixSuggestions(s) {
   if (s.prop && s.prop.over) {
     push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
   }
+  if (s.grip && !s.grip.ok) {
+    push('fail', `Fix grip: ${s.grip.blockKg}kg test mass beats ${s.grip.holdKg.toFixed(2)}kg hold — bigger servo/pinion or lighter test piece`)
+  }
   if (s.power) {
     if (s.power.dead) {
       push('fail', 'Fix power: battery flat — bigger pack (3S→4S) or shorter duty cycle')
@@ -375,4 +380,19 @@ function fixSuggestions(s) {
     }
   }
   return out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'fail' ? -1 : 1))
+}
+
+
+// ── grip bench: one test mass between the pads ──────────────────────────────
+// The gripper's bench piece: a 1kg test block fixtured at pad height on a
+// dark pedestal. Closing the jaw is the test — hold capacity comes straight
+// from design.metrics.gripMassKg, the same number the sizing checks print.
+
+const GRIP_BENCH = { massG: 1000, size: [36, 24, 30], pos: [0, 0, 82], mat: 'steel' }
+let _gripTris = null
+function gripBenchTris() {
+  if (_gripTris) return _gripTris
+  _gripTris = deskBoxTris(0, 0, 59.5, 50, 40, 15, 'metal', 'grip-pedestal')
+  _gripTris.push(...deskBoxTris(GRIP_BENCH.pos[0], GRIP_BENCH.pos[1], GRIP_BENCH.pos[2], ...GRIP_BENCH.size, GRIP_BENCH.mat, 'grip-testmass'))
+  return _gripTris
 }
