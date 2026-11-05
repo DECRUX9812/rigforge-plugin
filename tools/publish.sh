@@ -53,23 +53,23 @@ echo "2) update the catalog entry to that SHA"
 if [ ! -d "$FORK_DIR" ]; then
   run "git clone --depth 50 -b $FORK_BRANCH https://github.com/DECRUX9812/hermes-agent-contrib.git $FORK_DIR"
 fi
-if [ -f "$FORK_DIR/$CATALOG_PATH" ]; then
-  run "cd $FORK_DIR && python3 - '$SHA' '$SHORT' <<'PY'
-import re, sys
-sha, short = sys.argv[1], sys.argv[2]
-p = '$CATALOG_PATH'
-s = open(p).read()
-s = re.sub(r'(ref:\s*)\S+', r'\g<1>' + sha, s, count=1)
-s = re.sub(r'(sha:\s*)\S+', r'\g<1>' + sha, s, count=1)
-open(p, 'w').write(s)
-print('pinned to', short)
+if [ -d "$FORK_DIR" ]; then
+  # render the whole entry from the template: sha, version, screenshots, tools.
+  # A regex that only swapped the sha left the description advertising five
+  # archetypes and two tools, which is what a marketplace browser reads first.
+  run "python3 - '$FORK_DIR/$CATALOG_PATH' '$SHA' <<'PY'
+import sys
+path, sha = sys.argv[1], sys.argv[2]
+tpl = open('$PLUGIN_DIR/tools/catalog-entry.yaml.tpl').read()
+open(path, 'w').write(tpl.replace('__SHA__', sha))
+print('catalog pinned to', sha[:7])
 PY"
-  run "cd $FORK_DIR && git -c user.name=decrux -c user.email=decrux@local commit -am 'catalog: pin rigforge to $SHORT'" >/dev/null
+  run "cd $FORK_DIR && git add $CATALOG_PATH && git -c user.name=decrux -c user.email=decrux@local commit -m 'catalog: rigforge $SHORT — ten archetypes, board track, audit/compare, live prices'" >/dev/null
   echo
   echo "3) push the fork so the PR updates"
   run "cd $FORK_DIR && git push origin $FORK_BRANCH"
 else
-  echo "! $FORK_DIR/$CATALOG_PATH not found — clone the fork first:" >&2
+  echo "! $FORK_DIR missing — clone the fork first:" >&2
   echo "  git clone -b $FORK_BRANCH https://github.com/DECRUX9812/hermes-agent-contrib.git $FORK_DIR" >&2
 fi
 
