@@ -5193,7 +5193,10 @@ const S = {
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
 
   // ── spec rail ───────────────────────────────────────────────────────────
-  tabs: { display: 'flex', gap: '2px', padding: '0 6px', borderBottom: `1px solid ${C.line}`, background: C.panel },
+  tabs: {
+    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
+    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+  },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
     letterSpacing: '0.05em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
@@ -5377,7 +5380,7 @@ const VIEWS = [
 
 const TABS = [
   ['spec', 'SPEC'], ['parts', 'BOM'], ['pins', 'PINS'],
-  ['power', 'POWER'], ['print', 'PRINT'], ['code', 'CODE'], ['steps', 'BUILD'],
+  ['power', 'PWR'], ['print', 'PRINT'], ['code', 'CODE'], ['steps', 'STEPS'],
 ]
 
 function KV({ k, v, accent }) {
@@ -6572,11 +6575,23 @@ function Studio() {
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
           h(SimplePanel, { design, analysis, exports, onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
-          : h('div', { style: S.tabs },
-          TABS.map(([id, label]) => h('button', {
-            key: id, style: tab === id ? S.tabOn : S.tab,
-            onClick: () => setTab(id),
-          }, label))),
+          : h('div', { style: S.tabs, role: 'tablist' },
+          TABS.map(([id, label]) => {
+            // a badge is information scent: how much sits behind the tab
+            // badges only where the count changes a decision: how much to buy,
+            // how much to print. A number on every tab is noise.
+            const badge = id === 'parts' ? design.parts.length
+              : id === 'print' ? design.nodes.filter((n) => n.print).length
+                : null
+            return h('button', {
+              key: id,
+              style: tab === id ? S.tabOn : S.tab,
+              role: 'tab',
+              'aria-selected': tab === id,
+              onClick: () => setTab(id),
+            }, label,
+            badge ? h('span', { style: { ...S.tabBadge, color: tab === id ? C.accent : C.faint } }, badge) : null)
+          })),
         simple ? null : h('div', { style: S.tabBody }, panel),
         simple ? null : h('div', { style: S.footer },
           h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, letterSpacing: '0.1em' } },

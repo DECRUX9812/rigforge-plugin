@@ -10,7 +10,7 @@ const VIEWS = [
 
 const TABS = [
   ['spec', 'SPEC'], ['parts', 'BOM'], ['pins', 'PINS'],
-  ['power', 'POWER'], ['print', 'PRINT'], ['code', 'CODE'], ['steps', 'BUILD'],
+  ['power', 'PWR'], ['print', 'PRINT'], ['code', 'CODE'], ['steps', 'STEPS'],
 ]
 
 function KV({ k, v, accent }) {

@@ -314,7 +314,10 @@ const S = {
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
 
   // ── spec rail ───────────────────────────────────────────────────────────
-  tabs: { display: 'flex', gap: '2px', padding: '0 6px', borderBottom: `1px solid ${C.line}`, background: C.panel },
+  tabs: {
+    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
+    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+  },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
     letterSpacing: '0.05em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
