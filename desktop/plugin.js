@@ -11173,6 +11173,9 @@ function Studio() {
     touchRef.current = { x: 0, y: 0, active: false }
     if (joyKnobRef.current) joyKnobRef.current.style.transform = 'translate(0,0)'
   }, [])
+  // pose sweep: {active,t} — tick() walks every joint min→max→rest so the
+  // servo sim (not a teleport) exercises the real limits
+  const sweepRef = useRef({ active: false, t: 0 })
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
@@ -11323,6 +11326,16 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      }
+      // POSE→SWEEP: command min, then max, then rest — the joint sim slews at
+      // real servo speed, so stalls and torque limits show up live
+      const sw = sweepRef.current
+      if (sw.active) {
+        sw.t += dt
+        const PH = 1.15
+        if (sw.t < PH) setPose(design.joints.map((j) => j.min * 0.85))
+        else if (sw.t < PH * 2) setPose(design.joints.map((j) => j.max * 0.85))
+        else if (sw.t < PH * 3) { setPose(design.joints.map(() => 0)); sw.active = false }
       }
       // a finished certification run goes into persistent history once —
       // the card and REPORT can then show "best for this machine"
@@ -12472,6 +12485,13 @@ function Studio() {
                 title: 'a quick working pose',
                 onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
               }, 'POSE'),
+              design.joints.length
+                ? h('button', {
+                  style: S.poseTab,
+                  title: 'stress the limits — every joint sweeps min → max → rest at real servo speed',
+                  onClick: () => { sweepRef.current = { active: true, t: 0 } },
+                }, 'SWEEP')
+                : null,
               canMirror
                 ? h('button', {
                   style: S.poseTab,
@@ -12506,6 +12526,7 @@ function Studio() {
                       style: S.poseRange,
                       'aria-label': j.label,
                       onChange: (e) => {
+                        sweepRef.current.active = false // a hand on the slider ends the sweep
                         const v = Number(e.target.value)
                         setPose((p) => p.map((x, k) => (k === i ? v : x)))
                       },
