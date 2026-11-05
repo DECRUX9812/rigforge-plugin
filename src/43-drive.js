@@ -171,6 +171,7 @@ function createDrive(design, analysis) {
   const mass = () => baseMass + (env.payloadKg || 0)
 
   return {
+    kind: 'drive',
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
     vmax,

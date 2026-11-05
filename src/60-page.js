@@ -625,13 +625,13 @@ function Studio() {
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
-    autotestRef.current = driveRef.current ? createAutotest(driveRef.current) : null
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
     gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
     gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
     senseRef.current = (driveRef.current || ikRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
     const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : null
     setTeleopKind(kind)
+    autotestRef.current = createAutotest(driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current)
     setDriveAvail(!!kind)
     setChassis(null)
     if (ikRef.current) ikRef.current.reset()
@@ -692,7 +692,9 @@ function Studio() {
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.r ? 1 : 0) - (k.f ? 1 : 0)
-        if (gp) {
+        const at = autotestRef.current
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gx = dz(gp.axes[0] || 0)
           const gy = dz(gp.axes[1] || 0)
@@ -701,25 +703,44 @@ function Studio() {
             cx = -gy; cy = gx; cz = -gz
           }
         }
-        const actual = simRef.current ? simRef.current.state.angles : dispPose
-        const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        let certPose = null
+        if (at && at.running) {
+          const c = at.tick(dt, actual)
+          if (c && c.pose) certPose = c.pose
+          else if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
+        // certification runs carry their own IK-solved pose — applying it
+        // directly skips the velocity-cmd layer the script already bypassed
+        const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
         // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
         // planning, not just a yaw bias — honest omission, not fake steering)
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let gx = want
-        if (gp) {
+        const at = autotestRef.current
+        if (gp && !(at && at.running)) {
           const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
           const gy = dz(gp.axes[1] || 0)
           if (Math.abs(gy) > 0.04) gx = -gy
+        }
+        if (at && at.running) {
+          const c = at.tick(dt)
+          if (c) gx = c.x || 0
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = gait.step({ x: gx }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && grip) {
-        const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
+        const at = autotestRef.current
+        const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
+        const desired = grip.step(gcmd, dt)
         if (desired) setPose(desired)
+      } else if (!pwrDead && sense) {
+        // sensor nodes have no motion cmd — the autopilot writes stimulus
+        // fields straight into teleop state on its own timeline
+        const at = autotestRef.current
+        if (at && at.running) at.tick(dt)
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
