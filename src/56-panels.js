@@ -399,7 +399,10 @@ function TabPrint({ design, analysis }) {
       `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat by measured bed contact, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.` +
       (supportG > 0
         ? ` SUPPORT column is mm² of surface hanging in mid-air — budget roughly 2× that in support filament and expect scars on those faces.`
-        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.')),
+        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.') +
+      ((analysis.print.overhang.brim || []).length
+        ? ` BRIM: ${analysis.print.overhang.brim.map((p) => prettyPart(p.id)).join(', ')} touch the bed on under 30% of their footprint — enable a brim or the first layer can lift.`
+        : '')),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },

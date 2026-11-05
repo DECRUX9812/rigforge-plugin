@@ -3095,6 +3095,13 @@ function analyze(design) {
   } else {
     checks.push({ level: 'ok', msg: 'Overhang check: every printed face has material or the bed underneath — no support needed.' })
   }
+  if (overhang.brim && overhang.brim.length) {
+    const names = overhang.brim.slice(0, 3).map((p) => `${prettyPart(p.id)} (${Math.round(p.contact * 100)}%)`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
+    })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
@@ -4346,6 +4353,14 @@ function overhangReport(design) {
       maxDim = Math.max(maxDim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
     }
     const cell = Math.min(10, Math.max(1.5, maxDim / 90))
+    // XY footprint for the brim check — bed contact vs the area it could
+    // plausibly cover. A tower on 20% contact wants a brim, not optimism.
+    let fx0 = Infinity, fx1 = -Infinity, fy0 = Infinity, fy1 = -Infinity
+    for (const t of tris) for (const p of t.pts) {
+      fx0 = Math.min(fx0, p[0]); fx1 = Math.max(fx1, p[0])
+      fy0 = Math.min(fy0, p[1]); fy1 = Math.max(fy1, p[1])
+    }
+    const footprint = Math.max(1, (fx1 - fx0) * (fy1 - fy0))
     const cols = new Map() // "ix,iy" -> lowest surface z in that column
     const colMin = (x, y) => {
       const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
@@ -4414,15 +4429,19 @@ function overhangReport(design) {
       }
     }
     unsupportedMm2 += unsupported; steepMm2 += steep
+    const contact = bed / footprint
     parts.push({
       id: node.id, unsupported: Math.round(unsupported * 10) / 10,
       steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
+      footprint: Math.round(footprint), contact: Math.round(contact * 100) / 100,
+      brim: contact < 0.3,
     })
   }
   parts.sort((a, b) => b.unsupported - a.unsupported)
   return {
     parts, unsupportedMm2: Math.round(unsupportedMm2), steepMm2: Math.round(steepMm2),
     worst: parts.find((p) => p.unsupported > 0) || null,
+    brim: parts.filter((p) => p.brim),
   }
 }
 
@@ -10197,7 +10216,10 @@ function TabPrint({ design, analysis }) {
       `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat by measured bed contact, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.` +
       (supportG > 0
         ? ` SUPPORT column is mm² of surface hanging in mid-air — budget roughly 2× that in support filament and expect scars on those faces.`
-        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.')),
+        : ' SUPPORT column is clean — nothing hangs in mid-air, no support material needed.') +
+      ((analysis.print.overhang.brim || []).length
+        ? ` BRIM: ${analysis.print.overhang.brim.map((p) => prettyPart(p.id)).join(', ')} touch the bed on under 30% of their footprint — enable a brim or the first layer can lift.`
+        : '')),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },

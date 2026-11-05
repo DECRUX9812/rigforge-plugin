@@ -616,6 +616,26 @@ check('OpenSCAD export: one named module per node, each instantiated once, every
   return `${total} named modules across ten machines`
 })
 
+// ── 28b. brim check: bed contact vs footprint, measured not guessed ──────────
+check('DFM brim: contact ratio measured per part, narrow footprints flagged', () => {
+  let checked = 0, flagged = 0
+  eachPreset((p, { design }) => {
+    const oh = A.overhangReport(design)
+    for (const part of oh.parts) {
+      assert(part.footprint > 0, `${p.id}/${part.id}: no footprint`)
+      assert(part.contact >= 0 && part.contact <= 1, `${p.id}/${part.id}: contact ${part.contact} outside [0,1]`)
+      assert(part.brim === (part.contact < 0.3), `${p.id}/${part.id}: brim flag disagrees with contact ${part.contact}`)
+      checked += 1
+      if (part.brim) flagged += 1
+    }
+    // the gantry's corner brackets are the known narrow-footprint case
+    if (p.id === 'gantry') {
+      assert(oh.brim.length >= 1, 'gantry corner brackets should flag for brim')
+    }
+  })
+  return `${checked} parts measured, ${flagged} flagged for brim (gantry corners verified)`
+})
+
 // ── 29. servo harness: stock leads must reach, voltage drop stays bounded ────
 check('servo harness: runs measured from joint pivots, long leads flagged honestly', () => {
   let rows = 0
