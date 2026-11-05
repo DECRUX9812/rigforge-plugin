@@ -1,14 +1,18 @@
 name: rigforge
-version: "1.0.0"
+version: "1.1.0"
 description: >-
-  Rigforge — the build studio for robots and printed machines. Describe a machine
-  and get the whole build: posed 3D geometry, joint torque sizing that picks real
-  servos (or a belt stage when one cannot do it), a per-rail power budget with
-  runtime, an ESP32 pin map that refuses strapping and flash pins, firmware
-  generated from that same map, a priced BOM with mass and print time, STL and
-  OpenSCAD export, and an assembly order. The engine is deterministic and
-  offline — geometry, torque, current and cost are computed, never narrated.
-  Archetypes: arm · rover · quadruped · gripper · gadget (ESP32 desk devices).
+  Rigforge — the build studio for robots and printed machines. Say what you want
+  in one sentence and get the whole build: posed 3D geometry, joint torque sizing
+  that picks real servos (or a belt stage when none will do), a per-rail power
+  budget with wire gauge, fuse and runtime, an ESP32 pin map that refuses
+  strapping and flash pins, firmware generated from that same map, and a priced
+  BOM with mass, print time and per-part STL packs that fit YOUR printer bed.
+  Ten archetypes from a $100 sensor node and a fab-ready controller board to a
+  rover, quadruped, 23-joint humanoid and a metre-scale gantry. Every headline
+  number opens into the formula that made it, every change can be compared
+  before/after, and a build code carries the whole design in one line. The engine
+  is deterministic and offline: geometry, torque, current and cost are computed,
+  never narrated.
 author: "Ritesh Patel (DECRUX9812), Hermes Agent"
 license: MIT
 kind: standalone
@@ -22,6 +26,8 @@ tags:
   - 3d
   - esp32
   - hardware
+  - pcb
+  - manufacturing
   - desktop
 provides_tools:
   - rigforge_build
