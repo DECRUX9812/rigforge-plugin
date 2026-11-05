@@ -38,7 +38,7 @@ export function loadEngine() {
   }
   vm.createContext(ctx)
   vm.runInContext(
-    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit, toURDF, toMJCF, toBOMCsv, toSpecMarkdown, toOpenSCAD, stepsFor, RF_PARTS: globalThis.__RF_PARTS || {} };',
+    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit, toURDF, toMJCF, toBOMCsv, toSpecMarkdown, toOpenSCAD, stepsFor, createDrive, createArmTeleop, createGaitTeleop, createGripTeleop, solveChainIK, chainsFor, benchNodeWorld, benchCoM, benchContacts, benchSlopeMargin, benchTorqueMargins, benchReport, benchOverlay, jointLoadNm, createJointSim, terrainHeight, benchRampTris, applyChassis, DRIVE_SURFACES, RF_PARTS: globalThis.__RF_PARTS || {} };',
     ctx,
   )
   return ctx.API

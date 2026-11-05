@@ -383,6 +383,82 @@ check('imported CAD meshes are present and non-degenerate', () => {
   return `${used} mesh nodes across the archetypes, ${names.length} vendored part(s)`
 })
 
+// ── 23. teleop: every articulated archetype gets an honest mode ─────────────
+check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => {
+  const kind = (arch) => {
+    const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
+    if (A.createDrive(design, analysis)) return 'drive'
+    if (A.createArmTeleop(design)) return 'ik'
+    if (A.createGaitTeleop(design)) return 'gait'
+    if (A.createGripTeleop(design)) return 'grip'
+    return null
+  }
+  const got = { rover: kind('rover'), robot: kind('robot'), arm: kind('arm'), quadruped: kind('quadruped'), humanoid: kind('humanoid'), gripper: kind('gripper') }
+  assert(got.rover === 'drive', `rover teleop: ${got.rover}`)
+  assert(got.robot === 'drive', `robot teleop: ${got.robot}`)
+  assert(got.arm === 'ik', `arm teleop: ${got.arm}`)
+  assert(got.quadruped === 'gait', `quadruped teleop: ${got.quadruped}`)
+  assert(got.humanoid === 'gait', `humanoid teleop: ${got.humanoid}`)
+  assert(got.gripper === 'grip', `gripper teleop: ${got.gripper}`)
+  return '6 archetypes interactive: ' + Object.entries(got).map(([k, v]) => `${k}:${v}`).join(' ')
+})
+
+// ── 24. IK reach converges on a reachable target, inside joint limits ───────
+check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const ik = A.createArmTeleop(design)
+  assert(ik, 'arm offers no IK teleop')
+  let actual = design.joints.map(() => 0)
+  ik.step({ x: 0, y: 0, z: 0 }, 1 / 60, actual) // anchor at the rest tip
+  for (let i = 0; i < 48; i++) { const d = ik.step({ x: 0.3, y: 0, z: -0.2 }, 1 / 60, actual); if (d) actual = d }
+  for (let i = 0; i < 240; i++) { const d = ik.step({ x: 0.13, y: 0, z: -0.13 }, 1 / 60, actual); if (d) actual = d }
+  assert(ik.state.err < 5, `IK error ${ik.state.err.toFixed(1)}mm — should settle under 5mm`)
+  design.joints.forEach((j, i) => assert(actual[i] >= j.min - 1 && actual[i] <= j.max + 1, `${j.id} at ${actual[i].toFixed(1)}° outside [${j.min},${j.max}]`))
+  return `err ${ik.state.err.toFixed(1)}mm on target ${ik.state.tx.toFixed(0)},${ik.state.ty.toFixed(0)},${ik.state.tz.toFixed(0)}`
+})
+
+// ── 25. drive physics: ice stalls, hardwood climbs, payload steals grade ────
+check('drive physics: wet ice stalls where hardwood climbs', () => {
+  // unladen rover — the 2 kg payload preset honestly cannot climb 20°
+  const { design, analysis } = A.composeDesign({ ...A.DEFAULT_BRIEF, archetype: 'rover' })
+  const run = (env, secs) => {
+    const d = A.createDrive(design, analysis)
+    d.setEnv(env)
+    for (let i = 0; i < 140; i++) d.step({ throttle: 1, steer: 0 }, 1 / 60) // reach the ramp
+    const x0 = d.state.x
+    for (let i = 0; i < secs * 60; i++) d.step({ throttle: 1, steer: 0 }, 1 / 60)
+    return { dx: d.state.x - x0, stall: d.state.stall, slip: d.state.slip }
+  }
+  const ice = run({ surface: 'ice', slopeDeg: 20 }, 6)
+  const wood = run({ surface: 'hardwood', slopeDeg: 20 }, 6)
+  assert(ice.stall || ice.slip, 'ice 20° should stall or wheelspin')
+  assert(ice.dx < 0.6, `ice 20° gained ${ice.dx.toFixed(2)}m — should barely move`)
+  assert(wood.dx > 0.6, `hardwood 20° gained only ${wood.dx.toFixed(2)}m — should climb`)
+  return `ice +${ice.dx.toFixed(2)}m (${ice.stall ? 'stall' : 'slip'}), hardwood +${wood.dx.toFixed(2)}m`
+})
+
+// ── 26. gait: legs cycle within joint limits, diagonal pairs phase-locked ───
+check('gait: quadruped trot moves all legs inside limits', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
+  const g = A.createGaitTeleop(design)
+  assert(g, 'quadruped offers no gait teleop')
+  let actual = design.joints.map(() => 0)
+  const lo = actual.slice(), hi = actual.slice()
+  let moved = 0
+  for (let i = 0; i < 600; i++) {
+    const d = g.step({ x: 1 }, 1 / 60, actual)
+    if (d) {
+      actual = d; moved += 1
+      for (let k = 0; k < actual.length; k++) { if (actual[k] < lo[k]) lo[k] = actual[k]; if (actual[k] > hi[k]) hi[k] = actual[k] }
+    }
+  }
+  assert(moved > 300, `gait only commanded ${moved} frames`)
+  design.joints.forEach((j, i) => assert(actual[i] >= j.min - 1 && actual[i] <= j.max + 1, `${j.id} at ${actual[i].toFixed(1)}° outside [${j.min},${j.max}]`))
+  const swing = (id) => { const i = design.joints.findIndex((j) => j.id === id); return hi[i] - lo[i] }
+  assert(swing('femur-fl') > 10 && swing('tibia-rr') > 10, `legs barely move: femur-fl ${swing('femur-fl').toFixed(1)}°, tibia-rr ${swing('tibia-rr').toFixed(1)}°`)
+  return `${g.state.strides.toFixed(1)} strides, femur swing ${swing('femur-fl').toFixed(0)}°, all joints inside limits`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

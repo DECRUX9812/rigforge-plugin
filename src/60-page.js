@@ -595,6 +595,8 @@ function Studio() {
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
   const ikRef = useRef(null)
+  const gaitRef = useRef(null)
+  const gripRef = useRef(null)
   const [driveAvail, setDriveAvail] = useState(false)
   const [teleopKind, setTeleopKind] = useState(null)
   const [driveOn, setDriveOn] = useState(false)
@@ -605,10 +607,15 @@ function Studio() {
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
     ikRef.current = driveRef.current ? null : createArmTeleop(design)
-    setTeleopKind(driveRef.current ? 'drive' : ikRef.current ? 'ik' : null)
-    setDriveAvail(!!(driveRef.current || ikRef.current))
+    gaitRef.current = (driveRef.current || ikRef.current) ? null : createGaitTeleop(design)
+    gripRef.current = (driveRef.current || ikRef.current || gaitRef.current) ? null : createGripTeleop(design)
+    const kind = driveRef.current ? 'drive' : ikRef.current ? 'ik' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : null
+    setTeleopKind(kind)
+    setDriveAvail(!!kind)
     setChassis(null)
     if (ikRef.current) ikRef.current.reset()
+    if (gaitRef.current) gaitRef.current.reset()
+    if (gripRef.current) gripRef.current.reset()
   }, [design, analysis])
 
   useEffect(() => {
@@ -616,9 +623,11 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
+    const gait = gaitRef.current
+    const grip = gripRef.current
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
@@ -655,6 +664,22 @@ function Studio() {
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         const desired = ik.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
+      } else if (gait) {
+        // W/S walk speed; A/D ignored for now (turn-in-place needs footstep
+        // planning, not just a yaw bias — honest omission, not fake steering)
+        const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let gx = want
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+          const gy = dz(gp.axes[1] || 0)
+          if (Math.abs(gy) > 0.04) gx = -gy
+        }
+        const actual = simRef.current ? simRef.current.state.angles : dispPose
+        const desired = gait.step({ x: gx }, dt, actual)
+        if (desired) setPose(desired)
+      } else if (grip) {
+        const desired = grip.step({ grip: k.space }, dt)
+        if (desired) setPose(desired)
       }
       raf = requestAnimationFrame(tick)
     }
@@ -670,7 +695,7 @@ function Studio() {
         keysRef.current[key === ' ' ? 'space' : key] = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset() }
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -725,8 +750,8 @@ function Studio() {
     return { data: out, verts: benchOv.verts }
   }, [benchOv, chassis, benchEnv])
 
-  const teleop = driveRef.current || ikRef.current
-  const driveHud = driveOn && teleop && (chassis || (ikRef.current && ikRef.current.state.ready))
+  const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current
+  const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
 
@@ -1283,6 +1308,17 @@ function Studio() {
                 h('span', { key: 'b', style: { color: C.faint } }, `tgt ${driveHud.tx},${driveHud.ty},${driveHud.tz}`),
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
+            : driveHud.kind === 'gait'
+            ? [
+                h('span', { key: 'a' }, `gait ${driveHud.cadence}Hz`),
+                h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.strides} strides`),
+                h('span', { key: 'c', style: { color: C.faint } }, 'W walk · release to stand'),
+              ]
+            : driveHud.kind === 'grip'
+            ? [
+                h('span', { key: 'a' }, `jaw ${driveHud.open ? 'OPEN' : 'SHUT'}`),
+                h('span', { key: 'b', style: { color: C.faint } }, 'Space toggles'),
+              ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
                 h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
@@ -1370,9 +1406,13 @@ function Studio() {
               'aria-pressed': driveOn,
               title: teleopKind === 'ik'
                 ? 'reach mode — WASD plane, R/F height, gamepad sticks, 0 re-anchors'
+                : teleopKind === 'gait'
+                ? 'gait mode — W walks (treadmill), release to stand, gamepad left stick'
+                : teleopKind === 'grip'
+                ? 'jaw mode — Space opens/closes the gripper'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : 'DRIVE')) : null,
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : 'DRIVE')) : null,
         ),
 
         h('div', { style: S.jointBar },
