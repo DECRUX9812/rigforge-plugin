@@ -64,6 +64,8 @@ function createArmTeleop(design) {
   return {
     kind: 'ik',
     state,
+    design,          // read-only: autotest poses a clone for torque checks
+    distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
      * Returns desired joint angles (deg, design.joints order) or null.

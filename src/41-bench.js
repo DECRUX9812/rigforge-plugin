@@ -139,11 +139,14 @@ function benchSlopeMargin(design, mat, slopeDeg) {
  * actuator was actually picked for. τ = Σ m·g·lever about each joint axis —
  * exact rigid-body statics; yaw axes read ~0 because gravity can't load them.
  */
-function benchTorqueMargins(design, mat) {
+function benchTorqueMargins(design, mat, extra) {
   const chains = chainsFor(design)
   const acts = design.actuators || []
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const out = []
+  // `extra`: virtual payload masses hung on a joint — {joint, pos:[x,y,z] mm
+  // world, massG}. Used by the lift test: the arm holds a real prop and we ask
+  // whether the servos have torque left, not whether the geometry reaches.
   // descendant joints of j (inclusive) via parent chain
   const subtree = (jid) => {
     const ids = new Set([jid])
@@ -174,6 +177,14 @@ function benchTorqueMargins(design, mat) {
       const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
       const leverNmm = Math.abs(tx * ax[0] + ty * ax[1] + tz * ax[2]) // N·mm
       tauNm += leverNmm / 1000 // N·mm → N·m
+    }
+    for (const pay of extra || []) {
+      if (!ids.has(pay.joint)) continue
+      const r = [pay.pos[0] - j.pivot[0], pay.pos[1] - j.pivot[1], pay.pos[2] - j.pivot[2]]
+      const mg = pay.massG * 9.81e-3 // N
+      const tx = -r[1] * mg, ty = r[0] * mg
+      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+      tauNm += Math.abs(tx * ax[0] + ty * ax[1]) / 1000
     }
     const need = tauNm // N·m
     const stall = act.effective || 0

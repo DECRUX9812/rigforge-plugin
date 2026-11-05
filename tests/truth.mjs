@@ -619,24 +619,30 @@ check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
 // ── 33-36. autopilot certification covers every teleop kind ────────────────
 const presetDesign = (archetype) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === archetype).brief })
 
-check('autotest reach: arm tour scores real IK error per desk prop', () => {
+check('autotest reach: arm tour scores reach AND lift capacity per desk prop', () => {
   const { design } = presetDesign('arm')
   const ik = A.createArmTeleop(design)
   const at = A.createAutotest(ik)
   at.start()
-  const actual = design.joints.map(() => 0)
-  for (let i = 0; i < 60 * 40 && at.running; i++) {
+  let actual = design.joints.map(() => 0)
+  for (let i = 0; i < 60 * 50 && at.running; i++) {
     const c = at.tick(1 / 60, actual)
     const pose = c && c.pose ? c.pose : (c ? ik.step(c, 1 / 60, actual) : null)
     if (pose) pose.forEach((a, j) => { actual[j] = a }) // engine has no servo lag — apply instantly
   }
   assert(at.done, 'reach tour did not finish')
-  assert(at.results.length === 4, `expected 4 results (3 props + home), got ${at.results.length}`)
+  assert(at.results.length === 7, `expected 7 results (3 reach + home + 3 lift), got ${at.results.length}`)
   const steel = at.results.find((r) => r.id === 'reach-steel')
   assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
   const bin = at.results.find((r) => r.id === 'reach-bin')
   assert(bin && !bin.pass, `parts bin should be honestly unreachable for this arm — ${bin && bin.detail}`)
-  assert(at.results.every((r) => /err \d+mm|returned/.test(r.detail)), 'results lack measured detail')
+  // the lift legs must differentiate by mass: 80g bin passes on stall margin,
+  // the 1.2kg steel block must fail — reaching is not lifting
+  const liftBin = at.results.find((r) => r.id === 'lift-bin')
+  const liftSteel = at.results.find((r) => r.id === 'lift-steel')
+  assert(liftBin && liftBin.pass, `80g bin should be liftable — ${liftBin && liftBin.detail}`)
+  assert(liftSteel && !liftSteel.pass, `1.2kg steel should fail the torque check — ${liftSteel && liftSteel.detail}`)
+  assert(/stall|carry/.test(liftSteel.detail), 'lift verdict lacks the measured margin')
   return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
 })
 
