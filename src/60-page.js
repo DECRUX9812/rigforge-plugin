@@ -702,6 +702,7 @@ function Studio() {
   const warns = analysis.checks.filter((c) => c.level === 'warn').length
 
   const panel = tab === 'spec' ? h(TabSpec, { design, analysis })
+    : tab === 'test' ? h(TabTest, { design, analysis })
     : tab === 'parts' ? h(TabParts, { design, analysis })
       : tab === 'pins' ? h(TabPins, { analysis })
         : tab === 'power' ? h(TabPower, { analysis })

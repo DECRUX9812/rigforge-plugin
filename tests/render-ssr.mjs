@@ -37,13 +37,21 @@ for (const f of files) code += readFileSync(join(srcDir, f), 'utf8') + '\n\n'
 code = code
   .replace(/from '@hermes\/plugin-sdk'/g, `from './sdk-stub.mjs'`)
   .replace(/^export default plugin$/m, 'export default plugin')
-  .concat(`\nexport { Studio, Viewport, DirectiveCard, composeDesign, parseBrief, parseDirective, buildMesh, toSTL, toOpenSCAD, toSpecMarkdown, toBOMCsv, agentPrompt, PRESETS, DEFAULT_BRIEF, PARTS, analyze }\n`)
+  .concat(`\nexport { Studio, Viewport, DirectiveCard, composeDesign, parseBrief, parseDirective, buildMesh, toSTL, toOpenSCAD, toSpecMarkdown, toBOMCsv, agentPrompt, PRESETS, DEFAULT_BRIEF, PARTS, analyze, TabSpec, TabTest, TabParts, TabPins, TabPower, TabPrint, TabAssembly, TabCode, TabSteps }\n`)
 const bundlePath = join(here, 'tmp/bundle.mjs')
 writeFileSync(bundlePath, code)
 
 const React = (await import('react')).default
 const { renderToStaticMarkup } = await import('react-dom/server')
 const mod = await import(pathToFileURL(bundlePath).href + `?t=${Date.now()}`)
+
+// First run defaults to plain-words mode; the tab strip only exists in
+// engineer mode, so register once with storage that says the user opted in.
+mod.default.register({
+  contribution: () => {},
+  registerSettingsPage: () => {},
+  storage: { get: (k, d) => (k === 'simple' ? false : d), set: () => {}, remove: () => {} },
+})
 
 let failures = 0
 const check = (name, cond, extra) => {
@@ -109,7 +117,7 @@ try {
   html = renderToStaticMarkup(React.createElement(mod.Studio))
   check('Studio rendered', html.length > 3000, `${html.length} bytes`)
   check('wordmark present', html.includes('RIGFORGE'))
-  check('spec tabs present', html.includes('SPEC') && html.includes('BUILD'))
+  check('spec tabs present', html.includes('SPEC') && html.includes('TEST') && html.includes('STEPS'))
   check('cost rendered', /\$[0-9]/.test(html))
   check('canvas mounted', html.includes('<canvas'))
 } catch (err) {
@@ -118,9 +126,22 @@ try {
   console.log(err && err.stack && err.stack.split('\n').slice(0, 6).join('\n'))
 }
 
-// every tab renders
-for (const tab of ['spec', 'parts', 'pins', 'power', 'print', 'code', 'steps']) {
-  globalThis.__FORCE_TAB__ = tab
+// every tab renders — panels are pure components, mount each directly
+const TAB_COMPONENTS = [
+  ['spec', 'TabSpec'], ['test', 'TabTest'], ['parts', 'TabParts'], ['pins', 'TabPins'],
+  ['power', 'TabPower'], ['print', 'TabPrint'], ['assembly', 'TabAssembly'], ['code', 'TabCode'], ['steps', 'TabSteps'],
+]
+{
+  const spec = mod.composeDesign({ ...mod.DEFAULT_BRIEF, archetype: 'arm', mission: 'tab render', reachMm: 400, payloadKg: 0.8 })
+  for (const [id, name] of TAB_COMPONENTS) {
+    try {
+      const html = renderToStaticMarkup(React.createElement(mod[name], { design: spec.design, analysis: spec.analysis }))
+      check(`tab ${id} renders`, html.length > 40, `${html.length}b`)
+    } catch (err) {
+      failures += 1
+      console.log(`  FAIL tab ${id}: ${err && err.message}`)
+    }
+  }
 }
 
 // each archetype renders through the page (component-level, not full page)

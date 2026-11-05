@@ -9,7 +9,7 @@ const VIEWS = [
 ]
 
 const TABS = [
-  ['spec', 'SPEC'], ['parts', 'BOM'], ['pins', 'PINS'],
+  ['spec', 'SPEC'], ['test', 'TEST'], ['parts', 'BOM'], ['pins', 'PINS'],
   ['power', 'PWR'], ['print', 'PRINT'], ['assembly', 'ASSY'], ['code', 'CODE'], ['steps', 'STEPS'],
 ]
 
@@ -140,6 +140,76 @@ function TabSpec({ design, analysis }) {
       blocks.push(h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.5, marginBottom: '6px', paddingLeft: '8px', borderLeft: `1px solid ${C.line}` } }, n))
     }
   }
+  return blocks
+}
+
+/** TEST: the pre-print bench. Would this machine stand, climb and hold? */
+function TabTest({ design, analysis }) {
+  const [slope, setSlope] = useState(15)
+  const r = useMemo(() => benchReport(design, analysis, { mat: analysis.print.material, slopeDeg: slope }), [design, analysis, slope])
+  const worst = r.verdicts.some((v) => v.status === 'fail') ? 'fail' : r.verdicts.some((v) => v.status === 'warn') ? 'warn' : 'ok'
+  const vc = (s) => (s === 'pass' ? 'ok' : s)
+  const blocks = []
+
+  blocks.push(h('div', {
+    style: {
+      fontSize: '12.5px', color: C.text, lineHeight: 1.5, marginBottom: '12px',
+      padding: '10px 12px', borderRadius: '7px',
+      border: `1px solid ${C.line}`, borderLeft: `3px solid ${levelColor(worst)}`,
+      background: levelBg(worst),
+    },
+  }, worst === 'ok'
+    ? `Bench says go — ${Math.round(r.massG)}g machine, ${r.contacts}-point support polygon, worst joint at ${r.torques.length ? Math.min(...r.torques.map((t) => t.margin)).toFixed(1) : '—'}× stall margin.`
+    : worst === 'warn'
+      ? 'Bench has concerns — read the warnings below before you print.'
+      : 'Bench says stop — this design fails a pre-print check. Fix it before spending filament.'))
+
+  blocks.push(h('div', { style: S.sectionLabel }, 'scenario: ramp test'))
+  blocks.push(h('div', { style: { ...S.field, marginBottom: '4px' } },
+    h('div', { style: S.label },
+      h('span', {}, 'incline angle'),
+      h('span', { style: { fontFamily: C.mono, color: slope > 20 ? C.amber : C.text } }, `${slope}°`)),
+    h('input', {
+      type: 'range', min: 0, max: 35, step: 1, value: slope,
+      onInput: (e) => setSlope(Number(e.target.value)),
+      style: { width: '100%', accentColor: C.accent },
+      'aria-label': 'ramp incline angle in degrees',
+    }),
+    h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '4px' } },
+      `CoM margin on the slope plane: ${Math.round(r.slopeMm)}mm ${r.slopeMm > 0 ? '(stable)' : '(tipping)'}`)))
+
+  blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'verdicts'))
+  for (const v of r.verdicts) {
+    blocks.push(h('div', { style: { ...S.warn, background: levelBg(vc(v.status)), borderLeft: `2px solid ${levelColor(vc(v.status))}`, marginBottom: '6px' } },
+      h('span', { style: { color: levelColor(vc(v.status)), fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px' } },
+        v.status === 'pass' ? 'PASS' : v.status.toUpperCase()),
+      h('span', { style: { color: C.dim, flex: '1' } }, `${v.label} — ${v.detail}`)))
+  }
+
+  if (r.torques.length) {
+    blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'joint torque vs stall (this pose)'))
+    blocks.push(h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'JOINT'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'NEEDS'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'STALL'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'MARGIN'))),
+      h('tbody', {}, r.torques.map((t) => {
+        const col = t.margin > 1.5 ? C.green : t.margin > 1 ? C.amber : C.red
+        return h('tr', { key: t.joint },
+          h('td', { style: S.td }, t.label),
+          h('td', { style: S.tdNum }, `${t.needNm.toFixed(2)} N·m`),
+          h('td', { style: S.tdNum }, `${t.stallNm.toFixed(2)} N·m`),
+          h('td', { style: { ...S.tdNum, color: col } }, `${t.margin.toFixed(1)}×`))
+      }))))
+  }
+
+  blocks.push(h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'mass & balance'))
+  blocks.push(h('div', { style: S.kv },
+    h(KV, { k: 'total mass', v: `${Math.round(r.massG)} g` }),
+    h(KV, { k: 'centre of mass', v: `${Math.round(r.com[0])}, ${Math.round(r.com[1])}, ${Math.round(r.com[2])} mm` }),
+    h(KV, { k: 'support polygon', v: `${r.hull.length} hull pts · ${r.contacts} contacts` }),
+    h(KV, { k: 'flat margin', v: `${Math.round(r.flatMm)} mm`, accent: r.flatMm > 15 ? C.green : r.flatMm > 0 ? C.amber : C.red })))
+  blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, marginTop: '10px' } },
+    'Rigid-body statics at the current pose — CoM is mass-weighted over every node, the support polygon is the convex hull of ground contacts, and torque is exact r×F about each joint axis. It answers "will it stand, climb and hold?" before you spend filament.'))
   return blocks
 }
 
