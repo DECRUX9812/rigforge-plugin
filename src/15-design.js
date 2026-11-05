@@ -118,6 +118,11 @@ function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
   return count
 }
 
+/** A vendored CAD mesh: `part` names an entry in globalThis.__RF_PARTS. */
+function mesh(d, id, part, size, pos, mat, extra) {
+  d.nodes.push({ id, kind: 'mesh', part, size, pos, mat, rot: [0, 0, 0], ...(extra || {}) })
+}
+
 function rbox(d, id, size, pos, r, mat, extra) {
   d.nodes.push({ id, kind: 'rbox', size, pos, r: r || 1.5, mat, ...extra })
 }

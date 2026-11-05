@@ -10,6 +10,9 @@
 //   MJCF joints, actuators, defaults — MuJoCo 3.x XML reference
 // Every number here comes from the design: axes, pivots, travel limits, masses.
 
+// Mesh parts (converted from Sand3D, see tools/sand3d-fetch.mjs) register
+// themselves in src/parts-*.js; the renderer looks them up by name.
+
 const SIM_D2R = Math.PI / 180
 
 /**

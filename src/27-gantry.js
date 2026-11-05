@@ -63,7 +63,8 @@ function buildGantry(brief) {
   // printed corner brackets + motor mounts: the only custom geometry, and the
   // reason a metre-class machine still needs a 3D printer
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    rbox(d, `corner-${sx}${sy}`, [70, 70, 30], [sx * (spanX / 2 + 22), sy * (spanY / 2 + 22), railW + 12], 3, 'accent', { print: true })
+    // a real CAD bracket mesh (converted from Sand3D), not another rounded box
+    mesh(d, `corner-${sx}${sy}`, 'BRACKET', [58, 58, 26], [sx * (spanX / 2 + 26), sy * (spanY / 2 + 26), railW + 8], 'accent', { print: true })
   }
   for (const sy of [-1, 1]) {
     rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })

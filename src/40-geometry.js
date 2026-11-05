@@ -352,6 +352,34 @@ function rackTris(sx, sy, sz, teeth) {
 const CYL_SEGS = 18
 
 /** One node → triangles in world space. `shift` is the explode offset. */
+/**
+ * A real CAD mesh, converted offline from the Sand3D library
+ * (tools/sand3d-fetch.mjs) and vendored as quantised int16 in src/parts-*.js.
+ * `node.size` scales it per axis, so one part can be a small bracket or a large
+ * gusset. If the part is missing the box stands in, so layout never collapses.
+ */
+function importedMeshTris(node) {
+  const table = globalThis.__RF_PARTS && globalThis.__RF_PARTS[node.part]
+  if (!table || !table.tris || !table.tris.length) {
+    return boxTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2)
+  }
+  const radiusMm = table.scale || 20
+  const sx = node.size[0] / (radiusMm * 2)
+  const sy = node.size[1] / (radiusMm * 2)
+  const sz = node.size[2] / (radiusMm * 2)
+  const t = table.tris
+  const k = radiusMm / 32767
+  const out = []
+  for (let i = 0; i < t.length; i += 9) {
+    out.push([
+      [t[i] * k * sx, t[i + 1] * k * sy, t[i + 2] * k * sz],
+      [t[i + 3] * k * sx, t[i + 4] * k * sy, t[i + 5] * k * sz],
+      [t[i + 6] * k * sx, t[i + 7] * k * sy, t[i + 8] * k * sz],
+    ])
+  }
+  return out
+}
+
 function nodeTriangles(design, node, chain, shift) {
   const tris = []
   const slide = slideDisp(design, node)
@@ -375,6 +403,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
     case 'sphere': local = sphereTris(node.radius); break
     case 'gear': local = gearTris(node.module, node.teeth, node.width, node.axis || 'z'); break
+    case 'mesh': local = importedMeshTris(node); break
     default: local = []
   }
   for (const t of local) push(t[0], t[1], t[2])

@@ -365,6 +365,24 @@ check('URDF/MJCF: one link per joint, real limits, an actuator per driven joint'
   return `${checked} machines exported with matching topology`
 })
 
+// ── 22. mesh parts resolve to real geometry, not to a silent fallback ───────
+check('imported CAD meshes are present and non-degenerate', () => {
+  const parts = A.RF_PARTS || {}
+  const names = Object.keys(parts)
+  let used = 0
+  eachPreset((p, { design }) => {
+    for (const n of design.nodes) {
+      if (n.kind !== 'mesh') continue
+      used += 1
+      const table = parts[n.part]
+      assert(table, `${p.id}: node ${n.id} wants mesh "${n.part}" which is not vendored`)
+      assert(table.tris.length % 9 === 0 && table.tris.length > 0, `${p.id}: ${n.part} has a broken triangle table`)
+      assert(table.scale > 0, `${p.id}: ${n.part} has no scale`)
+    }
+  })
+  return `${used} mesh nodes across the archetypes, ${names.length} vendored part(s)`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
