@@ -544,6 +544,24 @@ check('autotest: wet-ice ramp fails the climb check honestly', () => {
   return `climb FAIL — ${climb.detail}`
 })
 
+// ── 32. stairs course: risers taller than wheel bite block honestly ─────────
+check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
+  const drive = A.createDrive(design, analysis)
+  drive.setEnv({ course: 'stairs' })
+  let stalled = false
+  for (let i = 0; i < 60 * 10; i++) {
+    drive.step({ throttle: 1, steer: 0 }, 1 / 60)
+    if (drive.state.stall) stalled = true
+  }
+  const s = drive.state
+  assert(s.bumps > 0, 'never registered a stair hit')
+  assert(stalled, 'never flagged stall at the nosing')
+  assert(s.x < 1.9, `rode through the stairs to x=${s.x.toFixed(2)}`)
+  assert(s.z < 0.01, `climbed to z=${s.z.toFixed(2)} without wheel bite`)
+  return `blocked at x=${s.x.toFixed(2)}, ${s.bumps} bumps, stall=${stalled}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
