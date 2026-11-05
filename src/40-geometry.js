@@ -947,39 +947,90 @@ function zipStore(entries) {
   return out.buffer
 }
 
+/**
+ * OpenSCAD source a maker can actually edit.
+ *
+ * A flat list of positioned primitives is readable but useless to work with:
+ * you cannot isolate the base tower, you cannot print one part, and you cannot
+ * move a part as a unit. So every node becomes a named module and an
+ * `assembly()` instantiates them all, with a `PART` switch at the top. Values
+ * stay in world millimetres, because that is how the rest of the studio thinks.
+ */
+function scadName(id) {
+  // keep underscores as they are: `base-bolt--1-1-hd` and `base-bolt-1-1-hd`
+  // are different nodes, and collapsing the runs made one module shadow the
+  // other, so one bolt was drawn twice and its twin never appeared
+  const clean = String(id).replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '')
+  return `p_${clean || 'part'}`
+}
+
 /** Parametric source, not a baked mesh: the user can edit dimensions. */
 function toOpenSCAD(design) {
-  const lines = [
+  const head = [
     `// ${design.title} — Rigforge export`,
-    `// Rest pose, mm. Edit the numbers, or $fn for smoother cylinders.`,
+    `// Rest pose, millimetres. $fn controls cylinder smoothness.`,
+    `// Set PART to a module name to print or edit that part alone:`,
+    `// PART = "p_base_plate";   // "all" builds the whole machine`,
     '$fn = 48;',
     '',
+    'PART = "all";',
+    '',
   ]
+  const bodies = []
+  const names = []
+  const used = new Map()
   for (const n of design.nodes) {
+    let name = scadName(n.id)
+    // a module name has to be unique or OpenSCAD silently uses the last one
+    if (used.has(name)) {
+      const n2 = used.get(name) + 1
+      used.set(name, n2)
+      name = `${name}_${n2}`
+    } else {
+      used.set(name, 1)
+    }
+    names.push(name)
     const pos = `translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}])`
-    const c = ` // ${n.id}`
-    // translate outermost, then local Euler, then axis flip — matches nodeEuler
     const euler = n.rot ? `rotate([${n.rot.map((r) => (r * 180 / Math.PI).toFixed(0)).join(', ')}]) ` : ''
     const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([90, 0, 0]) ' : ''
     const wrap = `${pos} ${euler}${axRot}`
+    let prim
     if (n.kind === 'box' || n.kind === 'rbox') {
-      lines.push(`${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);${c}`)
+      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);`
     } else if (n.kind === 'wedge' || n.kind === 'rack') {
-      lines.push(`${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true);${c} (simplified)`)
+      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* simplified from ${n.kind} */`
     } else if (n.kind === 'gear') {
-      lines.push(`${wrap}cylinder(h=${n.width.toFixed(1)}, r=${(((n.module * n.teeth) / 2) - n.module).toFixed(1)}, center=true);${c} ${n.teeth}T m${n.module}`)
+      prim = `${wrap}cylinder(h=${n.width.toFixed(1)}, r=${(((n.module * n.teeth) / 2) - n.module).toFixed(1)}, center=true); /* ${n.teeth}T module ${n.module} */`
     } else if (n.kind === 'ring') {
-      lines.push(`${wrap}difference() { cylinder(h=${n.height.toFixed(1)}, r=${n.outer.toFixed(1)}, center=true); cylinder(h=${(n.height + 1).toFixed(1)}, r=${n.inner.toFixed(1)}, center=true); }${c}`)
+      prim = `${wrap}difference() { cylinder(h=${n.height.toFixed(1)}, r=${n.outer.toFixed(1)}, center=true); cylinder(h=${(n.height + 1).toFixed(1)}, r=${n.inner.toFixed(1)}, center=true); }`
     } else if (n.kind === 'torus' || n.kind === 'bend') {
-      lines.push(`${wrap}rotate_extrude() translate([${n.R.toFixed(1)},0,0]) circle(r=${n.r.toFixed(1)});${c}`)
+      prim = `${wrap}rotate_extrude() translate([${n.R.toFixed(1)}, 0, 0]) circle(r=${n.r.toFixed(1)});`
     } else if (n.kind === 'sphere') {
-      lines.push(`${wrap}sphere(r=${n.radius.toFixed(1)});${c}`)
+      prim = `${wrap}sphere(r=${n.radius.toFixed(1)});`
+    } else if (n.kind === 'mesh') {
+      // imported CAD mesh: OpenSCAD gets its bounding box, because the STL is
+      // the authoritative geometry and this is a worked-in-space placeholder
+      prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
+    } else if (n.radius == null) {
+      prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
       const r2 = n.radius2 != null ? `, r2=${n.radius2.toFixed(1)}` : ''
-      lines.push(`${wrap}cylinder(h=${n.height.toFixed(1)}, r=${n.radius.toFixed(1)}${r2}, center=true);${c}`)
+      prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r=${n.radius.toFixed(1)}${r2}, center=true);`
     }
+    bodies.push(`// ${n.id}${n.print ? ' · printed' : ''}`)
+    bodies.push(`module ${name}() { ${prim} }`)
+    bodies.push('')
   }
-  return lines.join('\n')
+  const assembly = [
+    'module assembly() {',
+    ...names.map((n) => `  ${n}();`),
+    '}',
+    '',
+    'if (PART == "all") assembly();',
+    ...names.map((n) => `if (PART == "${n}") ${n}();`),
+    '',
+  ]
+  return [...head, ...bodies, ...assembly].join('\n')
 }
 
 function toBOMCsv(design, analysis) {
