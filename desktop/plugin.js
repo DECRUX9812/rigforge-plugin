@@ -9045,7 +9045,7 @@ const S = {
     boxShadow: '0 0 0 1px rgba(255,106,26,0.22), 0 8px 20px rgba(0,0,0,0.32)',
   },
   cardTitle: { fontFamily: C.sans, fontSize: '11.5px', fontWeight: 650, color: C.text, letterSpacing: '0.01em' },
-  cardSub: { fontSize: '11px', color: C.faint, lineHeight: 1.35 },
+  cardSub: { fontSize: '11px', color: C.dim, lineHeight: 1.35 },
   thumb: {
     display: 'block', width: '100%', height: '62px', marginBottom: '3px',
     borderRadius: '7px', background: 'radial-gradient(circle at 50% 30%, #12202b, #0a1017 70%)',
@@ -9149,10 +9149,10 @@ const S = {
   },
   poseGrid: {
     flex: '1 1 auto', minWidth: 0, display: 'grid', gap: '6px 18px',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(238px, 1fr))',
     maxHeight: '78px', overflowY: 'auto', alignContent: 'start',
   },
-  poseRow: { display: 'grid', gridTemplateColumns: '1fr 84px 40px', alignItems: 'center', gap: '8px', minWidth: 0 },
+  poseRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 74px 46px', alignItems: 'center', gap: '7px', minWidth: 0 },
   poseName: {
     fontSize: '10.5px', color: C.dim, whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis', letterSpacing: '0.01em',
@@ -9265,13 +9265,13 @@ const S = {
     color: C.faint, textTransform: 'uppercase', marginBottom: '7px',
   },
   buyRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', alignItems: 'baseline',
+    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 66px', gap: '10px', alignItems: 'baseline',
     padding: '6px 0', borderBottom: `1px solid ${C.lineSoft}`,
   },
   buyName: { fontSize: '12px', color: C.text, lineHeight: 1.35 },
   buyQty: { fontFamily: C.mono, fontSize: '10px', color: C.faint },
   buyPrice: {
-    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap',
+    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap', textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
