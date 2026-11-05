@@ -194,11 +194,13 @@ def parse_brief(text: str) -> Dict[str, Any]:
 
     kg = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:kg|kilo)", text, re.I)
     if kg:
-        brief["payloadKg"] = round(_clamp(float(kg.group(1).replace(",", ".")), 0.1, 15), 2)
+        # same rule as normalise_brief: bound absurd input, never the design —
+        # the studio is the one that decides a rover cannot carry 50kg
+        brief["payloadKg"] = round(_clamp(float(kg.group(1).replace(",", ".")), 0.01, 500), 2)
     else:
         grams = re.search(r"(\d{2,4})\s*g(?:ram)?\b", text, re.I)
         if grams:
-            brief["payloadKg"] = round(_clamp(int(grams.group(1)) / 1000, 0.1, 15), 2)
+            brief["payloadKg"] = round(_clamp(int(grams.group(1)) / 1000, 0.01, 500), 2)
 
     wheel = re.search(r"(\d{2,3})\s*mm[^.,;]{0,14}?wheels?", text, re.I) or re.search(r"wheels?[^.,;]{0,14}?(\d{2,3})\s*mm", text, re.I)
     if wheel:
@@ -236,23 +238,50 @@ def parse_brief(text: str) -> Dict[str, Any]:
 
 
 def normalise_brief(raw: Mapping[str, Any]) -> Dict[str, Any]:
-    """One validator for both directions (agent args and the studio's POST)."""
+    """Bound the input, never the design.
+
+    This used to clamp payload to 15kg and reach to 1200mm — so an agent asked
+    for a 50kg machine queued a 15kg brief and the studio's own "this cannot
+    carry that" failure never fired, because it never saw the request. Now the
+    sanitiser only guards against absurd input, records anything it changed in
+    `_adjusted`, and lets the studio judge the design.
+    """
     brief = dict(DEFAULT_BRIEF)
+    # carry forward anything an earlier pass recorded, so re-normalising the
+    # brief (parse → handler overrides) does not erase the notice
+    adjusted: List[str] = list(raw.get("_adjusted") or [])[:8]
     for key in ("mission",):
         if raw.get(key):
-            brief[key] = str(raw[key])[:MAX_TEXT]
+            text = str(raw[key])
+            brief[key] = text[:MAX_TEXT]
+            if len(text) > MAX_TEXT:
+                adjusted.append(f"mission truncated to {MAX_TEXT} chars")
     archetype = str(raw.get("archetype") or brief["archetype"]).lower()
-    brief["archetype"] = archetype if archetype in ARCHETYPES else "arm"
-    for key, lo, hi in (("payloadKg", 0.1, 15), ("reachMm", 0, 1200), ("wheelMm", 60, 130), ("dof", 3, 6)):
+    if archetype not in ARCHETYPES:
+        adjusted.append(f"unknown archetype '{archetype}' → arm")
+        archetype = "arm"
+    brief["archetype"] = archetype
+    # hardware sanity ceiling only: 500kg / 5m / 300mm wheels is already beyond
+    # any hobby machine, so anything inside it is the studio's call, not ours.
+    for key, lo, hi in (("payloadKg", 0.01, 500), ("reachMm", 0, 5000), ("wheelMm", 20, 300), ("dof", 3, 6)):
         if raw.get(key) is not None:
             try:
-                brief[key] = round(_clamp(float(raw[key]), lo, hi), 2) if key != "dof" else int(_clamp(float(raw[key]), lo, hi))
+                want = float(raw[key])
+                got = _clamp(want, lo, hi)
+                if abs(got - want) > 1e-9:
+                    adjusted.append(f"{key} {want:g} → {got:g} (outside 0–{hi:g})")
+                brief[key] = round(got, 2) if key != "dof" else int(got)
             except (TypeError, ValueError):
                 pass
-    for key, allowed in (("material", ("pla", "petg")), ("mcu", ("esp32s3", "esp32c6", "pico")),
+    for key, allowed in (("material", ("pla", "petg", "asa", "petgcf")), ("mcu", ("esp32s3", "esp32c6", "pico")),
                          ("battery", ("pack2s", "pack3s", "lipo2s", "lipo3s", "pd5v"))):
         value = str(raw.get(key) or brief[key])
-        brief[key] = value if value in allowed else brief[key]
+        if value not in allowed:
+            adjusted.append(f"{key} '{value}' not stocked → {brief[key]}")
+        else:
+            brief[key] = value
+    if adjusted:
+        brief["_adjusted"] = adjusted[:8]
     return brief
 
 

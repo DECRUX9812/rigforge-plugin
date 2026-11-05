@@ -319,6 +319,12 @@ function analyze(design) {
   const dims = [bbox.max[0] - bbox.min[0], bbox.max[1] - bbox.min[1], bbox.max[2] - bbox.min[2]]
 
   const checks = [...(design.checks || [])]
+  // Anything the agent layer had to change on the way in is visible here, not
+  // buried in its logs: the studio judges the design it was actually given.
+  const adjusted = design.brief && Array.isArray(design.brief._adjusted) ? design.brief._adjusted : []
+  if (adjusted.length) {
+    checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
+  }
   if (power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
   } else if (power.bat && power.peak > power.bat.maxA * 2) {

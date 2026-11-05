@@ -51,7 +51,7 @@ class FakeCtx:
 
 
 mod.register(FakeCtx())
-check("two tools registered", [t["name"] for t in tools] == ["rigforge_build", "rigforge_state"], str([t["name"] for t in tools]))
+check("tools registered", [t["name"] for t in tools] == ["rigforge_build", "rigforge_state", "rigforge_prices"], str([t["name"] for t in tools]))
 check("toolset is rigforge", all(t["toolset"] == "rigforge" for t in tools))
 check("cli verb registered", any(c.get("name") == "rigforge" for c in cli))
 
@@ -72,12 +72,17 @@ obj = json.loads(build({"brief": {"archetype": "quadruped", "mission": "trot bot
 check("object brief accepted", obj["brief"]["archetype"] == "quadruped" and obj["brief"]["payloadKg"] == 1.5)
 
 bad = json.loads(build({"brief": {"archetype": "spaceship", "payloadKg": 999}}))
-check("invalid archetype clamped", bad["brief"]["archetype"] == "arm", bad["brief"]["archetype"])
-check("payload clamped", bad["brief"]["payloadKg"] == 15, str(bad["brief"]["payloadKg"]))
+check("invalid archetype recorded", bad["brief"]["archetype"] == "arm" and any("archetype" in a for a in bad["brief"].get("_adjusted", [])), str(bad["brief"].get("_adjusted")))
+check("payload reaches the studio unclamped", json.loads(build({"brief": {"archetype": "rover", "payloadKg": 50}}))["brief"]["payloadKg"] == 50, "50kg must reach the studio so its own check fires")
+check("absurd payload clamped and recorded", bad["brief"]["payloadKg"] == 500 and any("payloadKg" in a for a in bad["brief"].get("_adjusted", [])), str(bad["brief"]["payloadKg"]))
 check("missing brief errors", json.loads(build({})).get("ok") is False)
+# a sentence must not be quietly reduced to a smaller machine either
+_sentence = json.loads(build({"brief": "a rover that carries 50 kg of soil"}))["brief"]
+check("sentence payload survives", _sentence["payloadKg"] == 50, str(_sentence["payloadKg"]))
 
 st = json.loads(state({}))
-check("state reports queued", st.get("queued") == 3, str(st))
+queued = st.get("queued")
+check("state reports queued", isinstance(queued, int) and queued >= 3, str(st))
 
 # ── 3. the HTTP routes the page polls and posts ────────────────────────────
 print("\nroutes")
@@ -91,13 +96,13 @@ app.include_router(plugin_api.router, prefix="/api/plugins/rigforge")
 client = TestClient(app)
 
 h = client.get("/api/plugins/rigforge/health").json()
-check("health ok", h.get("ok") is True and h.get("queued") == 3, json.dumps(h))
+check("health ok", h.get("ok") is True and h.get("queued") == queued, json.dumps(h))
 
 peeked = client.get("/api/plugins/rigforge/queue", params={"peek": 1, "limit": 5}).json()
-check("peek does not drain", len(peeked["requests"]) == 3 and peeked["remaining"] == 3, json.dumps(peeked)[:120])
+check("peek does not drain", len(peeked["requests"]) == min(5, queued) and peeked["remaining"] == queued, json.dumps(peeked)[:120])
 
 drained = client.get("/api/plugins/rigforge/queue", params={"limit": 5}).json()
-check("drain returns all", len(drained["requests"]) == 3, json.dumps(drained)[:120])
+check("drain returns all", len(drained["requests"]) == queued, json.dumps(drained)[:120])
 check("drain empties queue", drained["remaining"] == 0 and json.loads(state({}))["queued"] == 0)
 
 posted = client.post("/api/plugins/rigforge/queue", json={"brief": "desk clock with a bme280", "note": "from ui"}).json()
