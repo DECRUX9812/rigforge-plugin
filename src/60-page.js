@@ -281,7 +281,7 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer, onAudit }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -307,6 +307,12 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit }) {
       title: 'every number here is a sum you can check',
       'aria-label': 'Show the working behind these numbers',
     }, '⌁ how these numbers are made'),
+    h('button', {
+      style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10px', margin: '0 0 12px 6px' },
+      onClick: onCompare,
+      title: 'did the last change actually make it better?',
+      'aria-label': 'Compare this build with the previous one',
+    }, '↔ what changed'),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -414,6 +420,8 @@ function Studio() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -511,6 +519,21 @@ function Studio() {
     setBrief(next)
     setMission(next.mission)
   }
+
+  // One place records what a change replaced, whatever path made it: a preset,
+  // the palette, a slider or an agent directive. Debounced so a slider drag is
+  // one "before", not forty.
+  const briefRef = useRef(brief)
+  useEffect(() => {
+    const prev = briefRef.current
+    if (prev === brief) return undefined
+    briefRef.current = brief
+    if (JSON.stringify(prev) === JSON.stringify(brief)) return undefined
+    const t = setTimeout(() => {
+      setHistory((h) => (JSON.stringify(h[0] && h[0].brief) === JSON.stringify(prev) ? h : [{ brief: prev, at: Date.now() }, ...h].slice(0, 4)))
+    }, 900)
+    return () => clearTimeout(t)
+  }, [brief])
 
   // ⌘K / Ctrl+K opens the palette; Esc closes it from anywhere.
   useEffect(() => {
@@ -636,6 +659,7 @@ function Studio() {
       list.push({ id: 'export-' + label, group: 'EXPORT', label, run: fn })
     }
     list.push({ id: 'act-audit', group: 'ACTION', label: 'Show the working — audit every number', run: () => setAuditOpen(true) })
+    list.push({ id: 'act-compare', group: 'ACTION', label: 'Compare with the previous build', run: () => setCompareOpen(true) })
     list.push({ id: 'act-share', group: 'ACTION', label: 'Copy a build code to share this design', run: copyBuildCode })
     list.push({ id: 'act-open-code', group: 'ACTION', label: 'Open a build code', run: () => setCodeOpen(true) })
     list.push({ id: 'act-build', group: 'ACTION', label: 'Build this machine', hint: '⏎', run: onBuild })
@@ -1063,7 +1087,7 @@ function Studio() {
       // right rail: the spec
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
-          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onCompare: () => setCompareOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
           : h('div', { style: S.tabs, role: 'tablist' },
           TABS.map(([id, label]) => {
             // a badge is information scent: how much sits behind the tab
@@ -1089,6 +1113,7 @@ function Studio() {
     ),
     h(CommandPalette, { open: paletteOpen, commands, onClose: () => setPaletteOpen(false) }),
     h(AuditDialog, { open: auditOpen, onClose: () => setAuditOpen(false), design, analysis }),
+    h(CompareDialog, { open: compareOpen, onClose: () => setCompareOpen(false), currentBrief: brief, history }),
     h(BuildCodeDialog, {
       open: codeOpen,
       onOpen: (b) => { setBrief({ ...DEFAULT_BRIEF, ...b }); setMission(b.mission || ''); setSimple(false) },

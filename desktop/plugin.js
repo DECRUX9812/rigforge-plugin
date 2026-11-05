@@ -6554,7 +6554,7 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer, onAudit }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -6580,6 +6580,12 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit }) {
       title: 'every number here is a sum you can check',
       'aria-label': 'Show the working behind these numbers',
     }, '⌁ how these numbers are made'),
+    h('button', {
+      style: { ...S.btn, height: '24px', padding: '0 9px', fontSize: '10px', margin: '0 0 12px 6px' },
+      onClick: onCompare,
+      title: 'did the last change actually make it better?',
+      'aria-label': 'Compare this build with the previous one',
+    }, '↔ what changed'),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -6687,6 +6693,8 @@ function Studio() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -6784,6 +6792,21 @@ function Studio() {
     setBrief(next)
     setMission(next.mission)
   }
+
+  // One place records what a change replaced, whatever path made it: a preset,
+  // the palette, a slider or an agent directive. Debounced so a slider drag is
+  // one "before", not forty.
+  const briefRef = useRef(brief)
+  useEffect(() => {
+    const prev = briefRef.current
+    if (prev === brief) return undefined
+    briefRef.current = brief
+    if (JSON.stringify(prev) === JSON.stringify(brief)) return undefined
+    const t = setTimeout(() => {
+      setHistory((h) => (JSON.stringify(h[0] && h[0].brief) === JSON.stringify(prev) ? h : [{ brief: prev, at: Date.now() }, ...h].slice(0, 4)))
+    }, 900)
+    return () => clearTimeout(t)
+  }, [brief])
 
   // ⌘K / Ctrl+K opens the palette; Esc closes it from anywhere.
   useEffect(() => {
@@ -6909,6 +6932,7 @@ function Studio() {
       list.push({ id: 'export-' + label, group: 'EXPORT', label, run: fn })
     }
     list.push({ id: 'act-audit', group: 'ACTION', label: 'Show the working — audit every number', run: () => setAuditOpen(true) })
+    list.push({ id: 'act-compare', group: 'ACTION', label: 'Compare with the previous build', run: () => setCompareOpen(true) })
     list.push({ id: 'act-share', group: 'ACTION', label: 'Copy a build code to share this design', run: copyBuildCode })
     list.push({ id: 'act-open-code', group: 'ACTION', label: 'Open a build code', run: () => setCodeOpen(true) })
     list.push({ id: 'act-build', group: 'ACTION', label: 'Build this machine', hint: '⏎', run: onBuild })
@@ -7336,7 +7360,7 @@ function Studio() {
       // right rail: the spec
       h('div', { style: S.col, 'data-rf': 'spec' },
         simple ? h('div', { style: { ...S.tabBody, padding: '4px 16px 24px' } },
-          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
+          h(SimplePanel, { design, analysis, exports, onAudit: () => setAuditOpen(true), onCompare: () => setCompareOpen(true), onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') } }))
           : h('div', { style: S.tabs, role: 'tablist' },
           TABS.map(([id, label]) => {
             // a badge is information scent: how much sits behind the tab
@@ -7362,11 +7386,166 @@ function Studio() {
     ),
     h(CommandPalette, { open: paletteOpen, commands, onClose: () => setPaletteOpen(false) }),
     h(AuditDialog, { open: auditOpen, onClose: () => setAuditOpen(false), design, analysis }),
+    h(CompareDialog, { open: compareOpen, onClose: () => setCompareOpen(false), currentBrief: brief, history }),
     h(BuildCodeDialog, {
       open: codeOpen,
       onOpen: (b) => { setBrief({ ...DEFAULT_BRIEF, ...b }); setMission(b.mission || ''); setSimple(false) },
       onClose: () => setCodeOpen(false),
     }),
+  )
+}
+
+// ── compare: did the change actually make it better? ────────────────────────
+// The agent, or you, can rewrite a build in one line. The only honest way to
+// judge that rewrite is against the thing it replaced: cheaper? lighter?
+// stiffer? Did it buy the gain by breaking a check? This is that scoreboard.
+
+const CMP_METRICS = [
+  { key: 'cost', label: 'COST', unit: '$', get: (a) => a.cost, better: 'down', digits: 2 },
+  { key: 'mass', label: 'MASS', unit: ' g', get: (a) => a.mass.totalG, better: 'down', digits: 0 },
+  { key: 'print', label: 'PRINT TIME', unit: ' h', get: (a) => a.print.hours, better: 'down', digits: 1 },
+  { key: 'peak', label: 'PEAK CURRENT', unit: ' A', get: (a) => a.power.peak, better: 'down', digits: 2 },
+  { key: 'checks', label: 'OPEN PROBLEMS', unit: '', get: (a) => a.checks.filter((c) => c.level !== 'ok').length, better: 'down', digits: 0 },
+]
+
+function compareDesigns(briefA, briefB) {
+  const A = composeDesign(briefA)
+  const B = composeDesign(briefB)
+  const rows = CMP_METRICS.map((m) => {
+    const a = m.get(A.analysis)
+    const b = m.get(B.analysis)
+    const delta = b - a
+    const pctChange = a > 0 ? (delta / a) * 100 : (b > 0 ? 100 : 0)
+    const flat = Math.abs(delta) < (m.digits === 0 ? 0.5 : 0.005)
+    const good = flat ? null : (m.better === 'down' ? delta < 0 : delta > 0)
+    return { ...m, a, b, delta, pctChange, flat, good }
+  })
+  // Compare problems by kind, not by their digits: "longest dimension 540mm"
+  // and "longest dimension 568mm" are the same problem, and treating them as
+  // different makes a resize look like it broke something new.
+  const keyOf = (c) => `${c.level}|${c.msg.replace(/[0-9]+(?:\.[0-9]+)?/g, '#').slice(0, 60)}`
+  const beforeChecks = A.analysis.checks.filter((c) => c.level !== 'ok')
+  const afterChecks = B.analysis.checks.filter((c) => c.level !== 'ok')
+  const beforeKeys = beforeChecks.map(keyOf)
+  const afterKeys = afterChecks.map(keyOf)
+  return {
+    A, B, rows,
+    resolved: beforeChecks.filter((c) => !afterKeys.includes(keyOf(c))).map((c) => c.msg),
+    introduced: afterChecks.filter((c) => !beforeKeys.includes(keyOf(c))).map((c) => c.msg),
+    sameTitle: A.design.title === B.design.title,
+  }
+}
+
+/** One sentence a person can act on, not a table they have to read. */
+function compareVerdict(cmp) {
+  const list = (arr) => (arr.length > 1 ? arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1] : arr[0])
+  const wins = cmp.rows.filter((r) => r.good === true).map((r) => r.label.toLowerCase())
+  const losses = cmp.rows.filter((r) => r.good === false).map((r) => r.label.toLowerCase())
+  const bits = []
+  if (wins.length) bits.push(`better on ${list(wins)}`)
+  if (losses.length) bits.push(`worse on ${list(losses)}`)
+  if (!bits.length) bits.push('nothing moved')
+  let out = bits.join('; ')
+  if (cmp.introduced.length) out += ` — and ${cmp.introduced.length} new problem${cmp.introduced.length > 1 ? 's' : ''}`
+  else if (cmp.resolved.length) out += ` — ${cmp.resolved.length} problem${cmp.resolved.length > 1 ? 's' : ''} cleared`
+  return out + '.'
+}
+
+const BRIEF_FIELDS = [
+  ['reachMm', 'reach', ' mm'],
+  ['payloadKg', 'payload', ' kg'],
+  ['spanX', 'span', ' mm'],
+  ['material', 'material', ''],
+  ['mcu', 'controller', ''],
+  ['battery', 'power', ''],
+  ['energy', 'energy', ''],
+  ['drive', 'drive', ''],
+  ['gripper', 'gripper', ''],
+  ['archetype', 'machine', ''],
+]
+
+/** The knobs that changed, in the user's units. */
+function briefChanges(a, b) {
+  const out = []
+  for (const [key, label, unit] of BRIEF_FIELDS) {
+    if (a[key] === b[key]) continue
+    if (a[key] === undefined && b[key] === undefined) continue
+    out.push({ label, from: a[key], to: b[key], unit })
+  }
+  return out
+}
+
+function CompareDialog({ open, onClose, currentBrief, history }) {
+  if (!open) return null
+  const options = (history || []).filter((h) => h && h.brief)
+  if (!options.length) {
+    return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
+      h('div', { style: { ...S.palette, width: 'min(520px, 92vw)', padding: '20px' }, role: 'dialog', 'aria-label': 'Compare builds' },
+        h('div', { style: S.simpleLabel }, 'compare'),
+        h('div', { style: { fontSize: '12px', color: C.dim, lineHeight: 1.6 } },
+          'Nothing to compare against yet. Every build you make is remembered here, so change one number, press BUILD, and come back — you will see what actually moved.'),
+        h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '14px' } },
+          h('button', { style: { ...S.btn, height: '30px' }, onClick: onClose }, 'Close'))))
+  }
+  const prev = options[0]
+  const cmp = compareDesigns(prev.brief, currentBrief)
+  const changes = briefChanges(prev.brief, currentBrief)
+  const fmtVal = (m, v) => `${m.unit === '$' ? '$' : ''}${fmt(v, m.digits)}${m.unit === '$' ? '' : m.unit}`
+  const tone = (r) => (r.flat ? C.faint : r.good ? C.green : C.red)
+  const arrow = (r) => (r.flat ? '=' : r.delta < 0 ? '▼' : '▲')
+
+  return h('div', { style: S.paletteBackdrop, onClick: (e) => { if (e.target === e.currentTarget) onClose() } },
+    h('div', {
+      style: { ...S.palette, maxHeight: 'min(80vh, 760px)', width: 'min(720px, 94vw)', overflowY: 'auto', padding: '18px 20px 16px' },
+      role: 'dialog', 'aria-label': 'Compare builds',
+    },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', marginBottom: '4px' } },
+      h('div', {},
+        h('div', { style: { ...S.simpleLabel, margin: 0 } }, 'before → after'),
+        h('div', { style: { fontFamily: C.mono, fontSize: '10.5px', color: C.faint, marginTop: '2px' } },
+          `${cmp.A.design.title} → ${cmp.B.design.title}`)),
+      h('button', { style: { ...S.btn, height: '26px', padding: '0 10px' }, onClick: onClose, 'aria-label': 'Close' }, 'Close')),
+
+    cmp.A.design.archetype !== cmp.B.design.archetype
+      ? h('div', { style: { fontSize: '11px', color: C.amber, lineHeight: 1.5, margin: '10px 0 0' } },
+        'Different machines — this is two designs side by side, not a before/after of one change.')
+      : null,
+    h('div', { style: { fontSize: '12.5px', color: C.text, lineHeight: 1.5, margin: '10px 0 14px' } }, compareVerdict(cmp)),
+
+    changes.length
+      ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '0 0 12px' } },
+        changes.slice(0, 5).map((c, i) => h('span', {
+          key: i,
+          style: {
+            fontFamily: C.mono, fontSize: '10px', color: C.dim, padding: '3px 8px', borderRadius: '999px',
+            border: `1px solid ${C.line}`, background: C.panel2,
+          },
+        }, `${c.label} ${c.from}${c.unit} → ${c.to}${c.unit}`)))
+      : null,
+
+    h('table', { style: S.table },
+      h('thead', {}, h('tr', {},
+        h('th', { style: S.th }, 'METRIC'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'BEFORE'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'AFTER'),
+        h('th', { style: { ...S.th, textAlign: 'right' } }, 'CHANGE'))),
+      h('tbody', {}, cmp.rows.map((r) => h('tr', { key: r.key },
+        h('td', { style: { ...S.td, fontFamily: C.mono, fontSize: '10px', letterSpacing: '0.06em' } }, r.label),
+        h('td', { style: S.tdNum }, fmtVal(r, r.a)),
+        h('td', { style: S.tdNum }, fmtVal(r, r.b)),
+        h('td', { style: { ...S.tdNum, color: tone(r) } },
+          `${arrow(r)} ${r.delta === 0 ? '' : (r.delta > 0 ? '+' : '') + fmt(r.delta, r.digits)}${r.flat ? '' : ` · ${Math.abs(r.pctChange) < 0.5 ? '<1' : Math.round(r.pctChange)}%`}`))))),
+
+    cmp.resolved.length || cmp.introduced.length
+      ? h('div', { style: { marginTop: '14px' } },
+        h('div', { style: S.sectionLabel }, 'what changed in the checks'),
+        cmp.resolved.map((c, i) => h('div', { key: 'r' + i, style: { fontSize: '11.5px', color: C.green, marginBottom: '4px' } }, `✓ cleared — ${c}`)),
+        cmp.introduced.map((c, i) => h('div', { key: 'i' + i, style: { fontSize: '11.5px', color: C.red, marginBottom: '4px' } }, `✕ new — ${c}`)))
+      : h('div', { style: { marginTop: '12px', fontSize: '11px', color: C.faint } },
+        'The same checks pass and fail on both builds — the change was a trade, not a fix.'),
+
+    h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '14px', borderTop: `1px solid ${C.line}`, paddingTop: '10px', lineHeight: 1.5 } },
+      `Both machines were recomputed from scratch just now, not read from a cache. Compared against the previous ${options.length > 1 ? `build (${options.length} kept)` : 'build'}.`))
   )
 }
 
