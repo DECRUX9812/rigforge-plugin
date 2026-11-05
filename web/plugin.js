@@ -3573,6 +3573,18 @@ function stepsFor(design, a) {
     push('Assemble the mechanism', 'Pinion, racks, jaws and guides. The jaws must slide with light finger pressure and zero wobble.', ['M3 hex key'], 25)
   }
 
+  const harnessRows = (a.harness && a.harness.rows) || []
+  const extRuns = harnessRows.filter((r) => r.lead === 'extend')
+  if (extRuns.length) {
+    push('Fit the servo extensions',
+      `${extRuns.length} joint run(s) exceed the stock lead — fit the extension leads already in the BOM before closing the frame. Leave a 25–30mm service loop at every moving joint so wires don't flex at the connector.`,
+      ['extension leads', 'heat-shrink', 'cable ties'], 20)
+  } else if (harnessRows.length) {
+    push('Dress the harness',
+      'Leave a 25–30mm service loop at every moving joint — a wire that flexes at the connector fails in weeks, not years. Keep power pairs twisted away from signal lines.',
+      ['cable ties', 'heat-shrink'], 15)
+  }
+
   push('Bring up the MCU', `Flash the generated sketch. Open the serial monitor at 115200 and confirm you see the boot line before you send any command.`, ['USB-C cable', 'arduino-cli'], 15)
   push('Load test', `Run the machine unloaded for 5 minutes, then measure current at the pack: typical should be ~${fmt(a.power.typ, 1)}A, and no connector should be more than hand-warm.`, ['multimeter / clamp meter'], 20)
   push('Verify limits', `Walk every joint to its soft limit slowly and confirm the firmware stops it. ${a.checks.some((c) => c.level === 'fail') ? 'Resolve the failing checks in the SPEC tab first — this machine is not ready to run loaded.' : 'All sizing checks passed at build time.'}`, [], 15)
@@ -4429,7 +4441,9 @@ function overhangReport(design) {
       }
     }
     unsupportedMm2 += unsupported; steepMm2 += steep
-    const contact = bed / footprint
+    // Shell parts carry inner+outer bottom faces, so `bed` can exceed the
+    // footprint — coverage can't, so cap at 1. brim only cares about the low end.
+    const contact = Math.min(1, bed / footprint)
     parts.push({
       id: node.id, unsupported: Math.round(unsupported * 10) / 10,
       steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
