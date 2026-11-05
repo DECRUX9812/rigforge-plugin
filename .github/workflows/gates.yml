@@ -26,6 +26,15 @@ jobs:
         run: node build.mjs
       - name: engine claims
         run: node tests/truth.mjs
+      - name: OpenSCAD export really renders (when the gate exists)
+        # openscad-wasm is a 30MB wasm build; only fetched when the gate is present
+        run: |
+          if [ -f tests/scad-render.mjs ]; then
+            npm i --no-save --no-package-lock openscad-wasm
+            node tests/scad-render.mjs
+          else
+            echo "skip scad-render — not on this branch yet"
+          fi
       - name: bundle matches sources
         # Not a failure yet: the generated bundles drift whenever someone
         # commits src/ without rebuilding, and that is worth seeing in the log
@@ -76,3 +85,17 @@ jobs:
         run: node tests/export-sweep.mjs
       - name: bundle loads in the host
         run: node tests/bundle-load.mjs
+      - name: gates that arrive with their own PR
+        # These tests live on open branches. Running them conditionally means the
+        # gate switches on the moment its PR merges, instead of needing a second
+        # commit to CI that nobody remembers to make.
+        run: |
+          for t in pose-reach cta-download pick-inspect; do
+            if [ -f "tests/$t.mjs" ]; then
+              echo "::group::$t"
+              node "tests/$t.mjs"
+              echo "::endgroup::"
+            else
+              echo "skip $t — not on this branch yet"
+            fi
+          done
