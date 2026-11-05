@@ -1170,18 +1170,28 @@ function Studio() {
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')
                   : j.id.startsWith(`${jointGroup}-`)))
-                .map(([j, i]) => h('label', { key: j.id, style: S.poseRow, title: `${j.label} · ${j.min}…${j.max}${j.slide ? 'mm' : '°'}` },
-                  h('span', { style: S.poseName }, j.label),
-                  h('input', {
-                    type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
-                    style: S.poseRange,
-                    'aria-label': j.label,
-                    onChange: (e) => {
-                      const v = Number(e.target.value)
-                      setPose((p) => p.map((x, k) => (k === i ? v : x)))
-                    },
-                  }),
-                  h('span', { style: S.poseVal }, `${Math.round(pose[i] || 0)}${j.slide ? 'mm' : '°'}`)))),
+                .map(([j, i]) => {
+                  // the slider commands a target; the number shows where the
+                  // joint actually IS — they differ while the servo slews or
+                  // stalls, which is exactly the feedback that teaches torque
+                  const simSt = simRef.current && simRef.current.state
+                  const loadRatio = simSt && simSt.stallNm[i] ? simSt.loadNm[i] / simSt.stallNm[i] : 0
+                  const stalled = !!(simSt && simSt.stalled[i])
+                  return h('label', { key: j.id, style: S.poseRow, title: `${j.label} · ${j.min}…${j.max}${j.slide ? 'mm' : '°'}` },
+                    h('span', { style: S.poseName }, j.label),
+                    h('input', {
+                      type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
+                      style: S.poseRange,
+                      'aria-label': j.label,
+                      onChange: (e) => {
+                        const v = Number(e.target.value)
+                        setPose((p) => p.map((x, k) => (k === i ? v : x)))
+                      },
+                    }),
+                    h('span', {
+                      style: { ...S.poseVal, color: stalled ? C.red : loadRatio > 0.7 ? C.amber : undefined },
+                    }, stalled ? 'STALL' : `${Math.round(dispPose[i] || 0)}${j.slide ? 'mm' : '°'}${loadRatio > 0.55 ? ` ·${Math.round(loadRatio * 100)}%` : ''}`))
+                })),
               poseOverflows ? h('div', { style: S.poseFade }) : null)
             : h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, padding: '8px 0' } },
               'no articulated joints — static assembly')),
