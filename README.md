@@ -16,8 +16,9 @@ a complete machine from one brief:
 | firmware | Arduino skeleton generated from the same pin map — homing, encoders, gait loops |
 | manufacturing | BOM with prices + SKUs, mass, print grams/**hours per part**, **bed-aware part splitting**, per-part STL pack (zip), **3MF slicer file**, OpenSCAD, assembly order |
 | boards | a controller board you can design: placements, per-part solder verdicts, and a **board pack** (BOM + centroid/CPL + spec) for a fab or assembly house |
-| test bench | **field-test before you print**: drive dynamics (traction, grade, payload, shove), legged gait on real courses, IK reach with weighted props, grip hold tests, sensor stimulus, endurance power — plus a **statics bench** (CoM, support polygon, tip-over, torque vs stall) |
-| certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand — scored pass/fail with real numbers, kept as per-machine history |
+| test bench | **field-test before you print**: drive dynamics (traction, grade, payload, shove), legged gait on real courses, IK reach with weighted props, grip hold tests, sensor stimulus, endurance power — plus a **statics bench** (CoM, support polygon, tip-over, torque vs stall), a touch joystick, and a **SWEEP** that exercises every joint limit at real servo speed |
+| servo harness | per-joint wire runs measured pivot→electrical home vs the BOM's stock leads — extensions auto-added to cost/BOM, stall-current voltage drop, and a live **CABLES** overlay coloured by verdict |
+| certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand, jaw hold — scored pass/fail with real numbers, kept as per-machine history with a score trend |
 | DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships — parts that would print on edge or need support say so |
 | trust | **show the working** on every headline number, and **before/after** on every change — recomputed, never remembered |
 | sharing | a design is a **build code**: `RF1-…`, ~200 characters, rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
