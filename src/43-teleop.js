@@ -61,11 +61,26 @@ function createArmTeleop(design) {
   const MOVE = 220 // mm/s at full deflection
   const ZONE = { x: 0.12, y: 0.12, z: 0.12 } // stick deadzone per axis
 
+  // Workspace bound for the REACH overlay: link lengths summed along the
+  // chain plus the tool offset is the triangle-inequality outer bound —
+  // every reachable tip point sits inside the sphere, none outside it.
+  const reachSphere = (() => {
+    const c = tipChain[0].pivot
+    const last = tipChain[tipChain.length - 1].pivot
+    let r = Math.hypot(tipNode.pos[0] - last[0], tipNode.pos[1] - last[1], tipNode.pos[2] - last[2])
+    for (let i = 0; i < tipChain.length - 1; i++) {
+      const a = tipChain[i].pivot, b = tipChain[i + 1].pivot
+      r += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    }
+    return { c: [c[0], c[1], c[2]], r: Math.round(r) }
+  })()
+
   return {
     kind: 'ik',
     state,
     design,          // read-only: autotest poses a clone for torque checks
     distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
+    reachSphere,     // {c,r} mm — outer bound of the arm's workspace
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).
      * Returns desired joint angles (deg, design.joints order) or null.
