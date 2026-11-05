@@ -501,6 +501,14 @@ function Studio() {
     }],
   ]
 
+  const shownJoints = design.joints.filter((j) => jointGroup === 'all' || (jointGroup === 'body'
+    ? j.id.startsWith('waist') || j.id.startsWith('neck')
+    : j.id.startsWith(`${jointGroup}-`)))
+  const poseOverflows = shownJoints.length > 9
+
+  const canMirror = design.joints.some((j) => j.id.startsWith('r-')
+    && design.joints.some((k) => k.id === `l-${j.id.slice(2)}`))
+
   // Everything the palette can reach. Built from the same lists the UI renders,
   // so a new archetype or export shows up here without a second edit.
   const commands = useMemo(() => {
@@ -798,52 +806,64 @@ function Studio() {
           h('div', { style: S.viewSep }),
           h('span', { style: S.viewHint }, 'drag to orbit · scroll to zoom')),
         h('div', { style: S.jointBar },
-          // 23 joints do not fit in one row: a group filter beats a scrollbar
-          // nobody notices, and it is how you actually pose a humanoid.
-          design.joints.length > 6
-            ? h('div', {
-              style: {
-                display: 'flex', flexDirection: 'column', gap: '4px', flex: '0 0 auto',
-                paddingRight: '10px', marginRight: '4px', borderRight: `1px solid ${C.line}`,
-              },
-            },
-              h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', color: C.faint } },
-                `${design.joints.length} JOINTS`),
-              h('div', { style: { display: 'flex', gap: '3px' } },
+          // A pose rack, not a spreadsheet: fixed controls on the left, and the
+          // joints themselves in a wrapped grid so 23 of them occupy two rows
+          // instead of one endless strip.
+          h('div', { style: S.poseHead },
+            h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.12em', color: C.faint } },
+              design.joints.length ? `${shownJoints.length} JOINTS` : 'NO JOINTS',
+              poseOverflows ? h('span', { style: { color: C.accent } }, ' · scroll') : null),
+            design.joints.length > 6
+              ? h('div', { style: { display: 'flex', gap: '3px', marginTop: '5px' } },
                 [['all', 'ALL'], ['body', 'TORSO'], ['l', 'LEFT'], ['r', 'RIGHT']].map(([id, label]) => h('button', {
                   key: id,
-                  style: { ...(jointGroup === id ? S.toolOn : S.tool), width: 'auto', padding: '3px 7px' },
+                  style: { ...(jointGroup === id ? S.poseTabOn : S.poseTab) },
                   onClick: () => setJointGroup(id),
-                }, label)),
-              jointGroup === 'all'
-                ? h('span', { style: { fontFamily: C.mono, fontSize: '8px', color: C.faint, letterSpacing: '0.06em' } }, 'scroll →')
-                : null))
-            : null,
+                }, label)))
+              : null,
+            h('div', { style: { display: 'flex', gap: '5px', marginTop: '6px' } },
+              h('button', { style: S.poseTab, title: 'every joint back to zero', onClick: () => setPose(design.joints.map(() => 0)) }, 'HOME'),
+              h('button', {
+                style: S.poseTab,
+                title: 'a quick working pose',
+                onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
+              }, 'POSE'),
+              canMirror
+                ? h('button', {
+                  style: S.poseTab,
+                  title: 'copy every left-side joint onto its right twin',
+                  onClick: () => setPose((p) => p.map((v, i) => {
+                    const id = design.joints[i].id
+                    if (!id.startsWith('r-')) return v
+                    const li = design.joints.findIndex((j) => j.id === `l-${id.slice(2)}`)
+                    return li >= 0 ? p[li] : v
+                  })),
+                }, 'MIRROR')
+                : null)),
+
           design.joints.length
-            ? design.joints.map((j, i) => [j, i])
-              .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
-                ? j.id.startsWith('waist') || j.id.startsWith('neck')
-                : j.id.startsWith(`${jointGroup}-`)))
-              .map(([j, i]) => h('div', { key: j.id, style: S.joint },
-              h('div', { style: S.jointTop },
-                h('span', {}, j.label.toUpperCase().slice(0, 14)),
-                h('span', { style: { color: C.accent } }, `${Math.round(pose[i] || 0)}${j.slide ? 'mm' : '°'}`)),
-              h('input', {
-                type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
-                style: { ...S.range, height: '14px' },
-                onChange: (e) => {
-                  const v = Number(e.target.value)
-                  setPose((p) => p.map((x, k) => (k === i ? v : x)))
-                },
-              })))
+            ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
+              h('div', { style: S.poseGrid },
+              design.joints.map((j, i) => [j, i])
+                .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
+                  ? j.id.startsWith('waist') || j.id.startsWith('neck')
+                  : j.id.startsWith(`${jointGroup}-`)))
+                .map(([j, i]) => h('label', { key: j.id, style: S.poseRow, title: `${j.label} · ${j.min}…${j.max}${j.slide ? 'mm' : '°'}` },
+                  h('span', { style: S.poseName }, j.label),
+                  h('input', {
+                    type: 'range', min: j.min, max: j.max, step: 1, value: pose[i] || 0,
+                    style: S.poseRange,
+                    'aria-label': j.label,
+                    onChange: (e) => {
+                      const v = Number(e.target.value)
+                      setPose((p) => p.map((x, k) => (k === i ? v : x)))
+                    },
+                  }),
+                  h('span', { style: S.poseVal }, `${Math.round(pose[i] || 0)}${j.slide ? 'mm' : '°'}`)))),
+              poseOverflows ? h('div', { style: S.poseFade }) : null)
             : h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint, padding: '8px 0' } },
-              'no articulated joints — static assembly'),
-          h('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
-            h('button', { style: S.tool, onClick: () => setPose(design.joints.map(() => 0)) }, 'HOME'),
-            h('button', {
-              style: S.tool,
-              onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
-            }, 'POSE')))),
+              'no articulated joints — static assembly')),
+      ),
 
       // right rail: the spec
       h('div', { style: S.col, 'data-rf': 'spec' },

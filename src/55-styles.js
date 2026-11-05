@@ -278,6 +278,39 @@ const S = {
     alignItems: 'flex-end', flex: '0 0 auto',
   },
   joint: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '124px', flex: '1 1 124px', maxWidth: '196px' },
+  poseHead: {
+    display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: '0 0 auto',
+    paddingRight: '14px', marginRight: '2px', borderRight: `1px solid ${C.line}`,
+  },
+  poseTab: {
+    padding: '3px 8px', borderRadius: '5px', border: `1px solid ${C.line}`, background: 'transparent',
+    color: C.faint, fontSize: '9px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
+    transition: 'color 120ms ease, border-color 120ms ease',
+  },
+  poseTabOn: {
+    padding: '3px 8px', borderRadius: '5px', border: '1px solid rgba(255,106,26,0.5)',
+    background: 'rgba(255,106,26,0.14)', color: C.accent, fontSize: '9px', fontFamily: C.mono,
+    letterSpacing: '0.08em', cursor: 'pointer', fontWeight: 600,
+  },
+  poseGrid: {
+    flex: '1 1 auto', minWidth: 0, display: 'grid', gap: '6px 18px',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))',
+    maxHeight: '78px', overflowY: 'auto', alignContent: 'start',
+  },
+  poseRow: { display: 'grid', gridTemplateColumns: '1fr 84px 40px', alignItems: 'center', gap: '8px', minWidth: 0 },
+  poseName: {
+    fontSize: '10.5px', color: C.dim, whiteSpace: 'nowrap', overflow: 'hidden',
+    textOverflow: 'ellipsis', letterSpacing: '0.01em',
+  },
+  poseRange: { width: '100%', accentColor: C.accent, height: '14px' },
+  poseFade: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, height: '22px', pointerEvents: 'none',
+    background: `linear-gradient(to top, ${C.panel}, rgba(13,18,23,0))`,
+  },
+  poseVal: {
+    fontFamily: C.mono, fontSize: '10px', color: C.accent, textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
+  },
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
 
   // ── spec rail ───────────────────────────────────────────────────────────
