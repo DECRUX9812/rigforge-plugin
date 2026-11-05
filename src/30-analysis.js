@@ -293,9 +293,12 @@ function analyze(design) {
   }
   const fit = printFit(design, design.brief && design.brief.bedMm)
   if (fit.count && fit.worst && !fit.worst.fits) {
+    // A part that does not fit cannot be printed, so this is a failure, not a
+    // note. Load-bearing links are deliberately not auto-split: gluing a
+    // cantilever is worse engineering than telling the user to use a bigger bed.
     checks.push({
-      level: 'warn',
-      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Split it, or set your bed size under MORE OPTIONS.`,
+      level: 'fail',
+      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Print this machine on a ${Math.ceil((fit.worst.largest + 16) / 10) * 10}mm bed or larger, or redesign that part as a two-piece bolted joint.`,
     })
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })

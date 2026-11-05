@@ -1,0 +1,45 @@
+// Truth harness — every headline claim the product makes, probed against the
+// code that produces it. Run with `node tests/truth.mjs`; exits non-zero on any
+// failure, so a lie cannot ship quietly.
+//
+// The rule this file enforces: a claim is only a claim if something recomputes
+// it independently of the function that displayed it.
+import { readdirSync, readFileSync } from 'node:fs'
+import vm from 'node:vm'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const srcDir = join(here, '..', 'src')
+
+/** Load src/*.js the way build.mjs concatenates it, then export what we probe. */
+export function loadEngine() {
+  const code = readdirSync(srcDir)
+    .filter((f) => f.endsWith('.js'))
+    .sort()
+    .map((f) => readFileSync(join(srcDir, f), 'utf8'))
+    .join('\n')
+    .replace(/^import[^\n]*\n/gm, '')
+    .replace(/^export default /m, 'globalThis.plugin = ')
+  const ctx = {
+    console,
+    TextEncoder,
+    TextDecoder,
+    btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+    atob: (s) => Buffer.from(s, 'base64').toString('binary'),
+    jsx: () => null,
+    jsxs: () => null,
+    host: {},
+    useRef: () => null,
+    useMemo: (f) => f(),
+    useEffect: () => null,
+    useState: (v) => [v, () => null],
+    useCallback: (f) => f,
+  }
+  vm.createContext(ctx)
+  vm.runInContext(
+    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit };',
+    ctx,
+  )
+  return ctx.API
+}

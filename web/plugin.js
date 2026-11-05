@@ -2911,9 +2911,12 @@ function analyze(design) {
   }
   const fit = printFit(design, design.brief && design.brief.bedMm)
   if (fit.count && fit.worst && !fit.worst.fits) {
+    // A part that does not fit cannot be printed, so this is a failure, not a
+    // note. Load-bearing links are deliberately not auto-split: gluing a
+    // cantilever is worse engineering than telling the user to use a bigger bed.
     checks.push({
-      level: 'warn',
-      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Split it, or set your bed size under MORE OPTIONS.`,
+      level: 'fail',
+      msg: `The ${fit.worst.name} is ${fit.worst.largest}mm on its longest side — ${fit.worst.over}mm too big for a ${fit.bed}mm bed. Print this machine on a ${Math.ceil((fit.worst.largest + 16) / 10) * 10}mm bed or larger, or redesign that part as a two-piece bolted joint.`,
     })
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
@@ -4143,10 +4146,15 @@ function b64uDecode(s) {
 }
 
 function encodeBuild(brief) {
+  // A whitelist here was lossy: a key the list forgot came back defaulted and
+  // the recipient got a different machine. Encode everything that is in the
+  // brief; it is a few hundred bytes either way.
   const slim = {}
-  for (const k of BRIEF_KEYS) {
-    const v = brief && brief[k]
-    if (v !== undefined && v !== null && v !== '') slim[k] = v
+  for (const k of Object.keys(brief || {})) {
+    const v = brief[k]
+    if (typeof v === 'function' || v === undefined || v === null) continue
+    if (v === '') continue
+    slim[k] = v
   }
   return `${RF_CODE}-${b64uEncode(JSON.stringify(slim))}`
 }

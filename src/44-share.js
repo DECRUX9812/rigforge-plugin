@@ -21,10 +21,15 @@ function b64uDecode(s) {
 }
 
 function encodeBuild(brief) {
+  // A whitelist here was lossy: a key the list forgot came back defaulted and
+  // the recipient got a different machine. Encode everything that is in the
+  // brief; it is a few hundred bytes either way.
   const slim = {}
-  for (const k of BRIEF_KEYS) {
-    const v = brief && brief[k]
-    if (v !== undefined && v !== null && v !== '') slim[k] = v
+  for (const k of Object.keys(brief || {})) {
+    const v = brief[k]
+    if (typeof v === 'function' || v === undefined || v === null) continue
+    if (v === '') continue
+    slim[k] = v
   }
   return `${RF_CODE}-${b64uEncode(JSON.stringify(slim))}`
 }
