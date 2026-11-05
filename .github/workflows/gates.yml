@@ -51,7 +51,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: put chrome where the tests look for it
         run: |
-          CHROME=$(find "$HOME/.cache/ms-playwright" -path '*chrome-linux/chrome' | head -1)
+          # playwright names the directory chrome-linux64 on current runners,
+          # chrome-linux on older ones — match the binary, not the directory
+          CHROME=$(find "$HOME/.cache/ms-playwright" -maxdepth 3 -type f -name chrome -path '*chromium-*' | head -1)
           if [ -z "$CHROME" ]; then
             echo "::error::no chromium binary in the playwright cache"
             find "$HOME/.cache/ms-playwright" -maxdepth 2 -type d
