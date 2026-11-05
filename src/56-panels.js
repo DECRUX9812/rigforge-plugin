@@ -263,7 +263,7 @@ function TabPrint({ design, analysis }) {
     h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.6 } },
       `Material: ${analysis.print.material.name}. 3 walls, 25% gyroid, 0.2mm layers. ` +
       `Orient load-bearing links so the layers run ALONG the load — a printed cantilever fails at the layer line, not at the design stress. ` +
-      `Parts longer than your bed are split automatically with joiner plates — check the STEPS tab for which seams to glue. Heat-set inserts beat printed threads every time.`),
+      `Parts longer than your bed are split automatically with joiner plates — the notes say which seams to glue. Every STL in the pack is laid flat, centred and sitting on Z=0, so a slicer opens it ready to slice. Heat-set inserts beat printed threads every time.`),
     h('div', { style: { marginTop: '10px' } },
       h('button', {
         style: { ...S.btn, height: '28px' },

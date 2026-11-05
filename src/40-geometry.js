@@ -90,14 +90,31 @@ function slideDisp(design, node) {
 /** Axis-aligned box corners → 12 tris. */
 function boxTris(sx, sy, sz) {
   const corner = (i) => [(i & 1 ? sx : -sx), (i & 2 ? sy : -sy), (i & 4 ? sz : -sz)]
+  // every face declares the way it faces, and the winding is checked against it:
+  // a cube with half its faces wound inward exports an STL that slicers have to
+  // repair, and "repair the mesh" is not something a buyer should have to do.
   const faces = [
-    [0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4],
-    [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5],
+    { idx: [0, 1, 3, 2], n: [0, 0, -1] },
+    { idx: [4, 6, 7, 5], n: [0, 0, 1] },
+    { idx: [0, 4, 5, 1], n: [0, -1, 0] },
+    { idx: [2, 3, 7, 6], n: [0, 1, 0] },
+    { idx: [0, 2, 6, 4], n: [-1, 0, 0] },
+    { idx: [1, 5, 7, 3], n: [1, 0, 0] },
   ]
+  const faceNormal = (a, b, c) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+  }
   const tris = []
   for (const f of faces) {
-    tris.push([corner(f[0]), corner(f[1]), corner(f[2])])
-    tris.push([corner(f[0]), corner(f[2]), corner(f[3])])
+    const v = f.idx.map(corner)
+    const quad = [[v[0], v[1], v[2]], [v[0], v[2], v[3]]]
+    for (const t of quad) {
+      const n = faceNormal(t[0], t[1], t[2])
+      const dot = n[0] * f.n[0] + n[1] * f.n[1] + n[2] * f.n[2]
+      tris.push(dot < 0 ? [t[0], t[2], t[1]] : t)
+    }
   }
   return tris
 }
@@ -433,12 +450,76 @@ function toSTL(tris, headerText) {
 }
 
 /** One STL per printed node — the print pack, in rest pose as it leaves the bed. */
+/**
+ * A part leaves the studio the way a slicer wants it: largest face down, centred
+ * on the bed, sitting on Z=0. Axis-aligned permutation only — no arbitrary
+ * rotations, because a wrong "clever" angle is worse than the model's own frame.
+ */
+function printReadyTris(tris) {
+  if (!tris.length) return tris
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const t of tris) {
+    for (const p of t.pts) {
+      for (let i = 0; i < 3; i += 1) {
+        if (p[i] < min[i]) min[i] = p[i]
+        if (p[i] > max[i]) max[i] = p[i]
+      }
+    }
+  }
+  const dims = [max[0] - min[0], max[1] - min[1], max[2] - min[2]]
+  // biggest two dims into XY, thinnest into Z: that is "largest face down"
+  const order = [0, 1, 2].sort((a, b) => dims[b] - dims[a])
+  const perm = order // perm[0] -> X, perm[1] -> Y, perm[2] -> Z
+  // a coordinate permutation with odd parity mirrors the solid, which would
+  // turn every normal inward — flip two corners to compensate
+  let inversions = 0
+  for (let i = 0; i < 3; i += 1) for (let j = i + 1; j < 3; j += 1) if (perm[i] > perm[j]) inversions += 1
+  const mirrored = inversions % 2 === 1
+  const sizeX = dims[perm[0]]
+  const sizeY = dims[perm[1]]
+  return tris.map((t) => {
+    const pts = t.pts.map((p) => [
+      p[perm[0]] - min[perm[0]] - sizeX / 2,
+      p[perm[1]] - min[perm[1]] - sizeY / 2,
+      p[perm[2]] - min[perm[2]],
+    ])
+    // a coordinate swap mirrors the solid; flip two corners to keep normals out
+    return { ...t, pts: mirrored ? [pts[0], pts[2], pts[1]] : pts }
+  })
+}
+
+// Convex primitives: every face's normal must point away from the part's own
+// centre. Rings, gears and tubes are not convex (their inner wall faces inward
+// on purpose), so they are left exactly as generated.
+const CONVEX_KINDS = new Set(['box', 'rbox', 'cyl', 'cone', 'sphere', 'wedge'])
+
+function orientConvex(tris) {
+  if (!tris.length) return tris
+  const min = [Infinity, Infinity, Infinity]
+  const max = [-Infinity, -Infinity, -Infinity]
+  for (const t of tris) for (const p of t.pts) for (let i = 0; i < 3; i += 1) {
+    if (p[i] < min[i]) min[i] = p[i]
+    if (p[i] > max[i]) max[i] = p[i]
+  }
+  const c = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]
+  return tris.map((t) => {
+    const [a, b, d] = t.pts
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const e2 = [d[0] - a[0], d[1] - a[1], d[2] - a[2]]
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const m = [(a[0] + b[0] + d[0]) / 3 - c[0], (a[1] + b[1] + d[1]) / 3 - c[1], (a[2] + b[2] + d[2]) / 3 - c[2]]
+    return n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < 0 ? { ...t, pts: [t.pts[0], t.pts[2], t.pts[1]] } : t
+  })
+}
+
 function printedPartSTLs(design) {
   const out = []
   for (const node of design.nodes) {
     if (!node.print) continue
-    const tris = nodeTriangles({ ...design, joints: [] }, node, null, null)
-    out.push({ name: `${slug(node.id)}.stl`, buf: toSTL(tris, `rigforge printed part ${node.id}`) })
+    let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    if (CONVEX_KINDS.has(node.kind)) raw = orientConvex(raw)
+    out.push({ name: `${slug(node.id)}.stl`, buf: toSTL(printReadyTris(raw), `rigforge printed part ${node.id}`) })
   }
   return out
 }

@@ -357,7 +357,7 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
         h('div', { style: { fontFamily: C.mono, fontSize: '11.5px', color: C.dim, lineHeight: 1.6, marginBottom: '16px' } },
           `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
           h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
-            'One file per part, already oriented and bed-checked.'))),
+            'One file per part: laid flat, centred on the bed, sitting on Z=0.'))),
     h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
