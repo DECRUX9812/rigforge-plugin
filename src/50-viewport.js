@@ -969,6 +969,7 @@ function scaleOf(dims) {
 function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   const ref = useRef(null)
   const glRef = useRef(null)
+  const paintRef = useRef(null)
   const fallback = useRef(false)
   const target = useMemo(() => {
     if (!mesh.length) return [0, 0, 120]
@@ -985,6 +986,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
     const cv = ref.current
     if (!cv) return undefined
     let raf = 0
+    paintRef.current = null
     // GPU first: WebGL2 gives a shadow map, per-pixel roughness and MSAA, which
     // is the difference between a CAD preview and a product photograph. The 2D
     // canvas path stays as the fallback for a context the plugin cannot get.
@@ -1037,6 +1039,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint)
     }
+    paintRef.current = schedule
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -1045,6 +1048,35 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       if (raf) cancelAnimationFrame(raf)
     }
   }, [mesh, cam, target, opts])
+
+  // Occlusion is baked on idle, ~350 ms after the last change: the ray cast costs
+  // a few hundred milliseconds on a real mesh, and dragging a joint has to stay
+  // at frame rate. Until it lands the view is simply unoccluded.
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv || !mesh.length) return undefined
+    let cancelled = false
+    const run = () => {
+      if (cancelled) return
+      const gl = glRef.current
+      if (!gl || !gl.ok) return
+      const data = bakeVertexAO(mesh)
+      if (!data) return
+      gl.setAO(mesh, data)
+      let mn = 1, mx = 0, sum = 0
+      for (let i = 0; i < data.length; i += 1) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v }
+      globalThis.__rfAOStats = { n: data.length, min: +mn.toFixed(2), max: +mx.toFixed(2), mean: +(sum / data.length).toFixed(2) }
+      paintRef.current?.()
+    }
+    const timer = setTimeout(() => {
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 800 })
+      else run()
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [mesh])
 
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)

@@ -554,6 +554,36 @@ check('unmatched briefs warn instead of building silently; load-carrying prose l
   return '6 briefs classified, and every unmatched one is told to the user'
 })
 
+// ── 31. baked occlusion is real occlusion ──────────────────────────────────
+check('baked AO: an enclosed corner is darker than open sky, and the bake is deterministic', () => {
+  const quad = (a, b, c, d, mat) => [
+    { pts: [a, b, c], mat }, { pts: [a, c, d], mat },
+  ]
+  // an open plane, sitting in the air
+  const open = quad([0, 0, 0], [40, 0, 0], [40, 40, 0], [0, 40, 0], 'shell')
+  // a crevice: a 4 mm slot between two plates, which is what a servo sitting on
+  // a plate actually looks like from the plate's point of view
+  const corner = [
+    ...quad([0, 0, 0], [40, 0, 0], [40, 40, 0], [0, 40, 0], 'shell'),
+    ...quad([0, 40, 4], [40, 40, 4], [40, 0, 4], [0, 0, 4], 'shell'),
+  ]
+  const aoOpen = A.bakeVertexAO(open, { maxDist: 7 })
+  const aoCorner = A.bakeVertexAO(corner, { maxDist: 7 })
+  const mean = (a) => Array.from(a).reduce((s, v) => s + v, 0) / a.length
+  const mOpen = mean(aoOpen)
+  const mCorner = mean(aoCorner)
+  assert(mOpen > 0.9, `an open plane should see the sky, got ${mOpen.toFixed(2)}`)
+  assert(mCorner < mOpen - 0.08, `the corner must be darker than the open plane (${mCorner.toFixed(2)} vs ${mOpen.toFixed(2)})`)
+  for (const v of aoOpen) assert(v >= 0 && v <= 1, 'AO outside 0..1')
+  // deterministic: bake again on the same mesh object uses the cache, a fresh
+  // copy must produce identical values
+  const again = A.bakeVertexAO(corner.map((t) => ({ ...t, pts: t.pts.map((p) => p.slice()) })), { maxDist: 7 })
+  for (let i = 0; i < aoCorner.length; i += 1) {
+    assert(Math.abs(aoCorner[i] - again[i]) < 1e-6, 'bake is not deterministic')
+  }
+  return `open ${mOpen.toFixed(2)} vs crevice ${mCorner.toFixed(2)}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

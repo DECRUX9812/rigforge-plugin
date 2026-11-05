@@ -15,7 +15,8 @@ precision highp float;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in vec4 aMat;   // albedo rgb + glow
-layout(location=3) in vec3 aSurf;  // roughness, metalness, unused
+layout(location=3) in vec3 aSurf;  // roughness, metalness, printed flag
+layout(location=4) in float aAO;   // baked vertex occlusion, 1 = open sky
 
 uniform mat4 uViewProj;
 uniform mat4 uLightViewProj;
@@ -25,6 +26,7 @@ out vec3 vWorld;
 out vec3 vNormal;
 out vec4 vMat;
 out vec3 vSurf;
+out float vAO;
 out vec4 vLightPos;
 
 void main() {
@@ -33,6 +35,7 @@ void main() {
   vNormal = aNormal;
   vMat = aMat;
   vSurf = aSurf;
+  vAO = aAO;
   vLightPos = uLightViewProj * vec4(p, 1.0);
   gl_Position = uViewProj * vec4(p, 1.0);
 }`
@@ -44,6 +47,7 @@ in vec3 vWorld;
 in vec3 vNormal;
 in vec4 vMat;
 in vec3 vSurf;
+in float vAO;
 in vec4 vLightPos;
 
 uniform vec3 uEye;
@@ -223,7 +227,8 @@ void main() {
   float underside = clamp(-n.z * 0.5 + 0.5, 0.0, 1.0);
   vec3 bounce = uGroundColor * albedo * underside * 1.4;
 
-  vec3 color = diffuse + ambient + specular + reflection + bounce + albedo * glow;
+  float occ = mix(1.0, clamp(vAO, 0.0, 1.0), 0.8);
+  vec3 color = diffuse * (0.42 + 0.58 * occ) + ambient * occ + specular + reflection + bounce + albedo * glow;
   color = aces(color * 1.0);
   fragColor = vec4(toSRGB(color), 1.0);
 }`
@@ -592,6 +597,8 @@ function createGLRenderer(canvas) {
 
   const uni = (p, name) => gl.getUniformLocation(p, name)
   let lastFrame = null
+  let aoMesh = null
+  let aoData = null
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -611,8 +618,17 @@ function createGLRenderer(canvas) {
   }
 
   function uploadMesh(mesh, matOf, centre) {
+    // occlusion arrives asynchronously: the bake is ~0.4 s on a real mesh, so it
+    // runs on idle after the user stops dragging, and the frame simply draws
+    // unoccluded until it lands
+    const aoAttr = aoMesh === mesh ? aoData : null
+    if (aoAttr && !globalThis.__rfAOStats) {
+      let mn = 1, mx = 0, sum = 0
+      for (let i = 0; i < aoAttr.length; i += 1) { const v = aoAttr[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v }
+      globalThis.__rfAOStats = { n: aoAttr.length, min: +mn.toFixed(3), max: +mx.toFixed(3), mean: +(sum / aoAttr.length).toFixed(3) }
+    }
     const tri = mesh.length
-    const stride = 3 + 3 + 4 + 3
+    const stride = 3 + 3 + 4 + 3 + 1
     const data = new Float32Array(tri * 3 * stride)
     // Which way do the faces point? Meshes arrive from several generators, so
     // the winding is not guaranteed; measure it against the model centre once
@@ -638,11 +654,14 @@ function createGLRenderer(canvas) {
       const n = [raw[0] * flip, raw[1] * flip, raw[2] * flip]
       const m = matParams(matOf(t))
       seen.add(m.alb.map((c) => c.toFixed(2)).join(','))
-      for (const p of [a, b, c]) {
+      const corners = [a, b, c]
+      for (let cornerIndex = 0; cornerIndex < 3; cornerIndex += 1) {
+        const p = corners[cornerIndex]
         data[o++] = p[0]; data[o++] = p[1]; data[o++] = p[2]
         data[o++] = n[0]; data[o++] = n[1]; data[o++] = n[2]
         data[o++] = m.alb[0]; data[o++] = m.alb[1]; data[o++] = m.alb[2]; data[o++] = m.glow
         data[o++] = m.rough; data[o++] = m.metal; data[o++] = m.printed ? 1 : 0
+        data[o++] = aoAttr ? aoAttr[i * 3 + cornerIndex] : 1
       }
     }
     gl.bindVertexArray(vao)
@@ -653,6 +672,7 @@ function createGLRenderer(canvas) {
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, strideBytes, 12)
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, strideBytes, 24)
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, strideBytes, 40)
+    gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, strideBytes, 52)
     uniqueAlbedos = seen.size
     return tri * 3
   }
@@ -906,6 +926,8 @@ function createGLRenderer(canvas) {
       }
       return best
     },
+    /** Hand the renderer a finished bake for a specific mesh. */
+    setAO(mesh, data) { aoMesh = mesh; aoData = data },
     dispose() {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)

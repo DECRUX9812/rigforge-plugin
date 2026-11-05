@@ -4936,6 +4936,200 @@ function xmlEscape(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// ── baked vertex ambient occlusion ─────────────────────────────────────────
+// A screen-space AO pass could not be made to work on these meshes (both the
+// view-space and the depth-only variants came out uniformly wrong, see PR #1),
+// but occlusion does not have to be screen-space: the mesh is only a few
+// thousand triangles and it is static per build, so cast the rays once, on the
+// CPU, and store the answer per vertex. That is deterministic, testable in
+// node, costs nothing per frame, and needs no extra render target.
+//
+// Model: cosine-weighted hemisphere sampling around the vertex normal, rays
+// against a median-split BVH. A vertex inside a crevice sees mostly its own
+// neighbours and comes out dark; a vertex on the outside of a box sees sky.
+
+const AO_RAY_COUNT = 8
+const AO_CACHE = new WeakMap()
+
+/** Cosine-weighted directions on the +Z hemisphere, deterministic and evenly spread. */
+function aoDirections(n) {
+  const out = []
+  const golden = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < n; i += 1) {
+    const t = (i + 0.5) / n
+    const r = Math.sqrt(t)
+    const phi = i * golden
+    out.push([r * Math.cos(phi), r * Math.sin(phi), Math.sqrt(Math.max(0, 1 - t))])
+  }
+  return out
+}
+const AO_DIRS = aoDirections(AO_RAY_COUNT)
+
+/** Orthonormal basis around n, so the hemisphere can be rotated to the vertex. */
+function basisFor(n) {
+  const up = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+  const t = norm(cross(up, n))
+  const b = cross(n, t)
+  return [t, b, n]
+}
+
+/** Median-split BVH over triangle centroids. Flat arrays, no allocation per ray. */
+function buildBVH(tris) {
+  const idx = tris.map((_, i) => i)
+  const centroid = tris.map((t) => [
+    (t.pts[0][0] + t.pts[1][0] + t.pts[2][0]) / 3,
+    (t.pts[0][1] + t.pts[1][1] + t.pts[2][1]) / 3,
+    (t.pts[0][2] + t.pts[1][2] + t.pts[2][2]) / 3,
+  ])
+  const nodes = []
+
+  const build = (list, depth) => {
+    const min = [Infinity, Infinity, Infinity]
+    const max = [-Infinity, -Infinity, -Infinity]
+    for (const i of list) {
+      for (const p of tris[i].pts) {
+        for (let a = 0; a < 3; a += 1) {
+          if (p[a] < min[a]) min[a] = p[a]
+          if (p[a] > max[a]) max[a] = p[a]
+        }
+      }
+    }
+    const node = { min, max, kids: null, tris: null }
+    const at = nodes.push(node) - 1
+    if (list.length <= 6 || depth > 22) {
+      node.tris = list
+      return at
+    }
+    const axis = (max[0] - min[0]) > (max[1] - min[1])
+      ? ((max[0] - min[0]) > (max[2] - min[2]) ? 0 : 2)
+      : ((max[1] - min[1]) > (max[2] - min[2]) ? 1 : 2)
+    list.sort((a, b) => centroid[a][axis] - centroid[b][axis])
+    const mid = list.length >> 1
+    node.kids = [build(list.slice(0, mid), depth + 1), build(list.slice(mid), depth + 1)]
+    return at
+  }
+  build(idx, 0)
+  return { nodes, root: 0 }
+}
+
+function rayHitsBox(o, d, min, max) {
+  let t0 = 0
+  let t1 = Infinity
+  for (let a = 0; a < 3; a += 1) {
+    if (Math.abs(d[a]) < 1e-9) {
+      if (o[a] < min[a] || o[a] > max[a]) return false
+      continue
+    }
+    const inv = 1 / d[a]
+    let near = (min[a] - o[a]) * inv
+    let far = (max[a] - o[a]) * inv
+    if (near > far) { const t = near; near = far; far = t }
+    if (near > t0) t0 = near
+    if (far < t1) t1 = far
+    if (t0 > t1) return false
+  }
+  return true
+}
+
+/** Möller–Trumbore, with a small epsilon so a vertex never occludes itself. */
+function rayHitsTri(o, d, tri, eps, far) {
+  const [a, b, c] = tri.pts
+  const e1 = sub(b, a)
+  const e2 = sub(c, a)
+  const pv = cross(d, e2)
+  const det = dot(e1, pv)
+  if (Math.abs(det) < 1e-9) return false
+  const inv = 1 / det
+  const tv = sub(o, a)
+  const u = dot(tv, pv) * inv
+  if (u < 0 || u > 1) return false
+  const qv = cross(tv, e1)
+  const v = dot(d, qv) * inv
+  if (v < 0 || u + v > 1) return false
+  const t = dot(e2, qv) * inv
+  // only nearby geometry occludes: a wall 200 mm away is not a crevice, and
+  // without this limit every vertex inside the machine reads as fully dark
+  return t > eps && t < far
+}
+
+/**
+ * Per-corner occlusion in 0..1 (1 = fully open). Length = mesh.length * 3, in the
+ * same corner order the renderer uploads, so no index remapping is needed.
+ */
+function bakeVertexAO(mesh, opts) {
+  if (!mesh || !mesh.length) return null
+  const cached = AO_CACHE.get(mesh)
+  if (cached) return cached
+  const o = opts || {}
+  const strength = o.strength != null ? o.strength : 0.8
+  const bias = o.bias != null ? o.bias : 0.35
+  const maxDist = o.maxDist != null ? o.maxDist : 7
+
+  const bvh = buildBVH(mesh)
+
+  // weld corners by position, and accumulate a face normal per vertex
+  const keyOf = (p) => `${Math.round(p[0] * 2)}|${Math.round(p[1] * 2)}|${Math.round(p[2] * 2)}`
+  const verts = new Map()
+  const cornerVert = new Array(mesh.length)
+  for (let i = 0; i < mesh.length; i += 1) {
+    const t = mesh[i]
+    const n = norm(cross(sub(t.pts[1], t.pts[0]), sub(t.pts[2], t.pts[0])))
+    cornerVert[i] = []
+    for (let c = 0; c < 3; c += 1) {
+      const p = t.pts[c]
+      const k = keyOf(p)
+      let v = verts.get(k)
+      if (!v) {
+        v = { p, n: [0, 0, 0], hits: 0 }
+        verts.set(k, v)
+      }
+      v.n[0] += n[0]; v.n[1] += n[1]; v.n[2] += n[2]
+      cornerVert[i][c] = v
+    }
+  }
+
+  const out = new Float32Array(mesh.length * 3)
+  const dirs = AO_DIRS
+  const stack = []
+  for (const v of verts.values()) {
+    const n = norm(v.n)
+    const [t1, t2] = basisFor(n)
+    const origin = [v.p[0] + n[0] * bias, v.p[1] + n[1] * bias, v.p[2] + n[2] * bias]
+    let open = 0
+    for (const d0 of dirs) {
+      const d = [
+        t1[0] * d0[0] + t2[0] * d0[1] + n[0] * d0[2],
+        t1[1] * d0[0] + t2[1] * d0[1] + n[1] * d0[2],
+        t1[2] * d0[0] + t2[2] * d0[1] + n[2] * d0[2],
+      ]
+      stack.length = 0
+      stack.push(bvh.root)
+      let blocked = false
+      while (stack.length) {
+        const node = bvh.nodes[stack.pop()]
+        if (!rayHitsBox(origin, d, node.min, node.max)) continue
+        if (node.tris) {
+          for (const ti of node.tris) {
+            if (rayHitsTri(origin, d, mesh[ti], bias * 0.5, maxDist)) { blocked = true; break }
+          }
+          if (blocked) break
+        } else {
+          stack.push(node.kids[0], node.kids[1])
+        }
+      }
+      if (!blocked) open += 1
+    }
+    // distance falloff is not modelled per ray (cheap), the hemisphere average is
+    v.ao = 1 - (1 - open / dirs.length) * strength
+  }
+
+  for (let i = 0; i < mesh.length; i += 1) {
+    for (let c = 0; c < 3; c += 1) out[i * 3 + c] = cornerVert[i][c].ao != null ? cornerVert[i][c].ao : 1
+  }
+  AO_CACHE.set(mesh, out)
+  return out
+}
+
 // ── joint dynamics: the machine physically tracks commands ──────────────────
 // Pose used to teleport: drag a slider, the joint jumped. Now every revolute
 // joint slews toward its target at the speed ITS servo can actually turn,
@@ -5723,7 +5917,6 @@ function fixSuggestions(s) {
   }
   return out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'fail' ? -1 : 1))
 }
-
 
 // ── grip bench: one test mass between the pads ──────────────────────────────
 // The gripper's bench piece: a 1kg test block fixtured at pad height on a
@@ -7011,6 +7204,7 @@ function scaleOf(dims) {
 function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
   const ref = useRef(null)
   const glRef = useRef(null)
+  const paintRef = useRef(null)
   const fallback = useRef(false)
   const target = useMemo(() => {
     if (!mesh.length) return [0, 0, 120]
@@ -7027,6 +7221,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
     const cv = ref.current
     if (!cv) return undefined
     let raf = 0
+    paintRef.current = null
     // GPU first: WebGL2 gives a shadow map, per-pixel roughness and MSAA, which
     // is the difference between a CAD preview and a product photograph. The 2D
     // canvas path stays as the fallback for a context the plugin cannot get.
@@ -7079,6 +7274,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint)
     }
+    paintRef.current = schedule
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -7087,6 +7283,35 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay }) {
       if (raf) cancelAnimationFrame(raf)
     }
   }, [mesh, cam, target, opts])
+
+  // Occlusion is baked on idle, ~350 ms after the last change: the ray cast costs
+  // a few hundred milliseconds on a real mesh, and dragging a joint has to stay
+  // at frame rate. Until it lands the view is simply unoccluded.
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv || !mesh.length) return undefined
+    let cancelled = false
+    const run = () => {
+      if (cancelled) return
+      const gl = glRef.current
+      if (!gl || !gl.ok) return
+      const data = bakeVertexAO(mesh)
+      if (!data) return
+      gl.setAO(mesh, data)
+      let mn = 1, mx = 0, sum = 0
+      for (let i = 0; i < data.length; i += 1) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v }
+      globalThis.__rfAOStats = { n: data.length, min: +mn.toFixed(2), max: +mx.toFixed(2), mean: +(sum / data.length).toFixed(2) }
+      paintRef.current?.()
+    }
+    const timer = setTimeout(() => {
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 800 })
+      else run()
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [mesh])
 
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)
@@ -7215,7 +7440,8 @@ precision highp float;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in vec4 aMat;   // albedo rgb + glow
-layout(location=3) in vec3 aSurf;  // roughness, metalness, unused
+layout(location=3) in vec3 aSurf;  // roughness, metalness, printed flag
+layout(location=4) in float aAO;   // baked vertex occlusion, 1 = open sky
 
 uniform mat4 uViewProj;
 uniform mat4 uLightViewProj;
@@ -7225,6 +7451,7 @@ out vec3 vWorld;
 out vec3 vNormal;
 out vec4 vMat;
 out vec3 vSurf;
+out float vAO;
 out vec4 vLightPos;
 
 void main() {
@@ -7233,6 +7460,7 @@ void main() {
   vNormal = aNormal;
   vMat = aMat;
   vSurf = aSurf;
+  vAO = aAO;
   vLightPos = uLightViewProj * vec4(p, 1.0);
   gl_Position = uViewProj * vec4(p, 1.0);
 }`
@@ -7244,6 +7472,7 @@ in vec3 vWorld;
 in vec3 vNormal;
 in vec4 vMat;
 in vec3 vSurf;
+in float vAO;
 in vec4 vLightPos;
 
 uniform vec3 uEye;
@@ -7423,7 +7652,8 @@ void main() {
   float underside = clamp(-n.z * 0.5 + 0.5, 0.0, 1.0);
   vec3 bounce = uGroundColor * albedo * underside * 1.4;
 
-  vec3 color = diffuse + ambient + specular + reflection + bounce + albedo * glow;
+  float occ = mix(1.0, clamp(vAO, 0.0, 1.0), 0.8);
+  vec3 color = diffuse * (0.42 + 0.58 * occ) + ambient * occ + specular + reflection + bounce + albedo * glow;
   color = aces(color * 1.0);
   fragColor = vec4(toSRGB(color), 1.0);
 }`
@@ -7792,6 +8022,8 @@ function createGLRenderer(canvas) {
 
   const uni = (p, name) => gl.getUniformLocation(p, name)
   let lastFrame = null
+  let aoMesh = null
+  let aoData = null
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -7811,8 +8043,17 @@ function createGLRenderer(canvas) {
   }
 
   function uploadMesh(mesh, matOf, centre) {
+    // occlusion arrives asynchronously: the bake is ~0.4 s on a real mesh, so it
+    // runs on idle after the user stops dragging, and the frame simply draws
+    // unoccluded until it lands
+    const aoAttr = aoMesh === mesh ? aoData : null
+    if (aoAttr && !globalThis.__rfAOStats) {
+      let mn = 1, mx = 0, sum = 0
+      for (let i = 0; i < aoAttr.length; i += 1) { const v = aoAttr[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v }
+      globalThis.__rfAOStats = { n: aoAttr.length, min: +mn.toFixed(3), max: +mx.toFixed(3), mean: +(sum / aoAttr.length).toFixed(3) }
+    }
     const tri = mesh.length
-    const stride = 3 + 3 + 4 + 3
+    const stride = 3 + 3 + 4 + 3 + 1
     const data = new Float32Array(tri * 3 * stride)
     // Which way do the faces point? Meshes arrive from several generators, so
     // the winding is not guaranteed; measure it against the model centre once
@@ -7838,11 +8079,14 @@ function createGLRenderer(canvas) {
       const n = [raw[0] * flip, raw[1] * flip, raw[2] * flip]
       const m = matParams(matOf(t))
       seen.add(m.alb.map((c) => c.toFixed(2)).join(','))
-      for (const p of [a, b, c]) {
+      const corners = [a, b, c]
+      for (let cornerIndex = 0; cornerIndex < 3; cornerIndex += 1) {
+        const p = corners[cornerIndex]
         data[o++] = p[0]; data[o++] = p[1]; data[o++] = p[2]
         data[o++] = n[0]; data[o++] = n[1]; data[o++] = n[2]
         data[o++] = m.alb[0]; data[o++] = m.alb[1]; data[o++] = m.alb[2]; data[o++] = m.glow
         data[o++] = m.rough; data[o++] = m.metal; data[o++] = m.printed ? 1 : 0
+        data[o++] = aoAttr ? aoAttr[i * 3 + cornerIndex] : 1
       }
     }
     gl.bindVertexArray(vao)
@@ -7853,6 +8097,7 @@ function createGLRenderer(canvas) {
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, strideBytes, 12)
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, strideBytes, 24)
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, strideBytes, 40)
+    gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, strideBytes, 52)
     uniqueAlbedos = seen.size
     return tri * 3
   }
@@ -8106,6 +8351,8 @@ function createGLRenderer(canvas) {
       }
       return best
     },
+    /** Hand the renderer a finished bake for a specific mesh. */
+    setAO(mesh, data) { aoMesh = mesh; aoData = data },
     dispose() {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)
