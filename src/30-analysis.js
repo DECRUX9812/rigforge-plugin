@@ -366,6 +366,18 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
+  const overhang = overhangReport(design)
+  if (overhang.unsupportedMm2 > 150) {
+    const w = overhang.worst
+    checks.push({
+      level: 'warn',
+      msg: `${overhang.unsupportedMm2}mm² of printed surface hangs in mid-air with nothing under it — the slicer will need support material (${prettyPart(w.id)} is the worst at ${w.unsupported}mm²). Reorient the part, add a rib, or accept the support scars.`,
+    })
+  } else if (overhang.unsupportedMm2 > 0) {
+    checks.push({ level: 'ok', msg: `Overhang check: only ${overhang.unsupportedMm2}mm² needs support — mostly self-supporting geometry.` })
+  } else {
+    checks.push({ level: 'ok', msg: 'Overhang check: every printed face has material or the bed underneath — no support needed.' })
+  }
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -378,7 +390,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
