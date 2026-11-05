@@ -5084,33 +5084,43 @@ function wireOverlay(design, harness) {
   const home = harness.home
   const arr = []
   const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const worldPivot = (j) => {
+    // pivot is fixed to the parent link: ancestors rotate it, the joint's own
+    // angle spins about it and does not translate it
+    const chain = (chains.get(j.id) || []).slice(0, -1)
+    return applyChain(chain, j.pivot)
+  }
   for (const r of harness.rows) {
     const j = byId.get(r.id)
     if (!j || !j.pivot) continue
-    // pivot is fixed to the parent link: ancestors rotate it, the joint's own
-    // angle spins about it and does not translate it
-    const chain = (chains.get(r.id) || []).slice(0, -1)
-    const start = applyChain(chain, j.pivot)
+    const start = worldPivot(j)
+    // TTL-bus servos daisy-chain: the cable runs to the parent joint's servo,
+    // not home — only root joints home-run to the driver
+    let end = home
+    if (r.lead === 'daisy-chain' && j.parent) {
+      const pj = byId.get(j.parent)
+      if (pj && pj.pivot) end = worldPivot(pj)
+    }
     const col = colFor[r.lead] || colFor.unknown
-    const len = Math.hypot(start[0] - home[0], start[1] - home[1], start[2] - home[2])
+    const len = Math.hypot(start[0] - end[0], start[1] - end[1], start[2] - end[2])
     if (len < 4) continue
     const sag = Math.min(70, len * 0.14)
     // quadratic bezier: control point droops below the chord midpoint
-    const cx = (start[0] + home[0]) / 2
-    const cy = (start[1] + home[1]) / 2
-    const cz = (start[2] + home[2]) / 2 - sag
+    const cx = (start[0] + end[0]) / 2
+    const cy = (start[1] + end[1]) / 2
+    const cz = (start[2] + end[2]) / 2 - sag
     const at = (t) => {
       const u = 1 - t
       return [
-        u * u * start[0] + 2 * u * t * cx + t * t * home[0],
-        u * u * start[1] + 2 * u * t * cy + t * t * home[1],
-        Math.max(3, u * u * start[2] + 2 * u * t * cz + t * t * home[2]),
+        u * u * start[0] + 2 * u * t * cx + t * t * end[0],
+        u * u * start[1] + 2 * u * t * cy + t * t * end[1],
+        Math.max(3, u * u * start[2] + 2 * u * t * cz + t * t * end[2]),
       ]
     }
     const q1 = at(1 / 3), q2 = at(2 / 3)
     seg(start, q1, col)
     seg(q1, q2, col)
-    seg(q2, home, col)
+    seg(q2, end, col)
   }
   return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
 }
