@@ -7043,6 +7043,32 @@ vec3 aces(vec3 x) {
   float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
+// cheap value noise: three octaves is enough to break up a perfectly flat
+// surface without looking like sandpaper
+float hash31(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float n000 = hash31(i);
+  float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+  float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+  float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+  float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+  float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+  float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+  float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+  return mix(
+    mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+    mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+    f.z
+  );
+}
+
 vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
 }
@@ -7053,14 +7079,18 @@ float shadowFactor(vec3 n) {
   proj = proj * 0.5 + 0.5;
   if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
   float bias = max(0.0015 * (1.0 - dot(n, uKeyDir)), 0.0004);
+  // Three rings of taps: a studio key has a real penumbra, and a 5x5 grid at
+  // this map resolution reads as a stencil.
   float sum = 0.0;
   float wsum = 0.0;
   for (int x = -2; x <= 2; x++) {
     for (int y = -2; y <= 2; y++) {
-      vec2 off = vec2(float(x), float(y)) * uShadowTexel * 2.6;
+      float r2 = float(x * x + y * y);
+      float ring = 1.0 + r2 * 2.4;
+      vec2 off = vec2(float(x), float(y)) * uShadowTexel * ring * 3.2;
       float d = texture(uShadow, proj.xy + off).r;
-      float w = 1.0 / (1.0 + float(x * x + y * y));
-      sum += ((proj.z - bias) > d ? 0.0 : 1.0) * w;
+      float w = 1.0 / (1.0 + r2);
+      sum += ((proj.z - bias * 1.6) > d ? 0.0 : 1.0) * w;
       wsum += w;
     }
   }
@@ -7083,6 +7113,7 @@ void main() {
   vec3 n = normalize(vNormal);
   vec3 v = normalize(uEye - vWorld);
   vec3 albedo = vMat.rgb;
+  float rough = clamp(vSurf.x, 0.06, 1.0);
 
   // FDM layer lines: a 0.2 mm sawtooth on world Z, faded out where the stripes
   // fall below a pixel (fwidth) so a zoomed-out view never turns to moiré. This
@@ -7094,8 +7125,19 @@ void main() {
     float w = fwidth(zz);
     float vis = clamp(1.0 - w * 1.6, 0.0, 1.0);
     albedo *= 1.0 + (f - 0.5) * 0.22 * vis;
+
+    // macro surface: a printed wall is never perfectly flat. A slow noise term
+    // tilts the normal a couple of degrees and lifts the roughness slightly, so
+    // the part reads as a moulded object rather than a flat-shaded solid.
+    float grain = vnoise(vWorld * 0.35) - 0.5;
+    vec3 jitter = vec3(
+      vnoise(vWorld * 0.35 + vec3(11.0, 0.0, 0.0)) - 0.5,
+      vnoise(vWorld * 0.35 + vec3(0.0, 13.0, 0.0)) - 0.5,
+      vnoise(vWorld * 0.35 + vec3(0.0, 0.0, 17.0)) - 0.5
+    );
+    n = normalize(n + jitter * 0.10);
+    rough = clamp(rough + grain * 0.06, 0.05, 1.0);
   }
-  float rough = clamp(vSurf.x, 0.06, 1.0);
   float metal = clamp(vSurf.y, 0.0, 1.0);
   float glow = vMat.a;
 
@@ -7123,7 +7165,22 @@ void main() {
     + uFillColor * spec(n, uFillDir, v, rough) * fill * (0.25 + 0.4 * metal)
     + uRimColor * rim * (0.25 + 0.75 * metal) * 0.9;
 
-  vec3 color = diffuse + ambient + specular + albedo * glow;
+  // environment: a studio gradient plus one large softbox, sampled along the
+  // reflection vector. Metal without a reflection looks like painted plaster.
+  vec3 R = reflect(-v, n);
+  float sky = smoothstep(-0.55, 0.75, R.z);
+  vec3 env = mix(uGroundColor * 1.7, uSkyColor * 3.4, sky);
+  env += uKeyColor * pow(max(dot(R, uKeyDir), 0.0), 120.0) * 4.2;
+  env += uRimColor * pow(max(dot(R, uRimDir), 0.0), 26.0) * 1.4;
+  vec3 reflection = env * mix(0.07, 1.35, metal) * (1.0 - rough * 0.7);
+
+  // Bounce: the floor throws light back up at everything, tinted by what the
+  // machine is made of. Without it the underside of every part is dead black and
+  // the assembly reads as separate floating blocks.
+  float underside = clamp(-n.z * 0.5 + 0.5, 0.0, 1.0);
+  vec3 bounce = uGroundColor * albedo * underside * 1.4;
+
+  vec3 color = diffuse + ambient + specular + reflection + bounce + albedo * glow;
   color = aces(color * 1.0);
   fragColor = vec4(toSRGB(color), 1.0);
 }`
@@ -7156,6 +7213,32 @@ uniform float uExtent;
 uniform float uGridMm;
 uniform float uShowGrid;
 out vec4 fragColor;
+
+// cheap value noise: three octaves is enough to break up a perfectly flat
+// surface without looking like sandpaper
+float hash31(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float n000 = hash31(i);
+  float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+  float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+  float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+  float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+  float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+  float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+  float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+  return mix(
+    mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+    mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+    f.z
+  );
+}
 
 vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
@@ -7196,6 +7279,9 @@ void main() {
   fragColor = vec4(base, fade);
 }`
 
+// Screen-space ambient occlusion. Twelve taps on a spiral inside a hemisphere,
+// compared in view space: this is what puts dark contact in the corners where a
+// servo meets a plate, which flat shading cannot fake at any light count.
 const DEPTH_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
@@ -7286,6 +7372,40 @@ const M4 = {
     return o
   },
 }
+M4.inverse = (m) => {
+  const o = new Float32Array(16)
+  const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3]
+  const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7]
+  const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11]
+  const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15]
+  const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10
+  const b02 = a00 * a13 - a03 * a10, b03 = a01 * a12 - a02 * a11
+  const b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12
+  const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30
+  const b08 = a20 * a33 - a23 * a30, b09 = a21 * a32 - a22 * a31
+  const b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32
+  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
+  if (!det) return M4.ident()
+  det = 1 / det
+  o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det
+  o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det
+  o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det
+  o[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det
+  o[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det
+  o[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det
+  o[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det
+  o[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det
+  o[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det
+  o[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det
+  o[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det
+  o[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det
+  o[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det
+  o[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det
+  o[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det
+  o[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det
+  return o
+}
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -7362,6 +7482,7 @@ function createGLRenderer(canvas) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
 
   const uni = (p, name) => gl.getUniformLocation(p, name)
+
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -7537,7 +7658,7 @@ function createGLRenderer(canvas) {
 
       gl.disable(gl.POLYGON_OFFSET_FILL)
 
-      // 2) main pass
+      // 3) main pass
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, w, h)
       gl.clearColor(0, 0, 0, 0)
