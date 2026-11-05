@@ -584,7 +584,7 @@ const runAutotest = (env) => {
 check('autotest: rover passes the certification suite on a real climb', () => {
   const at = runAutotest({ surface: 'hardwood', slopeDeg: 10 })
   assert(at.done, 'autotest did not finish within 20s sim')
-  assert(at.results.length === 5, `expected 5 phase results, got ${at.results.length}`)
+  assert(at.results.length === 6, `expected 6 phase results, got ${at.results.length}`)
   const fails = at.results.filter((r) => !r.pass)
   assert(fails.length === 0, `unexpected failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
   return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`

@@ -181,6 +181,7 @@ function createDrive(design, analysis) {
     kind: 'drive',
     wheelD: m.wheelD,
     trackMm: m.trackMm || 300,
+    bodyKg: m.massKg, // carried-load tests scale off this
     vmax,
     fMotor,
     env,
