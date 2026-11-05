@@ -93,6 +93,12 @@ const GLOBAL_CSS = `
   [data-rf="viewbar"] button, [role="toolbar"] button { min-height: 30px; min-width: 34px; }
   /* inline style says nowrap; the caption should wrap, not trail off */
   [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
+  /* the top bar carries the wordmark, the project strip and five controls; on a
+     narrower font stack it overflowed by 6px and scrolled the whole page
+     sideways. Wrapping is font-independent, unlike shrinking the gaps. */
+  [data-rf="top"] { flex-wrap: wrap; row-gap: 6px; }
+  [data-rf="top"] > * { min-width: 0; }
+  [data-rf="top"] [aria-label^="command palette"] { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

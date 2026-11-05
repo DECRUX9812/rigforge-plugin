@@ -1155,7 +1155,7 @@ function Studio() {
   return h('div', { style: S.root, 'data-rf': 'root' },
     h('style', {}, GLOBAL_CSS),
     // ── top bar: brand · one project strip · actions ────────────────────────
-    h('div', { style: S.top },
+    h('div', { style: S.top, 'data-rf': 'top' },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
