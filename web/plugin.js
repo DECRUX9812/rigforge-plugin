@@ -3427,7 +3427,9 @@ function stepsFor(design, a) {
     push('Route the harness', 'Two servo rails, one per side. Keep the power pair twisted and away from the I2C lines — PWM noise on an I2C bus is the classic quadruped ghost bug.', ['wire', 'cable ties'], 30)
     push('Calibrate the stand', 'With the body propped up, command 0° everywhere and adjust horn splines until all four feet are level. Do this BEFORE the first gait attempt.', ['horn wrench'], 25)
   } else if (design.archetype === 'humanoid') {
-    push('Print the skeleton in PETG', `${Math.round(a.print.grams)}g over ${fmt(a.print.hours, 0)}h. Thighs, shins and hip brackets take repeated shock loads — PETG, 4 walls, and print them upright so the layer lines run along the limb, not across it.`, ['printer', 'slicer'], Math.round(a.print.hours * 60))
+    // the material is whatever the brief chose: naming PETG here regardless was
+    // a claim the BOM contradicted the moment someone picked PLA
+    push('Print the skeleton for shock loads', `Thighs, shins and hip brackets take repeated impact — ${a.print.material.name}, 4 walls, printed upright so the layer lines run along the limb, not across it.`, ['printer', 'slicer'], Math.round(a.print.hours * 30))
     push('Press the hip and knee bearings', 'Heat-set inserts, then 608 bearings into the hip and knee hubs. Bind here and the servo fights the bearing until one of them dies.', ['heat-set tip', 'vise'], 40)
     push('Build both legs as mirror pairs', 'Assemble the left leg fully, then build the right against it as a jig — mirror-image legs that differ by 2mm walk in circles forever.', ['M3 hex key'], 60)
     push('Assemble the pelvis and torso', 'Bolt both legs to the pelvis hub, then the torso and the pack. Put the machine in a stand or hang it from a strap before it can hold itself up.', ['M3 hex key', 'stand or strap'], 30)

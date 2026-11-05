@@ -310,6 +310,39 @@ check('spec markdown quotes the same cost, mass and print time', () => {
   return 'cost, mass and print time agree'
 })
 
+// ── 19. the build order is complete enough to follow ────────────────────────
+check('build steps: every step has a title, a how, and time on it', () => {
+  eachPreset((p, { design, analysis }) => {
+    const steps = A.stepsFor(design, analysis)
+    assert(steps.length >= 4, `${p.id}: only ${steps.length} steps`)
+    let minutes = 0
+    for (const st of steps) {
+      assert(st.title && st.title.length > 4, `${p.id}: step ${st.n} has no title`)
+      assert(st.detail && st.detail.length > 30, `${p.id}: step "${st.title}" has no detail`)
+      assert(Number(st.min) > 0, `${p.id}: step "${st.title}" has no time`)
+      minutes += Number(st.min)
+    }
+    // the print step must dominate: a guide that forgets the printer is a lie
+    assert(minutes >= analysis.print.hours * 40, `${p.id}: ${minutes} min of work for ${Math.round(analysis.print.hours)}h of printing`)
+  })
+  return `${A.PRESETS.length} build orders complete`
+})
+
+// ── 20. no step tells you to use a material you did not choose ──────────────
+check('build steps name only the chosen material', () => {
+  const NAMES = [['PLA', 'PLA'], ['PETG', 'PETG'], ['ASA', 'ASA'], ['PETG-CF', 'PETG-CF'], ['PETGCF', 'PETG-CF']]
+  eachPreset((p, { design, analysis }) => {
+    const chosen = analysis.print.material.name.toUpperCase()
+    const text = A.stepsFor(design, analysis).map((s) => `${s.title} ${s.detail}`).join(' ')
+    for (const [pattern, label] of NAMES) {
+      if (label === chosen) continue
+      const re = new RegExp(`\\b${pattern.replace('-', '\\-')}\\b`, 'i')
+      assert(!re.test(text), `${p.id}: step mentions ${label} but the build is ${chosen}`)
+    }
+  })
+  return 'every guide matches the material in the BOM'
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
