@@ -286,6 +286,30 @@ check('firmware channel count equals the servos in the BOM', () => {
   return `${declared} sketches declare a channel count; all balanced`
 })
 
+// ── 17. the BOM sheet sums to the headline cost ─────────────────────────────
+check('BOM csv: line items + filament = the headline cost', () => {
+  eachPreset((p, { design, analysis }) => {
+    const lines = A.toBOMCsv(design, analysis).split('\n')
+    const totalRow = lines[lines.length - 1]
+    assert(/^TOTAL,/.test(totalRow), `${p.id}: no TOTAL row`)
+    const total = Number(totalRow.split(',')[4])
+    near(total, analysis.cost, 0.02, `${p.id} csv total`)
+  })
+  return 'ten sheets reconcile to the cent'
+})
+
+// ── 18. the spec document says the same numbers as the studio ────────────────
+check('spec markdown quotes the same cost, mass and print time', () => {
+  eachPreset((p, { design, analysis }) => {
+    const md = A.toSpecMarkdown(design, analysis)
+    const money = `$${analysis.cost >= 100 ? Math.round(analysis.cost) : analysis.cost.toFixed(2)}`
+    assert(md.includes(money), `${p.id}: spec cost ${money} missing`)
+    assert(md.includes(`${Math.round(analysis.mass.totalG)}g`), `${p.id}: spec mass missing`)
+    assert(md.includes(`${analysis.print.hours.toFixed(1)}h`) || md.includes(`${Math.round(analysis.print.hours)}h`), `${p.id}: spec print hours missing`)
+  })
+  return 'cost, mass and print time agree'
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

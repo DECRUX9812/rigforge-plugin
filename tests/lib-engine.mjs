@@ -38,7 +38,7 @@ export function loadEngine() {
   }
   vm.createContext(ctx)
   vm.runInContext(
-    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit };',
+    code + '\nglobalThis.API = { composeDesign, PRESETS, PARTS, MATERIALS, buildMesh, toSTL, printedPartSTLs, toCentroidCsv, encodeBuild, decodeBuild, boundsOf, printFit, toBOMCsv, toSpecMarkdown, toOpenSCAD, stepsFor };',
     ctx,
   )
   return ctx.API

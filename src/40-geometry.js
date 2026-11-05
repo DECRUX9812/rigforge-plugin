@@ -654,15 +654,33 @@ function toOpenSCAD(design) {
   return lines.join('\n')
 }
 
-function toBOMCsv(design) {
+function toBOMCsv(design, analysis) {
   const rows = [['part', 'category', 'qty', 'unit_usd', 'line_usd', 'dims_mm', 'connector', 'mount', 'sku_search', 'role']]
+  let sum = 0
   for (const { key, qty, role } of design.parts) {
     const p = PARTS[key]
+    const line = p.price * qty
+    sum += line
     rows.push([
-      p.name, p.cat, String(qty), p.price.toFixed(2), (p.price * qty).toFixed(2),
+      p.name, p.cat, String(qty), p.price.toFixed(2), line.toFixed(2),
       p.dims ? p.dims.join('x') : '', p.conn || '', p.mount || '', p.sku || '', role,
     ])
   }
+  // Filament is money too. Without this line the CSV summed to less than the
+  // headline cost, so anyone checking the sheet found a different total.
+  if (analysis && analysis.print && analysis.print.grams > 0.5) {
+    const mat = analysis.print.material || { name: 'filament', priceId: 'petg_kg' }
+    const spool = PARTS[mat.priceId]?.price || 20
+    const grams = analysis.print.grams
+    const line = (grams / 1000) * spool
+    sum += line
+    rows.push([
+      `${mat.name} filament used`, 'material', `${Math.round(grams)} g`,
+      ((spool / 1000) * 100).toFixed(2), line.toFixed(2),
+      '', '', '', mat.priceId || '', 'printed parts',
+    ])
+  }
+  rows.push(['TOTAL', '', '', '', sum.toFixed(2), '', '', '', '', 'sums to the studio headline'])
   return rows.map((r) => r.map((c) => (/[",]/.test(c) ? `"${String(c).replace(/"/g, '""')}"` : c)).join(',')).join('\n')
 }
 
