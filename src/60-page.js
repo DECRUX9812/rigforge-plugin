@@ -761,6 +761,32 @@ function Studio() {
           onChange: (e) => setMission(e.target.value),
           onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onBuild() } },
         }),
+        // What the parser hears, before you commit to it. The matcher already
+        // existed; hiding it behind BUILD meant people typed blind.
+        (() => {
+          const text = (mission || '').trim()
+          if (text.length < 4) return null
+          const match = matchArchetype(text)
+          const guess = match.id
+          const preset = PRESETS.find((x) => x.brief.archetype === guess)
+          const same = guess === brief.archetype
+          return h('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '7px', margin: '0 0 8px', fontSize: '10.5px', flexWrap: 'wrap' },
+          },
+            h('span', { style: { color: C.faint } }, match.confident ? 'reads as' : 'no match — closest is'),
+            h('span', { style: { color: match.confident ? C.cyan : C.amber, fontFamily: C.mono, letterSpacing: '0.04em' } },
+              (preset ? preset.label : friendlyArchetype(guess)).toUpperCase()),
+            same
+              ? h('span', { style: { color: C.faint } }, '· already selected')
+              : h('button', {
+                style: { ...S.btn, height: '20px', padding: '0 7px', fontSize: '9.5px', flex: '0 0 auto' },
+                onClick: () => {
+                  if (!preset) return
+                  setBrief({ ...DEFAULT_BRIEF, ...preset.brief, mission: text })
+                  setMission(text)
+                },
+              }, 'use its numbers'))
+        })(),
         h('div', { style: { display: 'flex', gap: '6px' } },
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
           h('button', {

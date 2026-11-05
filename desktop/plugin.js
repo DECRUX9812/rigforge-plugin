@@ -3962,15 +3962,34 @@ const PRESETS = [
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
 ]
 
+// Same ladder, but it admits when nothing matched — the difference between
+// "I heard you" and "here is a guess", which the UI must not blur.
+function matchArchetype(text) {
+  const t = String(text || '').toLowerCase()
+  const rules = [
+    ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
+    ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
+    ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
+    ['humanoid', /humanoid|biped|two.?leg|android|mannequin/],
+    ['robot', /full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/],
+    ['quadruped', /quadruped|quad pod|four.?leg|walking|dog\b|trot/],
+    ['gripper', /gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/],
+    ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
+    ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
+  ]
+  for (const [id, re] of rules) if (re.test(t)) return { id, confident: true }
+  return { id: 'gadget', confident: false }
+}
+
 function detectArchetype(text) {
-  const t = text.toLowerCase()
+  const t = String(text || '').toLowerCase()
   if (/gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/.test(t)) return 'gantry'
-  if (/\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber/.test(t)) return 'pcb'
+  if (/\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/.test(t)) return 'pcb'
   if (/iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/.test(t)) return 'iot'
   if (/humanoid|biped|two.?leg|android|mannequin/.test(t)) return 'humanoid'
   if (/full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/.test(t)) return 'robot'
   if (/quadruped|quad pod|four.?leg|walking|dog\b|trot/.test(t)) return 'quadruped'
-  if (/gripper|claw|jaw|end.?effector/.test(t)) return 'gripper'
+  if (/gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/.test(t)) return 'gripper'
   if (/\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/.test(t)) return 'arm'
   if (/rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/.test(t)) return 'rover'
   return 'gadget'
@@ -6843,6 +6862,32 @@ function Studio() {
           onChange: (e) => setMission(e.target.value),
           onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onBuild() } },
         }),
+        // What the parser hears, before you commit to it. The matcher already
+        // existed; hiding it behind BUILD meant people typed blind.
+        (() => {
+          const text = (mission || '').trim()
+          if (text.length < 4) return null
+          const match = matchArchetype(text)
+          const guess = match.id
+          const preset = PRESETS.find((x) => x.brief.archetype === guess)
+          const same = guess === brief.archetype
+          return h('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '7px', margin: '0 0 8px', fontSize: '10.5px', flexWrap: 'wrap' },
+          },
+            h('span', { style: { color: C.faint } }, match.confident ? 'reads as' : 'no match — closest is'),
+            h('span', { style: { color: match.confident ? C.cyan : C.amber, fontFamily: C.mono, letterSpacing: '0.04em' } },
+              (preset ? preset.label : friendlyArchetype(guess)).toUpperCase()),
+            same
+              ? h('span', { style: { color: C.faint } }, '· already selected')
+              : h('button', {
+                style: { ...S.btn, height: '20px', padding: '0 7px', fontSize: '9.5px', flex: '0 0 auto' },
+                onClick: () => {
+                  if (!preset) return
+                  setBrief({ ...DEFAULT_BRIEF, ...preset.brief, mission: text })
+                  setMission(text)
+                },
+              }, 'use its numbers'))
+        })(),
         h('div', { style: { display: 'flex', gap: '6px' } },
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
           h('button', {
