@@ -265,6 +265,27 @@ check('choosing a battery changes the BOM, or says why it cannot', () => {
   return `${changed} choices honoured, ${explained} substitutions explained`
 })
 
+// ── 16. firmware drives exactly the actuators the BOM buys ──────────────────
+check('firmware channel count equals the servos in the BOM', () => {
+  let declared = 0
+  eachPreset((p, { design }) => {
+    const servos = design.parts.reduce((n, x) => (A.PARTS[x.key]?.cat === 'servo' ? n + x.qty : n), 0)
+    const fw = design.firmware || ''
+    const m = fw.match(/SERVO_COUNT\s*=\s*(\d+)/)
+    if (m) {
+      declared += 1
+      assert(Number(m[1]) === servos, `${p.id}: firmware drives ${m[1]} servos, BOM buys ${servos}`)
+    }
+    if (servos === 0) {
+      assert(!/SERVO_COUNT/.test(fw), `${p.id}: servo code with no servo in the BOM`)
+    }
+    assert(/void setup\(/.test(fw) && /void loop\(/.test(fw), `${p.id}: firmware missing setup/loop`)
+    const braces = fw.split('{').length - fw.split('}').length
+    assert(braces === 0, `${p.id}: unbalanced braces (${braces})`)
+  })
+  return `${declared} sketches declare a channel count; all balanced`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
