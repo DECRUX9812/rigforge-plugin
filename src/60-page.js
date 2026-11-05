@@ -615,6 +615,7 @@ function Studio() {
   const [, setSenseTick] = useState(0)
   const keysRef = useRef({})
   const spaceEdgeRef = useRef(false)
+  const rumbleRef = useRef({})
   const gpBtnRef = useRef(false)
 
   useEffect(() => {
@@ -640,11 +641,12 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
     const gait = gaitRef.current
     const grip = gripRef.current
+    const sense = senseRef.current
     let raf = 0
     let last = performance.now()
     const tick = (now) => {
@@ -702,6 +704,32 @@ function Studio() {
       } else if (!pwrDead && grip) {
         const desired = grip.step({ grip: k.space, gripEdge: spaceEdgeRef.current }, dt)
         if (desired) setPose(desired)
+      }
+      // haptics: edge-triggered rumble — stall, wheelspin, bumps, joint stall,
+      // dead pack, sensor alert. One buzz per event, not a continuous scream.
+      if (gp && gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+        const bumpN = (drive && drive.state.bumps) || 0
+        const jstall = !!(simRef.current && simRef.current.state.stalled && simRef.current.state.stalled.some(Boolean))
+        const sal = sense ? sense.hud().alerts.length : 0
+        const now2 = {
+          stall: !!(drive && drive.state.stall),
+          slip: !!(drive && drive.state.slip),
+          bump: bumpN,
+          jstall,
+          dead: !!pwrDead,
+          sense: sal > 0,
+        }
+        const prev = rumbleRef.current
+        const buzz = (sMag, wMag, ms) => {
+          try { gp.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: sMag, weakMagnitude: wMag }) } catch { /* pad went away */ }
+        }
+        if (now2.stall && !prev.stall) buzz(0.7, 0.5, 220)
+        else if (now2.slip && !prev.slip) buzz(0.35, 0.35, 120)
+        if (now2.bump > prev.bump) buzz(0.9, 0.2, 140)
+        if (now2.jstall && !prev.jstall) buzz(0.6, 0.6, 200)
+        if (now2.dead && !prev.dead) buzz(1, 1, 400)
+        if (now2.sense && !prev.sense) buzz(0.3, 0.5, 150)
+        rumbleRef.current = now2
       }
       spaceEdgeRef.current = false
       raf = requestAnimationFrame(tick)
