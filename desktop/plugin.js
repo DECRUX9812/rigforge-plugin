@@ -5226,6 +5226,41 @@ const S = {
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
 
+  // ── command palette ─────────────────────────────────────────────────────
+  paletteBackdrop: {
+    position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(4,7,10,0.62)',
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh',
+    backdropFilter: 'blur(3px)',
+  },
+  palette: {
+    width: 'min(620px, 92vw)', maxHeight: '62vh', display: 'flex', flexDirection: 'column',
+    background: C.raise, border: `1px solid ${C.line}`, borderRadius: '14px', overflow: 'hidden',
+    boxShadow: '0 40px 80px rgba(0,0,0,0.65)',
+  },
+  paletteInput: {
+    border: 'none', borderBottom: `1px solid ${C.line}`, background: 'transparent',
+    color: C.text, fontSize: '15px', padding: '15px 18px', outline: 'none', fontFamily: C.sans,
+  },
+  paletteList: { overflowY: 'auto', padding: '6px' },
+  paletteRow: {
+    display: 'grid', gridTemplateColumns: '86px 1fr auto', gap: '10px', alignItems: 'baseline',
+    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: '8px',
+    background: 'transparent', border: 'none', cursor: 'pointer', color: C.text,
+  },
+  paletteRowOn: {
+    display: 'grid', gridTemplateColumns: '86px 1fr auto', gap: '10px', alignItems: 'baseline',
+    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: '8px',
+    background: 'rgba(255,106,26,0.20)', border: 'none', cursor: 'pointer', color: C.text,
+  },
+  paletteGroup: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.13em', color: C.faint },
+  paletteLabel: { fontSize: '13px', color: C.text },
+  paletteHint: { fontFamily: C.mono, fontSize: '10px', color: C.dim },
+  paletteEmpty: { padding: '16px', fontSize: '12.5px', color: C.faint },
+  paletteFoot: {
+    borderTop: `1px solid ${C.line}`, padding: '8px 14px', fontFamily: C.mono,
+    fontSize: '10px', color: C.dim, letterSpacing: '0.06em',
+  },
+
   // ── first-run strip ─────────────────────────────────────────────────────
   firstRun: {
     display: 'flex', gap: '10px', alignItems: 'flex-start',
@@ -5726,6 +5761,90 @@ function LivePrices({ design }) {
         'The totals here are catalogue estimates. Ask Hermes for live LCSC prices and they replace the guessed lines.'))
 }
 
+
+/**
+ * ⌘K. A dense tool needs one door that reaches everything without hunting
+ * through rails: every archetype, every tab, every export, and the three
+ * actions that matter, all reachable by typing.
+ */
+function CommandPalette({ open, commands, onClose }) {
+  const [q, setQ] = useState('')
+  const [sel, setSel] = useState(0)
+  const inputRef = useRef(null)
+
+  const scored = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return commands
+    const rank = (text) => {
+      const t = text.toLowerCase()
+      if (t.startsWith(needle)) return 0
+      const i = t.indexOf(needle)
+      if (i >= 0) return 1
+      // subsequence: "ppe" should find "Pick & place arm"
+      let k = 0
+      for (const ch of t) { if (ch === needle[k]) k += 1; if (k === needle.length) return 2 }
+      return -1
+    }
+    return commands
+      .map((c) => ({ c, r: rank(c.label + ' ' + (c.group || '')) }))
+      .filter((x) => x.r >= 0)
+      .sort((a, b) => a.r - b.r || a.c.label.length - b.c.label.length)
+      .map((x) => x.c)
+  }, [q, commands])
+
+  useEffect(() => {
+    if (open) {
+      setQ('')
+      setSel(0)
+      const t = setTimeout(() => inputRef.current && inputRef.current.focus(), 20)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [open])
+
+  if (!open) return null
+  const clampSel = Math.max(0, Math.min(sel, scored.length - 1))
+
+  const run = (cmd) => {
+    onClose()
+    if (cmd && cmd.run) cmd.run()
+  }
+
+  return h('div', {
+    style: S.paletteBackdrop,
+    onMouseDown: (e) => { if (e.target === e.currentTarget) onClose() },
+  },
+    h('div', { style: S.palette, role: 'dialog', 'aria-label': 'Command palette' },
+      h('input', {
+        ref: inputRef,
+        style: S.paletteInput,
+        value: q,
+        placeholder: 'Jump to a machine, a tab, an export…',
+        'aria-label': 'Search commands',
+        onChange: (e) => { setQ(e.target.value); setSel(0) },
+        onKeyDown: (e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setSel((i) => Math.min(i + 1, scored.length - 1)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((i) => Math.max(i - 1, 0)) }
+          else if (e.key === 'Enter') { e.preventDefault(); run(scored[clampSel]) }
+          else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+        },
+      }),
+      h('div', { style: S.paletteList },
+        scored.length === 0
+          ? h('div', { style: S.paletteEmpty }, 'nothing matches — try "rover", "bom", "stl"')
+          : scored.map((c, i) => h('button', {
+            key: c.id,
+            style: i === clampSel ? S.paletteRowOn : S.paletteRow,
+            onMouseEnter: () => setSel(i),
+            onClick: () => run(c),
+          },
+            h('span', { style: S.paletteGroup }, c.group || ''),
+            h('span', { style: S.paletteLabel }, c.label),
+            c.hint ? h('span', { style: S.paletteHint }, c.hint) : null))),
+      h('div', { style: S.paletteFoot }, '↑↓ move · ⏎ run · esc close')),
+  )
+}
+
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
@@ -5819,6 +5938,7 @@ function Studio() {
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   const spec = useMemo(() => composeDesign(brief), [brief])
   const { design, analysis } = spec
@@ -5917,6 +6037,20 @@ function Studio() {
     setMission(next.mission)
   }
 
+  // ⌘K / Ctrl+K opens the palette; Esc closes it from anywhere.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      } else if (e.key === 'Escape') {
+        setPaletteOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const onBuild = () => {
     // An empty brief is not an error — it is an invitation. Surprise them.
     const parsed = mission.trim() ? parseBrief(mission) : { ...PRESETS[Math.floor(Math.random() * PRESETS.length)].brief }
@@ -5981,6 +6115,30 @@ function Studio() {
       }
     }],
   ]
+
+  // Everything the palette can reach. Built from the same lists the UI renders,
+  // so a new archetype or export shows up here without a second edit.
+  const commands = useMemo(() => {
+    const list = []
+    for (const p of PRESETS) {
+      list.push({
+        id: 'machine-' + p.id, group: 'MACHINE', label: p.label, hint: p.brief.archetype,
+        run: () => { setBrief({ ...DEFAULT_BRIEF, ...p.brief }); setMission(p.brief.mission) },
+      })
+    }
+    for (const [id, label] of TABS) {
+      list.push({ id: 'tab-' + id, group: 'TAB', label, hint: 'open', run: () => { setSimple(false); setTab(id) } })
+    }
+    for (const [label, fn] of exports) {
+      list.push({ id: 'export-' + label, group: 'EXPORT', label, run: fn })
+    }
+    list.push({ id: 'act-build', group: 'ACTION', label: 'Build this machine', hint: '⏎', run: onBuild })
+    list.push({ id: 'act-hermes', group: 'ACTION', label: 'Ask Hermes to redesign it', run: askHermes })
+    list.push({ id: 'act-save', group: 'ACTION', label: 'Save this build to the shelf', run: saveToShelf })
+    list.push({ id: 'act-simple', group: 'ACTION', label: 'Toggle plain words / engineering', run: () => { const n = !simple; setSimple(n); if (CTX) CTX.storage.set('simple', n) } })
+    list.push({ id: 'act-home', group: 'ACTION', label: 'Reset every joint to zero', run: () => setPose(design.joints.map(() => 0)) })
+    return list
+  }, [simple, brief])
 
   const fails = analysis.checks.filter((c) => c.level === 'fail').length
   const warns = analysis.checks.filter((c) => c.level === 'warn').length
@@ -6059,7 +6217,12 @@ function Studio() {
                 onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent' },
               }, h('span', {}, label))))
             : null),
-        h('button', { style: S.btn, onClick: saveToShelf, title: 'keep this build on the shelf' }, 'Save')),
+        h('button', { style: S.btn, onClick: saveToShelf, title: 'keep this build on the shelf' }, 'Save'),
+        h('button', {
+          style: { ...S.btn, fontFamily: C.mono, letterSpacing: '0.06em' },
+          onClick: () => setPaletteOpen(true),
+          title: 'command palette (⌘K)',
+        }, '⌘K')),
     ),
 
     // ── body ───────────────────────────────────────────────────────────────
@@ -6293,6 +6456,7 @@ function Studio() {
             `${design.parts.length} LINE ITEMS`),
           h('span', { style: { marginLeft: 'auto', fontFamily: C.mono, fontSize: '14px', fontWeight: 600, color: C.accent } }, money(analysis.cost)))),
     ),
+    h(CommandPalette, { open: paletteOpen, commands, onClose: () => setPaletteOpen(false) }),
   )
 }
 

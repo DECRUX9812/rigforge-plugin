@@ -346,6 +346,41 @@ const S = {
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
 
+  // ── command palette ─────────────────────────────────────────────────────
+  paletteBackdrop: {
+    position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(4,7,10,0.62)',
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh',
+    backdropFilter: 'blur(3px)',
+  },
+  palette: {
+    width: 'min(620px, 92vw)', maxHeight: '62vh', display: 'flex', flexDirection: 'column',
+    background: C.raise, border: `1px solid ${C.line}`, borderRadius: '14px', overflow: 'hidden',
+    boxShadow: '0 40px 80px rgba(0,0,0,0.65)',
+  },
+  paletteInput: {
+    border: 'none', borderBottom: `1px solid ${C.line}`, background: 'transparent',
+    color: C.text, fontSize: '15px', padding: '15px 18px', outline: 'none', fontFamily: C.sans,
+  },
+  paletteList: { overflowY: 'auto', padding: '6px' },
+  paletteRow: {
+    display: 'grid', gridTemplateColumns: '86px 1fr auto', gap: '10px', alignItems: 'baseline',
+    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: '8px',
+    background: 'transparent', border: 'none', cursor: 'pointer', color: C.text,
+  },
+  paletteRowOn: {
+    display: 'grid', gridTemplateColumns: '86px 1fr auto', gap: '10px', alignItems: 'baseline',
+    width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: '8px',
+    background: 'rgba(255,106,26,0.20)', border: 'none', cursor: 'pointer', color: C.text,
+  },
+  paletteGroup: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.13em', color: C.faint },
+  paletteLabel: { fontSize: '13px', color: C.text },
+  paletteHint: { fontFamily: C.mono, fontSize: '10px', color: C.dim },
+  paletteEmpty: { padding: '16px', fontSize: '12.5px', color: C.faint },
+  paletteFoot: {
+    borderTop: `1px solid ${C.line}`, padding: '8px 14px', fontFamily: C.mono,
+    fontSize: '10px', color: C.dim, letterSpacing: '0.06em',
+  },
+
   // ── first-run strip ─────────────────────────────────────────────────────
   firstRun: {
     display: 'flex', gap: '10px', alignItems: 'flex-start',
