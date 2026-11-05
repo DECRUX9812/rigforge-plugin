@@ -387,7 +387,8 @@ function buildMesh(design, explode) {
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
     const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
-    for (const t of add) tris.push(t)
+    // `node` is the filament-colour key for the viewport; STL/SCAD ignore it.
+    for (const t of add) { t.node = node.id; tris.push(t) }
   }
   return tris
 }
