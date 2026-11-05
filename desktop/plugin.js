@@ -9971,8 +9971,21 @@ function TabTest({ design, analysis, certHistory }) {
         h('td', { style: { ...S.td, color: C.faint } }, `${x.mode} · ${new Date(x.ts).toLocaleDateString()}`),
         h('td', { style: { ...S.tdNum, color: x.passes === x.total ? C.green : x.passes > x.total / 2 ? C.amber : C.red, fontWeight: 700 } }, `${x.passes}/${x.total}`),
         h('td', { style: { ...S.td, color: C.faint, fontSize: '10px' } }, x.phases))))))
+    // trend strip: one bar per run, oldest → newest; height is the pass ratio
+    blocks.push(h('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '3px', height: '34px', marginTop: '8px' } },
+      [...hist].reverse().map((x, i) => {
+        const ratio = x.total ? x.passes / x.total : 0
+        return h('div', {
+          key: i,
+          title: `${x.mode} · ${x.passes}/${x.total} · ${new Date(x.ts).toLocaleDateString()}`,
+          style: {
+            flex: 1, height: `${Math.max(8, ratio * 100)}%`, borderRadius: '2px 2px 0 0',
+            background: ratio === 1 ? C.green : ratio > 0.5 ? C.amber : C.red, opacity: 0.85,
+          },
+        })
+      })))
     blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px' } },
-      'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped.'))
+      'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped. The strip is the same history as bars: green full-pass, amber partial, red failing.'))
   }
   return blocks
 }
