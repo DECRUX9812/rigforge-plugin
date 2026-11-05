@@ -284,6 +284,11 @@ function CommandPalette({ open, commands, onClose }) {
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+  // The primary CTA is picked by meaning: the export list keeps growing, and
+  // selecting the "print pack" by index once shipped a whole-machine STL under a
+  // button that promised a zip.
+  const packEntry = exports.find(([label]) => /print pack|board pack|fab \+ assembly/i.test(label))
+  const packAction = (packEntry || exports[1])[1]
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
   const printed = design.nodes.filter((n) => n.mat === 'shell' || n.print).length
@@ -386,7 +391,10 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
           `${printed} printed parts · ${fmt(analysis.print.hours, 1)} h · ${Math.round(analysis.print.grams)} g PETG`,
           h('div', { style: { color: C.faint, fontSize: '10.5px', marginTop: '3px' } },
             'One file per part: laid flat, centred on the bed, sitting on Z=0.'))),
-    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: exports[1][1] },
+    // The primary call to action must not be an index into a list that other
+    // features keep inserting into: this used to say "print pack" and download
+    // the whole-machine STL because the STL entry moved to position 1.
+    h('button', { style: { ...S.btnPrimary, height: '40px', fontSize: '13px' }, onClick: packAction },
       design.pcb ? '⬇ DOWNLOAD THE FAB + ASSEMBLY FILES' : '⬇ DOWNLOAD THE PRINT PACK (.zip)'),
     h('button', {
       style: { ...S.btn, marginTop: '8px', height: '32px', width: '100%', justifyContent: 'center' },
@@ -429,7 +437,15 @@ const PRESET_BLURBS = {
 }
 
 /** One honest sentence anybody can read — the tables below carry the detail. */
-function plainVerdict(checks) {
+function plainVerdict(checks, brief) {
+  // A brief that named nothing must not collect a green tick just because the
+  // checks pass on a machine nobody asked for.
+  if (brief && brief.archetypeMatched === false) {
+    return {
+      icon: '!', color: C.amber,
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+    }
+  }
   const fails = checks.filter((c) => c.level === 'fail').length
   const warns = checks.filter((c) => c.level === 'warn').length
   if (fails) return { icon: '✗', color: C.red, text: `Hold on — ${fails} thing${fails > 1 ? 's' : ''} must be fixed before this is safe to build.` }
@@ -452,6 +468,7 @@ function Studio() {
   const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
+  const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -471,7 +488,7 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, explode: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false })
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -598,6 +615,20 @@ function Studio() {
     () => benchOverlay(posedDesign, analysis.print && analysis.print.material),
     [posedDesign, analysis],
   )
+  // Cable harness: one run per driven joint, coloured by whether the stock
+  // servo lead reaches. Follows the live pose — wires drag with the arm.
+  const cableOv = useMemo(
+    () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
+    [posedDesign, analysis.harness, opts.cables],
+  )
+  const rawOv = useMemo(() => {
+    if (!benchOv) return cableOv
+    if (!cableOv) return benchOv
+    const d = new Float32Array(benchOv.data.length + cableOv.data.length)
+    d.set(benchOv.data, 0)
+    d.set(cableOv.data, benchOv.data.length)
+    return { data: d, verts: benchOv.verts + cableOv.verts }
+  }, [benchOv, cableOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -622,6 +653,8 @@ function Studio() {
   const benchStatsRef = useRef(null)
   const gpBtnRef = useRef(false)
   const autotestRef = useRef(null)
+  const autoReportOffRef = useRef(false)
+  const certLoggedRef = useRef(false)
 
   useEffect(() => {
     driveRef.current = createDrive(design, analysis)
@@ -725,13 +758,21 @@ function Studio() {
           const gy2 = dz(gp.axes[1] || 0)
           if (Math.abs(gx2) > 0.04 || Math.abs(gy2) > 0.04) { gy = -gx2; gx = -gy2 }
         }
+        let gaitEnv = benchEnv
         if (at && at.running) {
           const c = at.tick(dt)
-          if (c) { gx = c.x || 0; gy = c.y || 0 }
+          if (c) {
+            gx = c.x || 0; gy = c.y || 0
+            // LOAD certification phase carries a virtual payload — merge it
+            // into the env for this frame only
+            if (c.payloadKg != null && c.payloadKg !== benchEnv.payloadKg) {
+              gaitEnv = { ...benchEnv, payloadKg: c.payloadKg }
+            }
+          }
         }
         const actual = simRef.current ? simRef.current.state.angles : dispPose
         if (gait.locomote) {
-          const r = gait.locomote({ x: gx, y: gy }, dt, actual, benchEnv)
+          const r = gait.locomote({ x: gx, y: gy }, dt, actual, gaitEnv)
           if (r && r.pose) setPose(r.pose)
           if (r && r.chassis) setChassis({ ...r.chassis })
         } else {
@@ -748,6 +789,29 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      }
+      // a finished certification run goes into persistent history once —
+      // the card and REPORT can then show "best for this machine"
+      const atDone = autotestRef.current
+      if (atDone && atDone.done && !certLoggedRef.current) {
+        certLoggedRef.current = true
+        try {
+          const entry = {
+            arch: design.archetype || (design.brief && design.brief.archetype) || '?',
+            mode: drive ? 'drive' : ik ? 'ik' : gait ? 'gait' : grip ? 'grip' : sense ? 'sense' : '?',
+            passes: atDone.results.filter((r) => r.pass).length,
+            total: atDone.results.length,
+            ts: Date.now(),
+            phases: atDone.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}`).join(' '),
+          }
+          setCertHistory((h) => {
+            const next = [...h, entry].slice(-30)
+            if (CTX) CTX.storage.set('certHistory', next)
+            return next
+          })
+        } catch { /* storage may be unavailable */ }
+      } else if (atDone && atDone.running) {
+        certLoggedRef.current = false
       }
       // bench stats: everything the test report needs, accumulated live
       const bs = benchStatsRef.current
@@ -885,10 +949,10 @@ function Studio() {
     [opts, subjectR, machBounds, camFocus],
   )
   const benchOvWorld = useMemo(() => {
-    if (!benchOv || !chassis) return benchOv
+    if (!rawOv || !chassis) return rawOv
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
     const slope = benchEnv.slopeDeg
-    const d = benchOv.data
+    const d = rawOv.data
     const out = new Float32Array(d.length)
     for (let i = 0; i < d.length; i += 6) {
       // overlay verts are mm (design space); chassis state is metres
@@ -899,8 +963,8 @@ function Studio() {
       out[i + 2] = terrainHeight(wx, slope, benchEnv.course) * 1000 + d[i + 2]
       out[i + 3] = d[i + 3]; out[i + 4] = d[i + 4]; out[i + 5] = d[i + 5]
     }
-    return { data: out, verts: benchOv.verts }
-  }, [benchOv, chassis, benchEnv])
+    return { data: out, verts: rawOv.verts }
+  }, [rawOv, chassis, benchEnv])
 
   const teleop = driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
@@ -927,6 +991,10 @@ function Studio() {
   // Break → Fix: the bench detects failures; this line prescribes the fix.
   // benchLive mirrors SimplePanel's verdict but lives in Studio scope.
   const benchLive = useMemo(() => benchReport(design, analysis, { slopeDeg: 15 }), [design, analysis])
+  const certArch = design.archetype || (design.brief && design.brief.archetype)
+  const certBest = certHistory.filter((x) => x.arch === certArch)
+    .reduce((m, x) => (!m || x.passes > m.passes ? x : m), null)
+
   const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
     [benchLive, driveHud, propHud, gripHud, powerHud, brief])
 
@@ -947,6 +1015,17 @@ function Studio() {
       `- **battery:** lowest SoC ${(bs.minSoc ?? 100).toFixed(0)}% of pack`,
       bs.maxTemp ? `- **peak servo temp:** ${bs.maxTemp.toFixed(0)}°C · **thermal cutouts:** ${bs.cutouts || 0}` : null,
       `- **verdict:** ${fixes.length ? fixes[0].msg : 'no failures logged — bench clean'}`,
+      '',
+      '## Engineering summary',
+      `- **mass:** ${(analysis.mass.totalG / 1000).toFixed(2)} kg (printed ${(analysis.mass.printedG / 1000).toFixed(2)} kg, parts ${(analysis.mass.partsG / 1000).toFixed(2)} kg)`,
+      `- **cost:** $${analysis.cost.toFixed(2)} ($${analysis.costBuy.toFixed(2)} to buy, $${analysis.costShop.toFixed(2)} to print)`,
+      `- **print:** ${(analysis.print.grams / 1000).toFixed(2)} kg ${(analysis.print.material || 'filament')}, ~${analysis.print.hours.toFixed(1)}h · ${analysis.print.overhang.unsupportedMm2}mm² unsupported`,
+      `- **power:** ${analysis.power.typ != null ? `${analysis.power.typ.toFixed(1)}A typical / ${analysis.power.peak.toFixed(1)}A peak` : 'n/a'}${analysis.power.runtimeMin != null ? ` · ~${analysis.power.runtimeMin.toFixed(0)} min runtime` : ''}`,
+      ...(analysis.checks.some((c) => c.level === 'fail')
+        ? ['', '### Blocking checks', ...analysis.checks.filter((c) => c.level === 'fail').map((c) => `- FAIL ${c.msg}`)]
+        : analysis.checks.some((c) => c.level === 'warn')
+          ? ['', '### Warnings', ...analysis.checks.filter((c) => c.level === 'warn').map((c) => `- WARN ${c.msg}`)]
+          : ['', '### Checks', ...analysis.checks.filter((c) => c.level === 'ok').slice(0, 4).map((c) => `- ${c.msg}`)]),
       ...(autotestRef.current && autotestRef.current.results.length ? [
         '',
         `## Auto test — ${autotestRef.current.score}`,
@@ -962,7 +1041,7 @@ function Studio() {
       a.click()
       URL.revokeObjectURL(a.href)
     } catch { /* SSR / no DOM */ }
-  }, [design, fixes])
+  }, [design, analysis, fixes])
 
   const applyBrief = useCallback((next) => {
     setBrief((cur) => ({ ...cur, ...next }))
@@ -1078,6 +1157,10 @@ function Studio() {
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
       : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+    ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
+      const buf = to3MF(design, analysis.print && analysis.print.material)
+      if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
+    }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
     ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
@@ -1139,7 +1222,7 @@ function Studio() {
   const warns = analysis.checks.filter((c) => c.level === 'warn').length
 
   const panel = tab === 'spec' ? h(TabSpec, { design, analysis })
-    : tab === 'test' ? h(TabTest, { design, analysis })
+    : tab === 'test' ? h(TabTest, { design, analysis, certHistory })
     : tab === 'parts' ? h(TabParts, { design, analysis })
       : tab === 'pins' ? h(TabPins, { analysis })
         : tab === 'power' ? h(TabPower, { analysis })
@@ -1155,7 +1238,7 @@ function Studio() {
   return h('div', { style: S.root, 'data-rf': 'root' },
     h('style', {}, GLOBAL_CSS),
     // ── top bar: brand · one project strip · actions ────────────────────────
-    h('div', { style: S.top },
+    h('div', { style: S.top, 'data-rf': 'top' },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
@@ -1219,6 +1302,9 @@ function Studio() {
           style: { ...S.btn, fontFamily: C.mono, letterSpacing: '0.06em' },
           onClick: () => setPaletteOpen(true),
           title: 'command palette (⌘K)',
+          // a keyboard shortcut is not a touch control; the stylesheet hides it
+          // below 780px, and it needs a hook that actually exists in the DOM
+          'data-rf': 'paletteBtn',
         }, '⌘K')),
     ),
 
@@ -1352,7 +1438,7 @@ function Studio() {
             }, `${ex.label} — ${ex.why}`)))
           : null,
 
-        (() => { const v = plainVerdict(analysis.checks); return h('div', {
+        (() => { const v = plainVerdict(analysis.checks, brief); return h('div', {
           style: { display: 'flex', gap: '7px', alignItems: 'flex-start', margin: '2px 0 4px', fontSize: '11px', lineHeight: 1.4, color: C.text },
         },
           h('span', { style: { fontFamily: C.mono, fontWeight: 700, color: v.color, flex: '0 0 auto' } }, v.icon),
@@ -1605,6 +1691,34 @@ function Studio() {
         }, autotestRef.current.running
           ? `AUTO ${autotestRef.current.phase.label} ${autotestRef.current.phase.t.toFixed(1)}/${autotestRef.current.phase.dur}s · ${autotestRef.current.score}`
           : `AUTO TEST ${autotestRef.current.score} — ${autotestRef.current.results.every((r) => r.pass) ? 'all checks pass' : 'click REPORT for details'}`) : null,
+        driveOn && autotestRef.current && autotestRef.current.done && !autoReportOffRef.current ? h('div', {
+          style: {
+            position: 'absolute', top: '44px', left: '50%', transform: 'translateX(-50%)', zIndex: 6,
+            fontFamily: C.mono, fontSize: '10.5px', minWidth: '300px', maxWidth: '440px',
+            background: 'rgba(10,13,16,0.88)', border: `1px solid ${C.line}`,
+            borderRadius: '8px', padding: '8px 12px', pointerEvents: 'auto',
+          },
+        },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+            h('span', {
+              style: { fontWeight: 700, color: autotestRef.current.results.every((r) => r.pass) ? C.green : C.amber },
+            }, `CERTIFICATION ${autotestRef.current.score}`),
+            h('button', {
+              style: { marginLeft: 'auto', background: 'none', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '12px', padding: '0 4px' },
+              title: 'dismiss — results stay in REPORT',
+              onClick: () => { autoReportOffRef.current = true },
+            }, '×')),
+          certBest ? h('div', {
+            style: { fontSize: '9.5px', color: C.faint, marginBottom: '4px' },
+            title: certHistory.filter((x) => x.arch === certArch).map((x) => `${x.passes}/${x.total} · ${x.phases}`).join('\n'),
+          }, `best for this machine: ${certBest.passes}/${certBest.total}`) : null,
+          ...autotestRef.current.results.map((r) => h('div', {
+            key: r.id || r.label,
+            style: { display: 'flex', gap: '8px', alignItems: 'baseline', padding: '2px 0' },
+          },
+            h('span', { style: { color: r.pass ? C.green : C.red, fontWeight: 700, flex: '0 0 38px' } }, r.pass ? 'PASS' : 'FAIL'),
+            h('span', { style: { color: C.dim, flex: '0 0 74px' } }, r.label),
+            h('span', { style: { color: C.text } }, r.detail)))) : null,
         driveOn && teleopKind === 'drive' ? h('div', {
           style: {
             position: 'absolute', right: '14px', bottom: '14px', zIndex: 5,
@@ -1714,7 +1828,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
@@ -1765,6 +1879,7 @@ function Studio() {
                 if (!at) return
                 if (at.running) { at.stop(); return }
                 at.start()
+                autoReportOffRef.current = false
                 setDriveOn(true)
               },
             }, autotestRef.current.running ? 'AUTO ■' : autotestRef.current.done ? `AUTO ${autotestRef.current.score}` : 'AUTO') : null) : null,
@@ -1816,7 +1931,7 @@ function Studio() {
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
-              h('div', { style: S.poseGrid },
+              h('div', { style: S.poseGrid, 'data-rf': 'posegrid' },
               design.joints.map((j, i) => [j, i])
                 .filter(([j]) => jointGroup === 'all' || (jointGroup === 'body'
                   ? j.id.startsWith('waist') || j.id.startsWith('neck')

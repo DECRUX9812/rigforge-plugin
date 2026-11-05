@@ -11,11 +11,20 @@
 const BENCH_G = 9810 // mm/s²  (g in mm units — keeps torque in N·mm→N·m clean)
 
 /** Mass of one node in grams: bought part → catalog mass; printed → volume×density. */
+// Metals are modelled by volume like everything else, but at their own density:
+// treating a steel bearing race as PLA made every fastener a sixth of its weight.
+const NODE_MAT_DENSITY = { steel: 7.85, metal: 2.70, alu: 2.70 }
+
 function benchNodeMassG(design, node, mat) {
   const p = node.part ? PARTS[node.part] : null
   if (p) return (p.mass || 0) * (node.qty || 1)
-  const density = (mat && mat.density) || 1.24 // g/cm³
-  return (nodeVolume(node) / 1000) * density
+  const density = NODE_MAT_DENSITY[node.mat] || (mat && mat.density) || 1.24 // g/cm³
+  // A printed node is a shell, not a solid billet: use the same ~34%-solid
+  // volume the print estimate and the STL use. With the solid volume the bench
+  // CoM came out 1.6x heavier than the mass printed in the header of the very
+  // same screen — two masses for one machine is worse than either being wrong.
+  const v = node.print ? shellVolume(node) : nodeVolume(node)
+  return (v / 1000) * density
 }
 
 /** World position of a node centre under the current joint pose (mm). */
@@ -139,11 +148,14 @@ function benchSlopeMargin(design, mat, slopeDeg) {
  * actuator was actually picked for. τ = Σ m·g·lever about each joint axis —
  * exact rigid-body statics; yaw axes read ~0 because gravity can't load them.
  */
-function benchTorqueMargins(design, mat) {
+function benchTorqueMargins(design, mat, extra) {
   const chains = chainsFor(design)
   const acts = design.actuators || []
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const out = []
+  // `extra`: virtual payload masses hung on a joint — {joint, pos:[x,y,z] mm
+  // world, massG}. Used by the lift test: the arm holds a real prop and we ask
+  // whether the servos have torque left, not whether the geometry reaches.
   // descendant joints of j (inclusive) via parent chain
   const subtree = (jid) => {
     const ids = new Set([jid])
@@ -175,6 +187,14 @@ function benchTorqueMargins(design, mat) {
       const leverNmm = Math.abs(tx * ax[0] + ty * ax[1] + tz * ax[2]) // N·mm
       tauNm += leverNmm / 1000 // N·mm → N·m
     }
+    for (const pay of extra || []) {
+      if (!ids.has(pay.joint)) continue
+      const r = [pay.pos[0] - j.pivot[0], pay.pos[1] - j.pivot[1], pay.pos[2] - j.pivot[2]]
+      const mg = pay.massG * 9.81e-3 // N
+      const tx = -r[1] * mg, ty = r[0] * mg
+      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+      tauNm += Math.abs(tx * ax[0] + ty * ax[1]) / 1000
+    }
     const need = tauNm // N·m
     const stall = act.effective || 0
     out.push({ joint: j.id, label: j.label, needNm: need, stallNm: stall, margin: stall > 0 ? stall / Math.max(need, 1e-6) : 0 })
@@ -189,7 +209,14 @@ function benchTorqueMargins(design, mat) {
 function benchReport(design, analysis, opts = {}) {
   const mat = opts.mat || (analysis && analysis.material) || PARTS.pla && null
   const slopeDeg = opts.slopeDeg != null ? opts.slopeDeg : 15
-  const { com, massG } = benchCoM(design, mat)
+  const bench = benchCoM(design, mat)
+  const com = bench.com
+  // Two masses on one screen is an honesty bug: the header prints the BOM mass
+  // and this panel printed a geometry mass, so a 1.2kg arm read 1.9kg right
+  // under a card saying 1.2kg. The distribution still comes from geometry (a
+  // uniform scale moves no centre of mass), the total comes from the BOM.
+  const bomG = analysis && analysis.mass && analysis.mass.totalG
+  const massG = bomG > 0 ? bomG : bench.massG
   const contacts = benchContacts2D(design)
   const hull = hull2D(contacts)
   const flatMm = benchHullMargin([com[0], com[1]], hull)
@@ -289,4 +316,55 @@ function benchOverlay(design, mat) {
   seg([com[0] - 9, com[1], Z], [com[0] + 9, com[1], Z], col)
   seg([com[0], com[1] - 9, Z], [com[0], com[1] + 9, Z], col)
   return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
+/**
+ * Cable harness overlay: one catenary-ish run per driven joint, from the live
+ * joint pivot back to the electrical home. Colour is the harness verdict —
+ * blue stock, amber borderline, red needs an extension, violet TTL bus.
+ * Runs in design space (mm); the page's chassis transform carries it.
+ */
+function wireOverlay(design, harness) {
+  if (!harness || !harness.rows || !harness.rows.length) return null
+  const chains = chainsFor(design)
+  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const colFor = {
+    stock: [0.40, 0.60, 0.92],
+    check: [0.95, 0.70, 0.25],
+    extend: [0.95, 0.32, 0.28],
+    'daisy-chain': [0.62, 0.45, 0.92],
+    unknown: [0.50, 0.50, 0.50],
+  }
+  const home = harness.home
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  for (const r of harness.rows) {
+    const j = byId.get(r.id)
+    if (!j || !j.pivot) continue
+    // pivot is fixed to the parent link: ancestors rotate it, the joint's own
+    // angle spins about it and does not translate it
+    const chain = (chains.get(r.id) || []).slice(0, -1)
+    const start = applyChain(chain, j.pivot)
+    const col = colFor[r.lead] || colFor.unknown
+    const len = Math.hypot(start[0] - home[0], start[1] - home[1], start[2] - home[2])
+    if (len < 4) continue
+    const sag = Math.min(70, len * 0.14)
+    // quadratic bezier: control point droops below the chord midpoint
+    const cx = (start[0] + home[0]) / 2
+    const cy = (start[1] + home[1]) / 2
+    const cz = (start[2] + home[2]) / 2 - sag
+    const at = (t) => {
+      const u = 1 - t
+      return [
+        u * u * start[0] + 2 * u * t * cx + t * t * home[0],
+        u * u * start[1] + 2 * u * t * cy + t * t * home[1],
+        Math.max(3, u * u * start[2] + 2 * u * t * cz + t * t * home[2]),
+      ]
+    }
+    const q1 = at(1 / 3), q2 = at(2 / 3)
+    seg(start, q1, col)
+    seg(q1, q2, col)
+    seg(q2, home, col)
+  }
+  return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
 }

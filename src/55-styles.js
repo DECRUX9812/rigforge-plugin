@@ -83,6 +83,13 @@ const GLOBAL_CSS = `
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 900px) {
+  /* the pose rack wraps to three rows on a narrow screen and the fixed 78px
+     window cut the last slider in half — a joint you cannot reach is worse than
+     one further down the page */
+  [data-rf="posegrid"] { max-height: 138px !important; }
+}
+
 @media (max-width: 780px) {
   /* the drawing title block and the HUD are sheet niceties; on a narrow screen
      they sit on top of the machine, so the machine wins */
@@ -91,6 +98,13 @@ const GLOBAL_CSS = `
   [data-rf="view"] { min-height: 50vh; }
   [data-rf="viewbar"], [role="toolbar"] { left: 8px; right: 8px; padding: 6px; max-width: calc(100% - 16px); }
   [data-rf="viewbar"] button, [role="toolbar"] button { min-height: 30px; min-width: 34px; }
+  /* The top bar carries the wordmark, the project strip and five controls. On a
+     font stack wider than the dev machine's it overflowed by 6px and scrolled
+     the whole page sideways. Wrapping is font-independent; shaving gaps only
+     moves the threshold. The ⌘K chip is hidden at this width below. */
+  [data-rf="top"] { flex-wrap: wrap; row-gap: 6px; }
+  [data-rf="top"] > * { min-width: 0; }
+  [data-rf="paletteBtn"] { display: none; }
   /* inline style says nowrap; the caption should wrap, not trail off */
   [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
 }
@@ -244,7 +258,7 @@ const S = {
     boxShadow: '0 0 0 1px rgba(255,106,26,0.22), 0 8px 20px rgba(0,0,0,0.32)',
   },
   cardTitle: { fontFamily: C.sans, fontSize: '11.5px', fontWeight: 650, color: C.text, letterSpacing: '0.01em' },
-  cardSub: { fontSize: '11px', color: C.faint, lineHeight: 1.35 },
+  cardSub: { fontSize: '11px', color: C.dim, lineHeight: 1.35 },
   thumb: {
     display: 'block', width: '100%', height: '62px', marginBottom: '3px',
     borderRadius: '7px', background: 'radial-gradient(circle at 50% 30%, #12202b, #0a1017 70%)',
@@ -359,10 +373,10 @@ const S = {
   },
   poseGrid: {
     flex: '1 1 auto', minWidth: 0, display: 'grid', gap: '6px 18px',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(238px, 1fr))',
     maxHeight: '78px', overflowY: 'auto', alignContent: 'start',
   },
-  poseRow: { display: 'grid', gridTemplateColumns: '1fr 84px 40px', alignItems: 'center', gap: '8px', minWidth: 0 },
+  poseRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 74px 46px', alignItems: 'center', gap: '7px', minWidth: 0 },
   poseName: {
     fontSize: '10.5px', color: C.dim, whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis', letterSpacing: '0.01em',
@@ -475,13 +489,13 @@ const S = {
     color: C.faint, textTransform: 'uppercase', marginBottom: '7px',
   },
   buyRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', alignItems: 'baseline',
+    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto 66px', gap: '10px', alignItems: 'baseline',
     padding: '6px 0', borderBottom: `1px solid ${C.lineSoft}`,
   },
   buyName: { fontSize: '12px', color: C.text, lineHeight: 1.35 },
   buyQty: { fontFamily: C.mono, fontSize: '10px', color: C.faint },
   buyPrice: {
-    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap',
+    fontFamily: C.mono, fontSize: '12px', color: C.dim, whiteSpace: 'nowrap', textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
   },
   buyMore: { fontFamily: C.sans, fontSize: '10.5px', color: C.faint, paddingTop: '6px' },
