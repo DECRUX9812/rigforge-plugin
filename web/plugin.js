@@ -5592,6 +5592,7 @@ const S = {
     display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
     background: C.bg, color: C.text, fontFamily: C.sans,
     fontSize: '13.5px', lineHeight: 1.5, WebkitFontSmoothing: 'antialiased',
+    padding: '10px', gap: '10px',
   },
 
   // ── top bar ─────────────────────────────────────────────────────────────
@@ -5599,6 +5600,7 @@ const S = {
     display: 'flex', alignItems: 'center', gap: '20px', padding: '0 20px',
     height: '58px', flex: '0 0 58px', borderBottom: `1px solid ${C.line}`,
     background: `linear-gradient(180deg, ${C.panel2}, ${C.panel})`,
+    borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
   },
   mark: { display: 'flex', alignItems: 'center', gap: '10px' },
   wordmark: {
@@ -5671,10 +5673,18 @@ const S = {
 
   // ── body grid ───────────────────────────────────────────────────────────
   body: {
-    display: 'grid', gap: '1px', background: C.line, flex: '1 1 auto', minHeight: 0,
+    display: 'grid', gap: '10px', background: 'transparent', flex: '1 1 auto', minHeight: 0,
   },
-  col: { background: C.bg, minHeight: 0, display: 'flex', flexDirection: 'column' },
-  rail: { background: C.panel, minHeight: 0, overflowY: 'auto', padding: '16px' },
+  col: {
+    background: C.panel, minHeight: 0, display: 'flex', flexDirection: 'column',
+    borderRadius: '12px', border: `1px solid ${C.lineSoft}`, overflow: 'hidden',
+    boxShadow: '0 12px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)',
+  },
+  rail: {
+    background: C.panel, minHeight: 0, overflowY: 'auto', padding: '16px',
+    borderRadius: '12px', border: `1px solid ${C.lineSoft}`,
+    boxShadow: '0 12px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)',
+  },
 
   sectionLabel: {
     fontFamily: C.mono, fontSize: '9.5px', letterSpacing: '0.16em', color: C.faint,
