@@ -313,6 +313,7 @@ function createGaitTeleop(design) {
     locomote(cmd, dt, actualAngles, env) {
       const e = env || {}
       const course = e.course === 'room' ? 'room' : e.course === 'stairs' ? 'stairs' : 'rack'
+      loco.course = course
       dt = Math.min(dt, 0.05)
       loco.throttle = Math.max(-1, Math.min(1, cmd.x || 0))
       loco.steer = Math.max(-1, Math.min(1, cmd.y || 0))
@@ -425,6 +426,7 @@ function createGaitTeleop(design) {
           gradeDeg: Math.round(Math.abs(loco.grade) * 180 / Math.PI),
           surface: loco.surf,
           mu: loco.mu,
+          course: loco.course,
           slip: loco.slip, stall: loco.stall, bumps: loco.bumps,
         },
       }
@@ -518,9 +520,10 @@ function deskPropNear(x, y, z, r = 110) {
  */
 function fixSuggestions(s) {
   const out = []
-  const push = (sev, msg) => {
-    if (out.length < 3 && !out.some((f) => f.msg === msg)) out.push({ sev, msg })
+  const push = (sev, msg, apply) => {
+    if (out.length < 3 && !out.some((f) => f.msg === msg)) out.push({ sev, msg, apply: apply || null })
   }
+  const brief = s.brief || {}
   for (const v of s.bench ? s.bench.verdicts : []) {
     if (v.status !== 'fail' && v.status !== 'warn') continue
     if (/stab|tip|balance/i.test(v.label)) {
@@ -529,18 +532,32 @@ function fixSuggestions(s) {
       push('warn', `Fix torque: ${v.detail || v.label} — bigger servo or shorter reach`)
     }
   }
-  if (s.drive) {
-    if (s.drive.stall || (s.drive.slide && s.drive.throttle)) {
-      push('fail', `Fix drive: wheels can't pull ${s.drive.mass ? s.drive.mass.toFixed(1) + 'kg ' : ''}up ${s.drive.gradeDeg}° ${s.drive.surface} — more torque, lower grade, or shed payload`)
-    } else if (s.drive.slip) {
-      push('warn', `Fix traction: slipping on ${s.drive.surface} (μ${s.drive.mu}) — rubber wheels or less payload`)
+  // legged locomotion reports under .loco; wheeled drive reports flat —
+  // normalize so the same failure rules apply to both
+  const drv = s.drive ? (s.drive.loco || s.drive) : null
+  if (drv) {
+    if (drv.stall || (drv.slide && drv.throttle)) {
+      push('fail', `Fix drive: wheels can't pull ${drv.mass ? drv.mass.toFixed(1) + 'kg ' : ''}up ${drv.gradeDeg}° ${drv.surface} — more torque, lower grade, or shed payload`)
+    } else if (drv.slip) {
+      push('warn', `Fix traction: slipping on ${drv.surface} (μ${drv.mu}) — rubber wheels or less payload`)
     }
-    if (s.drive.course === 'stairs' && (s.drive.stall || (s.drive.bumps || 0) > 0)) {
-      push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension')
+    if (drv.course === 'stairs' && (drv.stall || (drv.bumps || 0) > 0)) {
+      const isLegged = !!(s.drive && s.drive.loco)
+      if (isLegged) {
+        const reach = brief.reachMm || 400
+        push('fail', 'Fix steps: 80mm risers beat leg reach — longer legs or a different gait',
+          reach < 700 ? { reachMm: Math.min(900, reach + 200) } : null)
+      } else {
+        const wheelMm = brief.wheelMm || 100
+        push('fail', 'Fix steps: 80mm risers beat wheel bite — fit ≥150mm wheels or articulated suspension',
+          wheelMm < 150 ? { wheelMm: 150 } : null)
+      }
     }
   }
   if (s.prop && s.prop.over) {
-    push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`)
+    const pay = brief.payloadKg || 1
+    push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`,
+      { payloadKg: Math.max(0.1, Math.round(pay * 0.7 * 10) / 10) })
   }
   if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
     push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
@@ -550,7 +567,9 @@ function fixSuggestions(s) {
   }
   if (s.power) {
     if (s.power.dead) {
-      push('fail', 'Fix power: battery flat — bigger pack (3S→4S) or shorter duty cycle')
+      const bat = brief.battery || 'pack3s'
+      push('fail', 'Fix power: battery flat — bigger pack or shorter duty cycle',
+        bat !== 'lipo3s' && bat !== 'pd5v' ? { battery: 'lipo3s' } : null)
     } else if (s.power.cuts > 0 || s.power.tempMax > 75) {
       push('warn', `Fix thermal: servo hit ${Math.round(s.power.tempMax)}°C${s.power.cuts ? ` after ${s.power.cuts} cutoff${s.power.cuts > 1 ? 's' : ''}` : ''} — ease off stalls or pick hotter-rated servos`)
     }
