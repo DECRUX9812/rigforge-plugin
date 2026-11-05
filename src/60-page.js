@@ -1238,7 +1238,7 @@ function Studio() {
   return h('div', { style: S.root, 'data-rf': 'root' },
     h('style', {}, GLOBAL_CSS),
     // ── top bar: brand · one project strip · actions ────────────────────────
-    h('div', { style: S.top },
+    h('div', { style: S.top, 'data-rf': 'top' },
       h('div', { style: S.mark },
         h('span', { style: { fontFamily: C.mono, fontSize: '16px', color: C.accent, lineHeight: 1 } }, '⌬'),
         h('span', { style: S.wordmark }, 'RIGFORGE'),
@@ -1302,6 +1302,9 @@ function Studio() {
           style: { ...S.btn, fontFamily: C.mono, letterSpacing: '0.06em' },
           onClick: () => setPaletteOpen(true),
           title: 'command palette (⌘K)',
+          // a keyboard shortcut is not a touch control; the stylesheet hides it
+          // below 780px, and it needs a hook that actually exists in the DOM
+          'data-rf': 'paletteBtn',
         }, '⌘K')),
     ),
 
