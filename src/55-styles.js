@@ -55,27 +55,48 @@ const GLOBAL_CSS = `
   [data-rf="body"] { grid-template-columns: 262px minmax(0,1fr) 376px; }
 }
 @media (max-width: 1180px) {
-  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(320px, 1fr) auto; }
-  [data-rf="spec"] { grid-column: 1 / -1; max-height: 44vh; border-top: 1px solid #1E2A35; }
-  [data-rf="view"] { min-height: 38vh; }
+  [data-rf="body"] { grid-template-columns: 250px minmax(0,1fr); grid-template-rows: minmax(430px, 1fr) auto; }
+  [data-rf="spec"] { grid-column: 1 / -1; max-height: 32vh; border-top: 1px solid #1E2A35; }
+  [data-rf="view"] { min-height: 46vh; }
   [data-rf="strip"] { display: none; }
 }
 @media (max-width: 900px) {
-  /* one document that scrolls, instead of three panes fighting for height */
+  /* one document that scrolls, instead of three panes fighting for height.
+     The machine goes first: on a tablet the 3D view *is* the product, and
+     having to scroll past the chooser to see it is backwards. */
   [data-rf="body"] {
     grid-template-columns: 1fr;
     grid-template-rows: min-content min-content min-content;
     grid-auto-rows: min-content;
     overflow-y: auto;
   }
-  [data-rf="rail"] { max-height: none !important; overflow: visible !important; }
-  [data-rf="view"] { min-height: 62vh; }
+  [data-rf="view"] { order: 1; min-height: 54vh; }
+  [data-rf="rail"] { order: 2; max-height: none !important; overflow: visible !important; }
+  [data-rf="spec"] { order: 3; }
   [data-rf="spec"] { max-height: none; }
   [data-rf="codeInput"]::placeholder { color: #6F8493; opacity: 1; }
   [data-rf="tagline"] { display: none; }
   [data-rf="top"] { gap: 10px; padding: 0 12px; }
   [data-rf="strip"] { display: none; }
 }
+@media (max-width: 780px) {
+  /* the drawing title block is a sheet nicety; on a narrow screen it sits on
+     top of the machine, so the machine wins */
+  [data-rf="titleblock"] { display: none; }
+  [data-rf="hud"] { display: none; }
+}
+
+@media (max-width: 700px) {
+  /* the viewer toolbar has nine controls; it may wrap, may not push the page
+     sideways, and its targets have to be tappable with a thumb */
+  [data-rf="viewbar"] { left: 8px; right: 8px; flex-wrap: wrap; row-gap: 4px; padding: 6px; }
+  [data-rf="viewbar"] button { min-height: 30px; min-width: 34px; }
+  [data-rf="view"] { min-height: 50vh; }
+  /* inline style says nowrap; on a phone the caption should wrap instead of
+     trailing off as "5-DoF arm · 450mm r…" */
+  [data-rf="viewtitle"] { left: 12px; right: 12px; white-space: normal !important; overflow: visible !important; line-height: 1.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-rf="root"] * { transition: none !important; animation: none !important; }
 }

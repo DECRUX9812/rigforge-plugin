@@ -1485,7 +1485,7 @@ function Studio() {
             }, `SHOVE ${n}N`))),
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
-        h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+        h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options', 'data-rf': 'viewbar' },
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
             VIEWS.map(([label, yaw, pitch]) => {
               const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
