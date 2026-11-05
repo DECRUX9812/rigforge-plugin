@@ -207,7 +207,10 @@ function buildArm(brief) {
   addPart(d, 'pca9685', 1, `${servoCount} servo channels`)
   addPart(d, brief.mcu && brief.mcu !== 'esp32s3' ? brief.mcu : 'esp32s3', 1, 'controller')
   addPart(d, 'buck5a', 1, '6V servo rail')
-  addPart(d, brief.battery && brief.battery !== 'pd5v' ? brief.battery : 'pack3s', 1, 'energy')
+  // Honour the tethered choice: substituting a pack adds a battery the user did
+  // not ask for and reports a runtime for a machine that has no runtime.
+  const energy = brief.battery === 'pd5v' ? 'pd5v' : (brief.battery && PARTS[brief.battery] ? brief.battery : 'pack3s')
+  addPart(d, energy, 1, energy === 'pd5v' ? 'USB-C tethered supply' : 'energy')
   addPart(d, 'fuse', 1, 'pack protection')
   addPart(d, 'cap1000', 1, 'servo rail smoothing')
   addPart(d, 'thrust51103', 1, 'yaw axial load')
