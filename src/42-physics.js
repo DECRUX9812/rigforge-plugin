@@ -160,9 +160,13 @@ function createJointSim(design, analysis) {
           continue
         }
         const part = state.servoKey[i] ? PARTS[state.servoKey[i]] : null
-        // speed field is s/60° → dps = 60/speed; derate by gravity load,
-        // floor at 15% so a heavily loaded joint still creeps, not freezes
-        const dps = part && part.speed ? (60 / part.speed) * Math.max(0.15, 1 - 0.85 * (state.loadNm[i] / Math.max(state.stallNm[i], 1e-6))) : 200
+        // Datasheet-shaped torque-speed curve: full rated speed at zero load,
+        // easing to ~0 as gravity torque approaches stall — no artificial
+        // floor, so a joint at 90% stall genuinely crawls before it stalls.
+        const loadR = state.loadNm[i] / Math.max(state.stallNm[i], 1e-6)
+        const dps = part && part.speed
+          ? (60 / part.speed) * Math.pow(Math.max(0, 1 - Math.min(loadR, 1)), 0.75)
+          : 200
         const maxStep = dps * dt
         const step = Math.sign(err) * Math.min(Math.abs(err), maxStep)
         state.angles[i] = a + step
