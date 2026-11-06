@@ -1082,17 +1082,21 @@ check('interference: overlapping printed parts flagged, jointed relatives skippe
     `expected a×b pair, got ${JSON.stringify(ir.pairs)}`)
   assert(!ir.pairs.some((p) => p.a === 'c' || p.b === 'c'), 'clear part c falsely paired')
   // presets: jointed links nest legitimately and must NOT flag; what remains
-  // are honest static collisions (joiner plates, brackets) — count stays sane
+  // are honest static collisions — count stays sane, and split-part joiner
+  // bars must never cross each other (they share one 2.6mm slab by design
+  // of the pack, so a join×join pair means the segmentation broke)
   let total = 0
   eachPreset((p, { design }) => {
     const r = A.interferenceReport(design)
     for (const pair of r.pairs) {
       assert(pair.depth > 0.8, `${p.id}: ${pair.a}×${pair.b} flagged below depth floor (${pair.depth})`)
       assert(pair.a !== pair.b, `${p.id}: self-pair`)
+      assert(!(pair.a.includes('join') && pair.b.includes('join')),
+        `${p.id}: joiner bars ${pair.a}×${pair.b} still share volume — seam crossing not segmented`)
     }
     total += r.count
   })
-  return `synthetic overlap flagged · ${total} static pairs across presets (jointed nesting skipped)`
+  return `synthetic overlap flagged · ${total} static pairs across presets (jointed nesting + joiner crossings skipped)`
 })
 
 // ── 29. servo harness: stock leads must reach, voltage drop stays bounded ────

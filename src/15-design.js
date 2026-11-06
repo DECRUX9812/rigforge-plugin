@@ -186,18 +186,55 @@ function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
       rbox(d, `${base}-${i + 1}x${j + 1}of${nA}x${nB}`, [segX, segY, size[2]], ps, fillet, mat, extra)
     }
   }
-  // joiner bars across every seam, on the underside
+  // joiner bars across every seam, on the underside. A part split in both
+  // directions gives X-running and Y-running bars that would cross inside
+  // the same 2.6mm slab — segment each bar around the crossings and set a
+  // pad in each square, so no two printed plates ever share volume.
+  const under = pos[2] - size[2] / 2 - 1.4
+  const lenX = Math.min(size[0] * 0.7, 60)
+  const lenY = Math.min(size[1] * 0.7, 60)
+  const seamX = (i) => pos[0] - size[0] / 2 + i * segX + (i - 0.5) * gap
+  const seamY = (j) => pos[1] - size[1] / 2 + j * segY + (j - 0.5) * gap
+  // bar i runs along Y centred on seamX(i); bar j runs along X centred on
+  // seamY(j). Their plan rectangles overlap iff both axis gaps are under
+  // the summed half-widths — that is exactly when the bars would collide.
+  const meets = (i, j) =>
+    Math.abs(seamX(i) - pos[0]) <= lenX / 2 + 13 && Math.abs(seamY(j) - pos[1]) <= lenY / 2 + 13
+  const xCuts = {}; const yCuts = {}; const pads = []
   for (let i = 1; i < nA; i += 1) {
-    rbox(d, `${base}-joinX-${i}`, [26, Math.min(size[1] * 0.7, 60), 2.6], [
-      pos[0] - size[0] / 2 + i * segX + (i - 0.5) * gap,
-      pos[1], pos[2] - size[2] / 2 - 1.4,
-    ], 0.8, mat, { print: true })
+    for (let j = 1; j < nB; j += 1) {
+      if (!meets(i, j)) continue
+      pads.push([seamX(i), seamY(j)])
+      ;(xCuts[i] = xCuts[i] || []).push(seamY(j))
+      ;(yCuts[j] = yCuts[j] || []).push(seamX(i))
+    }
+  }
+  // split [a0,a1] into pieces that stop 13mm short of each cut centre
+  const avoid = (a0, a1, cuts) => {
+    const out = []; let cur = a0
+    for (const c of cuts) {
+      if (c - 13 > cur) out.push([cur, Math.min(c - 13, a1)])
+      cur = Math.max(cur, c + 13)
+    }
+    if (cur < a1) out.push([cur, a1])
+    return out.filter(([a, b]) => b - a > 0.5)
+  }
+  pads.forEach(([px, py], k) => {
+    rbox(d, `${base}-joinP-${k + 1}`, [26, 26, 2.6], [px, py, under], 0.8, mat, { print: true })
+  })
+  for (let i = 1; i < nA; i += 1) {
+    const xi = seamX(i); const yc = xCuts[i] || []
+    avoid(pos[1] - lenY / 2, pos[1] + lenY / 2, yc).forEach(([a, b], k) => {
+      const id = yc.length ? `${base}-joinX-${i}-${k + 1}` : `${base}-joinX-${i}`
+      rbox(d, id, [26, b - a, 2.6], [xi, (a + b) / 2, under], 0.8, mat, { print: true })
+    })
   }
   for (let j = 1; j < nB; j += 1) {
-    rbox(d, `${base}-joinY-${j}`, [Math.min(size[0] * 0.7, 60), 26, 2.6], [
-      pos[0], pos[1] - size[1] / 2 + j * segY + (j - 0.5) * gap,
-      pos[2] - size[2] / 2 - 1.4,
-    ], 0.8, mat, { print: true })
+    const yj = seamY(j); const xc = yCuts[j] || []
+    avoid(pos[0] - lenX / 2, pos[0] + lenX / 2, xc).forEach(([a, b], k) => {
+      const id = xc.length ? `${base}-joinY-${j}-${k + 1}` : `${base}-joinY-${j}`
+      rbox(d, id, [b - a, 26, 2.6], [(a + b) / 2, yj, under], 0.8, mat, { print: true })
+    })
   }
   if (d.notes) {
     d.notes.push(`${base} prints in ${count} pieces (${Math.round(segX)}×${Math.round(segY)}mm) with joiner plates — glue or bolt the seams.`)
