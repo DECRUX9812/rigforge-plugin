@@ -3702,7 +3702,9 @@ function armChainFor(design, side) {
   const chains = chainsFor(design)
   let tipJoint = null, tipChain = null
   for (const j of design.joints || []) {
-    if (j.slide || !j.id.startsWith(pre) || !/wrist|tool|gripper|hand|ee/.test(j.id)) continue
+    // 'ee' must be a delimited token — bare /ee/ matches 'knee', which made
+    // the humanoid's "arm" IK chain its leg (r-knee ahead of r-wrist in order)
+    if (j.slide || !j.id.startsWith(pre) || !/wrist|tool|gripper|hand|(?:^|[-_])ee(?:[-_]|$)/.test(j.id)) continue
     const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
     if (ch.length >= 3 && (!tipChain || ch.length > tipChain.length)) { tipChain = ch; tipJoint = j }
   }
