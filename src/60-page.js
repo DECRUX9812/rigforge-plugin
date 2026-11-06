@@ -639,8 +639,15 @@ function Studio() {
     if (!opts.reach || !t || !t.reachSphere) return null
     return reachOverlay(t.reachSphere, t.tipPos(dispPose))
   }, [opts.reach, teleopKind, design, dispPose])
+  // Sampled workspace: the sphere is the bound; the cloud is what IK actually
+  // reaches — cyan reachable, green also-liftable at the payload rating.
+  const wsMap = useMemo(
+    () => (opts.reach && teleopKind === 'ik' ? workspaceMap(design, analysis) : null),
+    [opts.reach, teleopKind, design, analysis],
+  )
+  const wsOv = useMemo(() => workspaceOverlay(wsMap), [wsMap])
   const rawOv = useMemo(() => {
-    const parts = [benchOv, cableOv, reachOv].filter(Boolean)
+    const parts = [benchOv, cableOv, reachOv, wsOv].filter(Boolean)
     if (!parts.length) return null
     if (parts.length === 1) return parts[0]
     const total = parts.reduce((s, p) => s + p.data.length, 0)
@@ -648,7 +655,7 @@ function Studio() {
     let off = 0
     for (const p of parts) { d.set(p.data, off); off += p.data.length }
     return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
-  }, [benchOv, cableOv, reachOv])
+  }, [benchOv, cableOv, reachOv, wsOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -1668,6 +1675,11 @@ function Studio() {
                   style: { color: propHud.over ? C.red : C.green },
                   title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
                 }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
+                wsMap && wsMap.stats.reach ? h('span', {
+                  key: 'ws',
+                  style: { color: C.cyan },
+                  title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} targets reachable · ${wsMap.stats.lift} also lift ${wsMap.stats.payloadG}g`,
+                }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g`) : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'

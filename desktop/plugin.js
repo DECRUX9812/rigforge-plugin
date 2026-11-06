@@ -5315,6 +5315,85 @@ function reachOverlay(sphere, tip) {
   return { data: new Float32Array(arr), verts: arr.length / 6 }
 }
 
+/**
+ * Sampled workspace map for IK machines: fibonacci-sphere targets inside the
+ * reach bound, each solved by multi-seed CCD. A point counts reachable when
+ * the solver settles <12mm; it counts LIFTABLE when the worst joint still has
+ * ≥1× stall margin holding `payloadG` hung 35mm below the tip — the same
+ * torque model the lift certification legs use. Pose-independent: the
+ * workspace is a property of the machine, not of where it happens to sit.
+ * Returns {pts:[{p,lift}], stats} or null for non-IK designs.
+ */
+function workspaceMap(design, analysis, opts = {}) {
+  const tip = armTipChain(design)
+  if (!tip) return null
+  const sphere = armReachBound(tip)
+  if (!sphere) return null
+  const payloadG = opts.payloadG != null ? opts.payloadG : 300
+  const dirs = opts.dirs || 42
+  const radii = opts.radii || [0.45, 0.65, 0.85]
+  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
+  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
+  const ikChain = tip.tipChain.map((j) => byId.get(j.id)).filter(Boolean)
+  if (ikChain.length < 3) return null
+  const tipNode = tip.tipNode
+  const chains = chainsFor(scratch)
+  const tipW = () => benchNodeWorld(scratch, chains, tipNode)
+  const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
+  const seeds = [frac(0.5), frac(0.15), frac(0.85), scratch.joints.map(() => 0)]
+  const mat = (analysis && analysis.print && analysis.print.material) || null
+  const pts = []
+  let reach = 0, lift = 0, total = 0
+  const GA = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < dirs; i++) {
+    const y = 1 - (i / (dirs - 1)) * 2
+    const rr = Math.sqrt(Math.max(0, 1 - y * y))
+    const th = GA * i
+    const u = [Math.cos(th) * rr, y, Math.sin(th) * rr]
+    for (const f of radii) {
+      const target = [sphere.c[0] + u[0] * sphere.r * f, sphere.c[1] + u[1] * sphere.r * f, sphere.c[2] + u[2] * sphere.r * f]
+      // Below the bench plane the kinematics still solve, but the tip would
+      // be inside the floor — not a pose the machine can actually hold.
+      if (target[2] < 25) continue
+      total += 1
+      let bestPose = null, bestErr = 1e9
+      for (const seed of seeds) {
+        seed.forEach((a, k) => { scratch.joints[k].angle = a })
+        const r = solveChainIK(scratch, ikChain, target, tipW, 14)
+        if (r.err < bestErr) { bestErr = r.err; bestPose = scratch.joints.map((j) => j.angle) }
+      }
+      if (bestErr > 12) continue
+      reach += 1
+      // lift check: worst joint margin holding the payload at the solved pose
+      const posed = { ...design, joints: design.joints.map((j, k) => ({ ...j, angle: bestPose[k] != null ? bestPose[k] : j.angle })) }
+      const tp = benchNodeWorld(posed, chainsFor(posed), tipNode)
+      const tor = benchTorqueMargins(posed, mat, [{ joint: tipNode.joint, pos: [tp[0], tp[1], tp[2] - 35], massG: payloadG }])
+      const worst = tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity })
+      const ok = worst.margin >= 1
+      if (ok) lift += 1
+      pts.push({ p: target, lift: ok })
+    }
+  }
+  return { pts, stats: { total, reach, lift, payloadG } }
+}
+
+/** GL_LINES crosses for the workspace map: cyan = reachable, green = can
+ *  also lift `payloadG`. Same {data,verts} contract as the other overlays. */
+function workspaceOverlay(map) {
+  if (!map || !map.pts || !map.pts.length) return null
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  const reachCol = [0.35, 0.75, 1.0]
+  const liftCol = [0.35, 0.95, 0.55]
+  for (const s of map.pts) {
+    const p = s.p, c = s.lift ? liftCol : reachCol, h = 9
+    seg([p[0] - h, p[1], p[2]], [p[0] + h, p[1], p[2]], c)
+    seg([p[0], p[1] - h, p[2]], [p[0], p[1] + h, p[2]], c)
+    seg([p[0], p[1], p[2] - h], [p[0], p[1], p[2] + h], c)
+  }
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
 // ── simulation export: URDF and MJCF ────────────────────────────────────────
 // The studio poses a kinematic chain; it does not pretend to be a physics
 // engine. What an engineer actually needs is the machine in a format a real
@@ -11424,8 +11503,15 @@ function Studio() {
     if (!opts.reach || !t || !t.reachSphere) return null
     return reachOverlay(t.reachSphere, t.tipPos(dispPose))
   }, [opts.reach, teleopKind, design, dispPose])
+  // Sampled workspace: the sphere is the bound; the cloud is what IK actually
+  // reaches — cyan reachable, green also-liftable at the payload rating.
+  const wsMap = useMemo(
+    () => (opts.reach && teleopKind === 'ik' ? workspaceMap(design, analysis) : null),
+    [opts.reach, teleopKind, design, analysis],
+  )
+  const wsOv = useMemo(() => workspaceOverlay(wsMap), [wsMap])
   const rawOv = useMemo(() => {
-    const parts = [benchOv, cableOv, reachOv].filter(Boolean)
+    const parts = [benchOv, cableOv, reachOv, wsOv].filter(Boolean)
     if (!parts.length) return null
     if (parts.length === 1) return parts[0]
     const total = parts.reduce((s, p) => s + p.data.length, 0)
@@ -11433,7 +11519,7 @@ function Studio() {
     let off = 0
     for (const p of parts) { d.set(p.data, off); off += p.data.length }
     return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
-  }, [benchOv, cableOv, reachOv])
+  }, [benchOv, cableOv, reachOv, wsOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -12453,6 +12539,11 @@ function Studio() {
                   style: { color: propHud.over ? C.red : C.green },
                   title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
                 }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
+                wsMap && wsMap.stats.reach ? h('span', {
+                  key: 'ws',
+                  style: { color: C.cyan },
+                  title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} targets reachable · ${wsMap.stats.lift} also lift ${wsMap.stats.payloadG}g`,
+                }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g`) : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'
