@@ -237,7 +237,9 @@ function buildArm(brief) {
   addPart(d, 'fuse', 1, 'pack protection')
   addPart(d, 'cap1000', 1, 'servo rail smoothing')
   addPart(d, 'thrust51103', 1, 'yaw axial load')
-  addPart(d, 'as5600', 2, 'shoulder + elbow feedback')
+  // no as5600 here: the cartridge races + bolt + servo fill every joint face,
+  // there is no honest mount for a magnetic encoder — and the generated
+  // firmware never reads one. Phantom parts inflate the BOM; cut them.
   addPart(d, 'hw_m3', 1, 'nuts + washers')
   addPart(d, 'bearing608', 4, 'joint bearings')
   addPart(d, 'wire22', 1, 'signal harness')
