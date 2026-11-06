@@ -66,10 +66,13 @@ function buildGantry(brief) {
     box(d, 'ctrl-base', [30, 150, 4], [cb[0], cb[1], cb[2] - 43], 'shell', cbO)
     for (const sy of [-1, 1]) box(d, `ctrl-wall-y${sy}`, [30, 3, 86], [cb[0], cb[1] + sy * 73.5, cb[2] + 2], 'shell', cbO)
     for (const sx of [-1, 1]) box(d, `ctrl-wall-x${sx}`, [3, 144, 86], [cb[0] + sx * 13.5, cb[1], cb[2] + 2], 'shell', cbO)
-    for (const [i, sy] of [[0, -1], [1, 0], [2, 1]])
-      box(d, `drv8825-${'abc'[i]}`, [4, 40, 40], [cb[0], cb[1] + sy * 46, cb[2] - 20], 'pcb')
-    box(d, 'esp32', [4, 30, 50], [cb[0] - 9.5, cb[1], cb[2] + 15], 'pcb')
-    box(d, 'buck5a', [4, 16, 30], [cb[0] - 9.5, cb[1] + 55, cb[2] - 20], 'pcb')
+    // boards at catalog dims, stood on edge against the side walls — the
+    // cage is only ~24mm deep, so flat-mounting a 62mm DevKit is impossible;
+    // a real build standoffs them to the walls exactly like this.
+    elec(d, 'esp32', 'esp32s3', [cb[0] - 8, cb[1] - 30, cb[2] + 2], [2, 0, 1])
+    elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
+    for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
+      elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,

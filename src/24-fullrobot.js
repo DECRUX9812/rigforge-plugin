@@ -45,19 +45,18 @@ function buildFullRobot(brief) {
   for (const sx of [-1, 1]) {
     splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
-  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
-  // the rest of the electronics BOM, stacked on the avionics board where a
-  // real build mounts shield boards — motor driver, servo driver, controller,
-  // two UBECs. Clear of the IMU, the turret column (x<-24,y>-46) and the
-  // pack box (x>8,y>-71); verified against boundsOf at every pose.
-  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const az = deckZ + 22
-  box(d, 'bts7960', [43, 43, 5], [ax - 21.7, ay - 30.1, az + 0.5], 'pcb')
-  box(d, 'pca9685', [24, 50, 5], [ax + 18.3, ay - 5.1, az + 0.5], 'pcb')
-  box(d, 'esp32', [26, 22, 4], [ax + 17.3, ay + 37.9, az], 'pcb')
-  box(d, 'buck5a-a', [33, 16, 3], [ax - 22.7, ay + 15.9, az - 0.5], 'pcb')
-  box(d, 'buck5a-b', [33, 16, 3], [ax + 18.3, ay - 42.1, az - 0.5], 'pcb')
+  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
+  // Electronics at catalog dims, on the two boards a real build gives them:
+  // logic on the avionics PCB (clear of the turret column x<-24/y>-46 and the
+  // pack x>8/y>-71), power on the pack lid. Verified against boundsOf.
+  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const px = wheelbase * 0.16
+  elec(d, 'imu', 'bno085', [ax, ay, deckZ + 22])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [ax - 27.7, ay - 17.1, deckZ + 24], [1, 0, 2])
+  elec(d, 'pca9685', 'pca9685', [ax + 27.3, ay - 17.1, deckZ + 22], [1, 0, 2])
+  elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
+  elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
+  elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [

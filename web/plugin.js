@@ -709,6 +709,16 @@ function box(d, id, size, pos, mat, extra) {
   d.nodes.push({ id, kind: 'box', size, pos, mat, ...extra })
 }
 
+/** Electronics node at CATALOG dims — the board on the BOM is the board on
+ *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
+ *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
+ *  [2,0,1] stands a board on edge). Defaults to lying flat. */
+function elec(d, id, key, pos, axes) {
+  const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
+  const m = axes || [0, 1, 2]
+  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb')
+}
+
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
 /**
  * Print-bed aware box: anything longer or wider than the bed becomes a grid of
@@ -1370,9 +1380,11 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
-  // driver boards on the exposed plate annulus, clear of tower wall and bolts
-  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
-  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
+  // driver boards on the exposed plate annulus at catalog dims, clear of
+  // tower wall, bolts and each other; UBEC on the front strip
+  elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
+  elec(d, 'buck5a', 'buck5a', [0, 64, 18])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
@@ -1585,8 +1597,12 @@ function buildRover(brief) {
   // the deck, and the second VL53L0X faces down under the rear bumper as the
   // drop-off ranger the BOM line names
   const deckTop = z0 + chassisH + 0.5
-  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-wheelbase * 0.3, -track * 0.3, deckTop + 5])
+  elec(d, 'imu', 'bno085', [-wheelbase * 0.3 + 48, -track * 0.3, deckTop + 2])
+  // motor drivers + logic UBEC on the open deck, clear of wheels and mast
+  elec(d, 'bts7960-a', 'bts7960', [-wheelbase * 0.22, -track * 0.15, deckTop + 10])
+  elec(d, 'bts7960-b', 'bts7960', [-wheelbase * 0.22, track * 0.15, deckTop + 10])
+  elec(d, 'buck5a', 'buck5a', [-wheelbase * 0.08, 0, deckTop + 6])
   cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
@@ -1687,8 +1703,14 @@ function buildQuadruped(brief) {
   // the BOM's brains are real parts: IMU centered on the spine shelf for
   // body attitude, controller board on the body top outboard of the spine
   const bodyTop = z0 + bodyH / 2
-  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
-  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
+  elec(d, 'imu', 'bno085', [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5])
+  // the BOM's driver boards at catalog dims: two PCA9685 on the pack lid,
+  // two UBECs on the body-top front strip clear of spine and pack
+  elec(d, 'pca9685-a', 'pca9685', [-20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'pca9685-b', 'pca9685', [20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'buck5a-a', 'buck5a', [-25, 57, bodyTop + 6])
+  elec(d, 'buck5a-b', 'buck5a', [25, 57, bodyTop + 6])
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
@@ -1862,10 +1884,14 @@ function buildGripper(brief) {
   box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
   box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
-  box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
-  // controller boards on the open deck strip behind the keeper rails
-  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
-  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
+  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, rackY, deckZ + 14])
+  // controller stack on a printed backplate behind the deck — the deck top
+  // is all mechanism (rail, keepers, carriages), so the boards stand on the
+  // plate's rear face like a real gadget's rear cover
+  rbox(d, 'elec-plate', [110, 12, 75], [0, -deckW / 2 - 6, 47.5], 2, 'shell', { print: true })
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
+  elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
+  elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
@@ -1874,6 +1900,7 @@ function buildGripper(brief) {
   addPart(d, 'limit_sw', 1, 'homing end-stop')
   addPart(d, 'as5600', 1, 'jaw position feedback')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  addPart(d, 'bus_adapter', 1, 'serial servo bus')
   addPart(d, 'buck5a', 1, '6V servo rail')
   addPart(d, brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : brief.battery, 1, 'energy')
   addPart(d, 'fuse', 1, 'rail protection')
@@ -2040,19 +2067,18 @@ function buildFullRobot(brief) {
   for (const sx of [-1, 1]) {
     splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
-  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
-  // the rest of the electronics BOM, stacked on the avionics board where a
-  // real build mounts shield boards — motor driver, servo driver, controller,
-  // two UBECs. Clear of the IMU, the turret column (x<-24,y>-46) and the
-  // pack box (x>8,y>-71); verified against boundsOf at every pose.
-  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const az = deckZ + 22
-  box(d, 'bts7960', [43, 43, 5], [ax - 21.7, ay - 30.1, az + 0.5], 'pcb')
-  box(d, 'pca9685', [24, 50, 5], [ax + 18.3, ay - 5.1, az + 0.5], 'pcb')
-  box(d, 'esp32', [26, 22, 4], [ax + 17.3, ay + 37.9, az], 'pcb')
-  box(d, 'buck5a-a', [33, 16, 3], [ax - 22.7, ay + 15.9, az - 0.5], 'pcb')
-  box(d, 'buck5a-b', [33, 16, 3], [ax + 18.3, ay - 42.1, az - 0.5], 'pcb')
+  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
+  // Electronics at catalog dims, on the two boards a real build gives them:
+  // logic on the avionics PCB (clear of the turret column x<-24/y>-46 and the
+  // pack x>8/y>-71), power on the pack lid. Verified against boundsOf.
+  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const px = wheelbase * 0.16
+  elec(d, 'imu', 'bno085', [ax, ay, deckZ + 22])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [ax - 27.7, ay - 17.1, deckZ + 24], [1, 0, 2])
+  elec(d, 'pca9685', 'pca9685', [ax + 27.3, ay - 17.1, deckZ + 22], [1, 0, 2])
+  elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
+  elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
+  elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
@@ -2402,7 +2428,19 @@ function buildHumanoid(brief) {
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
   cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
-  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
+  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
+  // controller + drivers on the backpack's rear face and the lower back —
+  // the way a real humanoid routes its electronics behind the torso. The
+  // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
+  // rear deck above the pack, the other UBECs below it.
+  const packBack = -limbD / 2 - 25 // rear face of the pack box
+  const packZ = pelvisTop + torsoH * 0.55
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1])
+  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1])
+  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1])
+  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1])
+  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1])
+  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1])
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
   box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
@@ -3099,10 +3137,13 @@ function buildGantry(brief) {
     box(d, 'ctrl-base', [30, 150, 4], [cb[0], cb[1], cb[2] - 43], 'shell', cbO)
     for (const sy of [-1, 1]) box(d, `ctrl-wall-y${sy}`, [30, 3, 86], [cb[0], cb[1] + sy * 73.5, cb[2] + 2], 'shell', cbO)
     for (const sx of [-1, 1]) box(d, `ctrl-wall-x${sx}`, [3, 144, 86], [cb[0] + sx * 13.5, cb[1], cb[2] + 2], 'shell', cbO)
-    for (const [i, sy] of [[0, -1], [1, 0], [2, 1]])
-      box(d, `drv8825-${'abc'[i]}`, [4, 40, 40], [cb[0], cb[1] + sy * 46, cb[2] - 20], 'pcb')
-    box(d, 'esp32', [4, 30, 50], [cb[0] - 9.5, cb[1], cb[2] + 15], 'pcb')
-    box(d, 'buck5a', [4, 16, 30], [cb[0] - 9.5, cb[1] + 55, cb[2] - 20], 'pcb')
+    // boards at catalog dims, stood on edge against the side walls — the
+    // cage is only ~24mm deep, so flat-mounting a 62mm DevKit is impossible;
+    // a real build standoffs them to the walls exactly like this.
+    elec(d, 'esp32', 'esp32s3', [cb[0] - 8, cb[1] - 30, cb[2] + 2], [2, 0, 1])
+    elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
+    for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
+      elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,

@@ -108,9 +108,11 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
-  // driver boards on the exposed plate annulus, clear of tower wall and bolts
-  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
-  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
+  // driver boards on the exposed plate annulus at catalog dims, clear of
+  // tower wall, bolts and each other; UBEC on the front strip
+  elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
+  elec(d, 'buck5a', 'buck5a', [0, 64, 18])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })

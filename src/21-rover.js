@@ -61,8 +61,12 @@ function buildRover(brief) {
   // the deck, and the second VL53L0X faces down under the rear bumper as the
   // drop-off ranger the BOM line names
   const deckTop = z0 + chassisH + 0.5
-  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-wheelbase * 0.3, -track * 0.3, deckTop + 5])
+  elec(d, 'imu', 'bno085', [-wheelbase * 0.3 + 48, -track * 0.3, deckTop + 2])
+  // motor drivers + logic UBEC on the open deck, clear of wheels and mast
+  elec(d, 'bts7960-a', 'bts7960', [-wheelbase * 0.22, -track * 0.15, deckTop + 10])
+  elec(d, 'bts7960-b', 'bts7960', [-wheelbase * 0.22, track * 0.15, deckTop + 10])
+  elec(d, 'buck5a', 'buck5a', [-wheelbase * 0.08, 0, deckTop + 6])
   cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────

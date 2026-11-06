@@ -97,10 +97,14 @@ function buildGripper(brief) {
   box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
   box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
-  box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
-  // controller boards on the open deck strip behind the keeper rails
-  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
-  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
+  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, rackY, deckZ + 14])
+  // controller stack on a printed backplate behind the deck — the deck top
+  // is all mechanism (rail, keepers, carriages), so the boards stand on the
+  // plate's rear face like a real gadget's rear cover
+  rbox(d, 'elec-plate', [110, 12, 75], [0, -deckW / 2 - 6, 47.5], 2, 'shell', { print: true })
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
+  elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
+  elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
@@ -109,6 +113,7 @@ function buildGripper(brief) {
   addPart(d, 'limit_sw', 1, 'homing end-stop')
   addPart(d, 'as5600', 1, 'jaw position feedback')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  addPart(d, 'bus_adapter', 1, 'serial servo bus')
   addPart(d, 'buck5a', 1, '6V servo rail')
   addPart(d, brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : brief.battery, 1, 'energy')
   addPart(d, 'fuse', 1, 'rail protection')
