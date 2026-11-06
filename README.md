@@ -14,11 +14,11 @@ a complete machine from one brief:
 | power | per-rail typical and stall current → pack → runtime, wire gauge, fuse and connector sizing |
 | electronics | pin map that refuses strapping pins and the flash bus, PCA9685 channels, UART bus reservation |
 | firmware | Arduino skeleton generated from the same pin map — homing, encoders, gait loops |
-| manufacturing | BOM with prices + SKUs, mass, print grams/**hours per part**, **bed-aware part splitting**, per-part STL pack (zip), **3MF slicer file**, OpenSCAD, assembly order |
+| manufacturing | BOM with prices + SKUs, mass, print grams/**hours per part**, **bed-aware part splitting**, per-part STL pack (zip), **3MF slicer file**, **glTF (.glb) for viewers/engines**, OpenSCAD, assembly order |
 | boards | a controller board you can design: placements, per-part solder verdicts, and a **board pack** (BOM + centroid/CPL + spec) for a fab or assembly house |
 | test bench | **field-test before you print**: drive dynamics (traction, grade, payload, shove), legged gait on real courses, IK reach with weighted props, grip hold tests, sensor stimulus, endurance power — plus a **statics bench** (CoM, support polygon, tip-over, torque vs stall), a touch joystick, and a **SWEEP** that exercises every joint limit at real servo speed |
 | servo harness | per-joint wire runs measured pivot→electrical home vs the BOM's stock leads — extensions auto-added to cost/BOM, stall-current voltage drop, and a live **CABLES** overlay coloured by verdict |
-| certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand, jaw hold — scored pass/fail with real numbers, kept as per-machine history with a score trend |
+| certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand, jaw hold, and **a reach tour for every arm it has** (dual-arm humanoids certify R and L separately) — scored pass/fail with real numbers, kept as per-machine history with a score trend |
 | DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships — parts that would print on edge or need support say so |
 | trust | **show the working** on every headline number, and **before/after** on every change — recomputed, never remembered |
 | sharing | a design is a **build code**: `RF1-…`, ~200 characters, rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
@@ -84,7 +84,7 @@ Every claim above is backed by a gate that can fail. These run by hand
 
 | gate | what it asserts | current |
 |---|---|---|
-| `tests/truth.mjs` | 49 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF structure, DFM overhang, kinematics, autopilot certification, honest refusals | **49/49** |
+| `tests/truth.mjs` | 52 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB structure, DFM overhang, kinematics, autopilot certification, honest refusals | **52/52** |
 | `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
 | `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
 | `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
@@ -212,7 +212,7 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
-node tests/truth.mjs            # 49 behaviour-contract claims — the numbers must stay honest
+node tests/truth.mjs            # 52 behaviour-contract claims — the numbers must stay honest
 node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
