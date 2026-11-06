@@ -197,6 +197,40 @@ check('3MF: zip structure, named objects match printed parts, mm units, Z=0', ()
   return `${objs} 3MF objects validated across presets`
 })
 
+// ── 9e. print pack: bed-aware layout — the 3MF's own placements ─────────────
+check('print pack: bed-aware shelf layout, honest plate count, nothing dropped', () => {
+  let items = 0, off = 0
+  eachPreset((p, { design }) => {
+    const pk = A.packBedLayout(design, design.brief && design.brief.bedMm)
+    const printed = design.nodes.filter((n) => n.print).length
+    assert(pk.items.length === printed, `${p.id}: pack has ${pk.items.length} items for ${printed} printed nodes — parts dropped`)
+    assert(pk.bed === Math.min(600, Math.max(100, Math.round((design.brief && design.brief.bedMm) || 256))),
+      `${p.id}: pack ignored the chosen bed`)
+    for (const it of pk.items) {
+      assert(Number.isFinite(it.rect.x) && Number.isFinite(it.rect.w) && it.rect.w > 0,
+        `${p.id}/${it.id}: degenerate bed rect`)
+      items += 1
+      if (it.offBed) off += 1
+    }
+    if (pk.items.length) assert(pk.plates >= 1, `${p.id}: plates must be ≥1`)
+    // bigger bed can only help: repack the same design on a 600mm plate
+    const big = A.packBedLayout(design, 600)
+    assert(big.offBed <= pk.offBed, `${p.id}: a bigger bed made the pack worse (${pk.offBed} → ${big.offBed} off-bed)`)
+  })
+  // the 3MF's transform offsets must be the layout's own numbers, not a copy
+  const { design: arm } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const pk = A.packBedLayout(arm, arm.brief.bedMm)
+  const raw = Buffer.from(A.to3MF(arm, null)).toString('latin1')
+  const model = raw.slice(raw.indexOf('<model '), raw.indexOf('</model>') + 8)
+  const ts = [...model.matchAll(/transform="1 0 0 0 1 0 0 0 1 ([\d.-]+) ([\d.-]+) 0"/g)].map((m) => [Number(m[1]), Number(m[2])])
+  near(ts.length, pk.items.length, 0, '3MF transform count')
+  pk.items.forEach((it, i) => {
+    near(ts[i][0], it.x, 0.01, `${it.id} 3MF x`)
+    near(ts[i][1], it.y, 0.01, `${it.id} 3MF y`)
+  })
+  return `${items} packed parts across presets · ${off} honestly off-bed · 3MF transforms = layout`
+})
+
 // ── 9d. GLB: binary glTF container, named part meshes, Y-up metres ──────────
 check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () => {
   let meshes = 0, verts = 0

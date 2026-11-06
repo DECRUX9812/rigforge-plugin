@@ -785,17 +785,17 @@ function printReadyTris(tris) {
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**
- * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
- * want: one file, named bodies, real units, laid out on a virtual bed.
- * Every printed node becomes an object with its bed-oriented triangles
- * inline; items are shelf-packed so parts don't overlap at origin.
+ * Shelf-pack every printed node onto a bed of bedMm — the exact layout the
+ * 3MF export ships, now bed-aware. Returns per-part bed-space rects, the
+ * 3MF transform offsets, an offBed flag for anything past the usable
+ * square, and the plate count a slicer would actually need. Items are
+ * never dropped: off-bed parts stay in the file so the user sees them.
  */
-function to3MF(design, material) {
-  const matName = typeof material === 'string' ? material : material && material.name
-  const objects = []
+function packBedLayout(design, bedMm) {
+  const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
+  const usable = bed - 8, GAP = 8
   const items = []
-  const BED_W = 300, GAP = 8
-  let cx = 10, cy = 10, rowH = 0, oid = 1
+  let cx = 10, cy = 10, rowH = 0
   for (const node of design.nodes) {
     if (!node.print) continue
     let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
@@ -808,8 +808,34 @@ function to3MF(design, material) {
       if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
     }
     const w = maxx - minx, d = maxy - miny
-    if (cx + w > BED_W && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
-    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${(cx - minx).toFixed(3)} ${(cy - miny).toFixed(3)} 0"/>`)
+    if (cx + w > usable && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
+    items.push({
+      id: node.id, tris,
+      x: cx - minx, y: cy - miny,          // 3MF transform offsets
+      rect: { x: cx, y: cy, w, d },        // bed-space footprint, mm
+      offBed: cx + w > usable || cy + d > usable,
+    })
+    cx += w + GAP
+    rowH = Math.max(rowH, d)
+  }
+  const depth = items.length ? cy + rowH : 0
+  return { bed, usable, items, plates: items.length ? Math.max(1, Math.ceil(depth / usable)) : 0, offBed: items.filter((i) => i.offBed).length }
+}
+
+/**
+ * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
+ * want: one file, named bodies, real units, laid out on a virtual bed.
+ * Every printed node becomes an object with its bed-oriented triangles
+ * inline; items are shelf-packed so parts don't overlap at origin.
+ */
+function to3MF(design, material) {
+  const matName = typeof material === 'string' ? material : material && material.name
+  const objects = []
+  const items = []
+  const layout = packBedLayout(design, design.brief && design.brief.bedMm)
+  layout.items.forEach((it, i) => {
+    const oid = i + 1
+    const tris = it.tris
     const vmap = new Map()
     const verts = []
     const faces = []
@@ -827,11 +853,9 @@ function to3MF(design, material) {
     for (let i = 0; i < verts.length; i += 3) {
       vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
     }
-    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(node.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
-    cx += w + GAP
-    rowH = Math.max(rowH, d)
-    oid += 1
-  }
+    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(it.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${it.y.toFixed(3)} 0"/>`)
+  })
   if (!objects.length) return null
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
