@@ -22,7 +22,7 @@ a complete machine from one brief:
 | poses | named **pose presets** per archetype — EXTEND/STOW/UP, WAVE, OPEN/CLOSE, scan presets — plus IK-replanted **stance** poses (WIDE, PROWL) whose feet stay on the ground at any machine size |
 | DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships, brim/contact ratios, **bed + plate-fit packing**, and **wall-thickness raycasts** — parts that would print on edge, need support, won't fit the plate, or have sub-nozzle walls say so |
 | trust | **show the working** on every headline number, and **before/after** on every change — recomputed, never remembered |
-| sharing | a design is a **build code**: `RF1-…`, ~200 characters, rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
+| sharing | a design is a **build code**: `RF1-…`, ~200 characters for parametric machines (a custom spec carries its nodes/joints, so longer), rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
 
 The engine is deterministic and offline: the same brief always produces the same
 machine, and every number is computed (not narrated). The agent designs; the maths
@@ -40,13 +40,16 @@ is the studio's.
 
 ## Archetypes
 
-Ten machines across three orders of magnitude, all from the same engine:
+Eleven machines across three orders of magnitude, all from the same engine:
 
 `iot` (sensor node in a printed case) · `pcb` (a real controller board, fab-ready) ·
 `arm` (5-DoF) · `gripper` (parallel jaws on MGN12) · `rover` · `quadruped` (12 servos,
 independent leg chains) · `humanoid` (23-joint biped, two servo buses) · `robot`
 (mobile manipulator: 4WD base + arm + pan head) · `gadget` (ESP32 desk device) ·
-`gantry` (metre-scale, belts + rails)
+`gantry` (metre-scale, belts + rails) · `custom` (**spec-driven**: the brief's
+`nodes[]`/`joints[]` ARE the machine — any primitive shape on any joint chain,
+with servos sized from measured gravity torque and IK/gantry teleop self-selected
+when the spec qualifies)
 
 ## What it refuses to fake
 
@@ -85,7 +88,7 @@ Every claim above is backed by a gate that can fail. These run by hand
 
 | gate | what it asserts | current |
 |---|---|---|
-| `tests/truth.mjs` | 61 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness, kinematics, autopilot certification (including gantry slide-axis legs), honest refusals | **61/61** |
+| `tests/truth.mjs` | 63 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **63/63** |
 | `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
 | `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
 | `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
@@ -177,7 +180,8 @@ src/00-head.js        imports + why-this-exists
 src/10-parts.js       the part catalogue (prices, torque, current, mass)
 src/15-design.js      design builder + printed-volume model (wall shell, not solid)
 src/20..29-*.js       archetype generators (arm, rover, quadruped, gripper/gadget,
-                      full robot, humanoid, iot node, gantry, controller board)
+                      full robot, humanoid, iot node, gantry, controller board,
+                      spec-driven custom machines)
 src/30-analysis.js    pin map, power budget, mass/cost/print, readiness checks
 src/35-firmware.js    Arduino generation + assembly steps
 src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness
@@ -213,7 +217,7 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
-node tests/truth.mjs            # 61 behaviour-contract claims — the numbers must stay honest
+node tests/truth.mjs            # 63 behaviour-contract claims — the numbers must stay honest
 node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```

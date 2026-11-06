@@ -24,6 +24,28 @@ const PRESETS = [
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
+  // The spec card: nodes/joints ARE the design — agents author these through
+  // rigforge_build, humans through build codes. This starter is a real machine
+  // (pan-tilt survey mast) so the card is never an empty promise.
+  { id: 'custom', label: 'Custom machine', brief: {
+    archetype: 'custom', mission: 'spec-driven machine — the nodes/joints in this brief are the design',
+    title: 'Pan-tilt survey mast', payloadKg: 0.4,
+    nodes: [
+      { kind: 'rbox', size: [150, 150, 10], at: [0, 0, 5], print: true, mat: 'accent' },
+      { kind: 'cyl', r: 14, h: 150, axis: 'z', at: [0, 0, 85], mat: 'metal' },
+      { kind: 'ring', ro: 20, ri: 14, h: 8, axis: 'z', at: [0, 0, 163], mat: 'steel' },
+      { kind: 'rbox', size: [64, 44, 30], at: [0, 0, 180], joint: 'yaw', print: true },
+      { kind: 'gear', m: 0.8, z: 20, w: 6, axis: 'x', at: [0, -26, 180], joint: 'tilt', mat: 'brass' },
+      { kind: 'cyl', r: 4, h: 20, axis: 'x', at: [0, 0, 196], joint: 'tilt', mat: 'steel' },
+      { kind: 'cyl', r: 16, h: 34, axis: 'y', at: [0, 42, 192], joint: 'tilt', mat: 'servo' },
+      { kind: 'wedge', size: [30, 26, 18], dir: 'ny', at: [0, 58, 192], joint: 'tilt', print: true, mat: 'accent' },
+      { kind: 'sphere', r: 9, at: [0, 62, 192], joint: 'tilt', mat: 'glass' },
+    ],
+    joints: [
+      { id: 'yaw', label: 'Pan', axis: 'z', pivot: [0, 0, 158], min: -160, max: 160 },
+      { id: 'tilt', label: 'Tilt', axis: 'x', pivot: [0, 0, 196], min: -70, max: 25, parent: 'yaw' },
+    ],
+  } },
 ]
 
 // Same ladder, but it admits when nothing matched — the difference between
@@ -102,6 +124,7 @@ function composeDesign(brief) {
   const design = b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
+    : b.archetype === 'custom' ? buildCustom(b)
     : b.archetype === 'humanoid' ? buildHumanoid(b)
     : b.archetype === 'robot' ? buildFullRobot(b)
     : b.archetype === 'rover' ? buildRover(b)
@@ -137,8 +160,8 @@ function agentPrompt(brief, spec, instruction) {
     '',
     '::rigforge{brief=<json with archetype, mission, payloadKg, reachMm, dof, material, mcu, battery>}',
     '',
-    'Keep it inside these archetypes: pcb | iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry.',
-    'Only numbers the engine can act on — no prose inside the json.',
+    'Keep it inside these archetypes: pcb | iot | gadget | gripper | arm | rover | quadruped | humanoid | robot | gantry | custom.',
+    'custom takes a nodes[] + joints[] spec instead of reach/dof — only numbers the engine can act on, no prose inside the json.',
   ]
   return lines.filter(Boolean).join('\n')
 }
