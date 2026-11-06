@@ -861,6 +861,30 @@ check('buried parts: internals are not hidden inside printed solids', () => {
   return 'no internals hidden inside printed solids across all presets'
 })
 
+// ── 23e. BOM electronics are geometry, not just procurement lines ──────────
+// Every preset that budgets a controller, IMU or distance sensor must show
+// it as placed nodes — a BOM line with no geometry is a lie the render tells.
+check('electronics: BOM brains exist as placed geometry in every preset', () => {
+  const EXPECTED = {
+    rover: ['esp32', 'imu', 'tof-drop'],
+    quadruped: ['imu', 'esp32'],
+    arm: ['pca9685', 'esp32'],
+    gripper: ['pca9685', 'esp32'],
+    humanoid: ['tof', 'imu'],
+    robot: ['imu'], // avionics/pack-box/tof/cam predate this check
+    gantry: ['ctrl-box'],
+  }
+  const missing = []
+  for (const [arch, ids] of Object.entries(EXPECTED)) {
+    const p = A.PRESETS.find((x) => x.brief.archetype === arch)
+    const { design } = A.composeDesign({ ...p.brief })
+    const have = new Set(design.nodes.map((n) => n.id))
+    for (const id of ids) if (!have.has(id)) missing.push(`${arch}:${id}`)
+  }
+  assert(!missing.length, `BOM electronics with no geometry: ${missing.join(' · ')}`)
+  return `${Object.keys(EXPECTED).length} presets expose their BOM electronics as nodes`
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
