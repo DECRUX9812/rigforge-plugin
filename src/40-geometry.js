@@ -93,6 +93,36 @@ function armTipChain(design) {
   return { tipJoint, tipChain, tipNode }
 }
 
+/** End-effector chain for one named limb side ('l'/'r'): the chain ending at
+ *  that side's wrist/tool joint. armTipChain refuses ambiguous or >8-joint
+ *  designs (the humanoid: two arms plus legs); this picks ONE arm honestly —
+ *  the right one by convention — so a biped can still IK a single arm. */
+function armChainFor(design, side) {
+  const pre = `${side}-`
+  const chains = chainsFor(design)
+  let tipJoint = null, tipChain = null
+  for (const j of design.joints || []) {
+    if (j.slide || !j.id.startsWith(pre) || !/wrist|tool|gripper|hand|ee/.test(j.id)) continue
+    const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
+    if (ch.length >= 3 && (!tipChain || ch.length > tipChain.length)) { tipChain = ch; tipJoint = j }
+  }
+  if (!tipChain || !tipJoint) return null
+  const attached = (design.nodes || []).filter((n) => n.joint === tipJoint.id && n.pos)
+  if (!attached.length) return null
+  let tipNode = attached[0], bestD = -1
+  for (const n of attached) {
+    const d = Math.hypot(n.pos[0] - tipJoint.pivot[0], n.pos[1] - tipJoint.pivot[1], n.pos[2] - tipJoint.pivot[2])
+    if (d > bestD) { bestD = d; tipNode = n }
+  }
+  return { tipJoint, tipChain, tipNode }
+}
+
+/** The arm a machine would IK: unambiguous whole-design scan first, then the
+ *  right-arm fallback for multi-limb machines (humanoid). */
+function primaryArmTip(design) {
+  return armTipChain(design) || armChainFor(design, 'r')
+}
+
 /** Workspace outer bound: link lengths along the chain + tool offset — the
  *  triangle-inequality bound; every reachable tip point sits inside. */
 function armReachBound(tip) {

@@ -472,12 +472,15 @@ check('imported CAD meshes are present and non-degenerate', () => {
 
 // ── 23. teleop: every articulated archetype gets an honest mode ─────────────
 check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => {
+  // mirrors the page's resolution: locomotion/manipulation primary, arm IK
+  // as the dual-mode overlay (M switches body vs arm on robots/humanoids)
   const kind = (arch) => {
     const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
     if (A.createDrive(design, analysis)) return 'drive'
-    if (A.createArmTeleop(design)) return 'ik'
     if (A.createGaitTeleop(design)) return 'gait'
     if (A.createGripTeleop(design)) return 'grip'
+    if (A.createSensorTeleop(design)) return 'sense'
+    if (A.createArmTeleop(design)) return 'ik'
     return null
   }
   const got = { rover: kind('rover'), robot: kind('robot'), arm: kind('arm'), quadruped: kind('quadruped'), humanoid: kind('humanoid'), gripper: kind('gripper') }
@@ -487,6 +490,22 @@ check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => 
   assert(got.quadruped === 'gait', `quadruped teleop: ${got.quadruped}`)
   assert(got.humanoid === 'gait', `humanoid teleop: ${got.humanoid}`)
   assert(got.gripper === 'grip', `gripper teleop: ${got.gripper}`)
+  // dual-mode pairs: chassis/legs AND an IK-able arm on the same machine
+  const dual = (arch) => {
+    const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
+    const body = A.createDrive(design, analysis) || A.createGaitTeleop(design)
+    return !!(body && A.createArmTeleop(design))
+  }
+  assert(dual('robot'), 'robot should offer drive + arm IK dual-mode')
+  assert(dual('humanoid'), 'humanoid should offer gait + right-arm IK dual-mode')
+  assert(!dual('arm'), 'arm has no body teleop to pair with')
+  // the humanoid's right arm must actually converge, not just exist
+  const { design: hd } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'humanoid').brief })
+  const hik = A.createArmTeleop(hd)
+  const hrest = hd.joints.map(() => 0)
+  const htip = hik.tipPos(hrest)
+  hik.seek(htip[0] + 100, htip[1], htip[2] + 40, hrest, 30)
+  assert(hik.state.err < 5, `humanoid arm IK err ${hik.state.err.toFixed(1)}mm`)
   return '6 archetypes interactive: ' + Object.entries(got).map(([k, v]) => `${k}:${v}`).join(' ')
 })
 

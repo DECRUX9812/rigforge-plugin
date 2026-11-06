@@ -13,8 +13,12 @@
  */
 function createArmTeleop(design) {
   const joints = design.joints || []
-  if (!joints.length || joints.length > 8) return null
-  const tip = armTipChain(design)
+  if (!joints.length) return null
+  // Unambiguous whole-design scan first; multi-limb machines (the humanoid)
+  // fall back to the right arm — the >8-joint cap only applies to the scan,
+  // the IK chain itself is still capped below.
+  const tipWhole = armTipChain(design)
+  const tip = tipWhole || armChainFor(design, 'r')
   if (!tip) return null
   const { tipChain, tipNode } = tip
 
@@ -22,7 +26,7 @@ function createArmTeleop(design) {
   const scratch = { ...design, joints: joints.map((j) => ({ ...j })) }
   const scratchById = new Map(scratch.joints.map((j) => [j.id, j]))
   const ikChain = tipChain.map((j) => scratchById.get(j.id)).filter(Boolean)
-  if (ikChain.length < 3) return null
+  if (ikChain.length < 3 || ikChain.length > 8) return null
 
   const tipWorld = (d) => benchNodeWorld(d, chainsFor(d), tipNode)
   const state = {
