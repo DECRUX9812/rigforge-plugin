@@ -42,6 +42,10 @@ const MAT = {
   steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
   brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
   pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  // a board reads as a board when you can see copper and white ink on it
+  copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
+  silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
+  pcbblue: { alb: L(22, 46, 96), spec: 0.3, shine: 40, metal: 0.0, glow: 0.03, rough: 0.5 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
@@ -1203,7 +1207,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
-      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      // A board is FR4 with copper and ENIG, not a 3D-printed part: the title block
+      // on a PCB drawing that says "PETG (FDM)" is simply wrong, and it is the
+      // first thing a hardware person reads.
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'),
+        h('span', { style: S.tbVal }, design.pcb
+          ? 'FR4 1.6mm · 2 layers · ENIG'
+          : `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
       h('div', { style: S.tbRow },
         h('span', { style: S.tbKey }, 'STATUS'),
         h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
