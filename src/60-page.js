@@ -195,6 +195,70 @@ function BuildCodeDialog({ open, onOpen, onClose }) {
       h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'OPEN IT'))))
 }
 
+/** Edit a custom machine's nodes/joints spec as JSON — the same shape
+ *  rigforge_build and build codes carry, so an agent's spec pastes straight in. */
+function SpecDialog({ open, brief, onApply, onClose }) {
+  const dialogRef = useDialogFocus(open, onClose)
+  const [text, setText] = useState('')
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    if (!open) return
+    setErr('')
+    setText(JSON.stringify({ nodes: brief.nodes || [], joints: brief.joints || [] }, null, 1))
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!open) return null
+  const submit = () => {
+    let obj
+    try {
+      obj = JSON.parse(text)
+    } catch (e) {
+      setErr(`Not valid JSON — ${e.message}`)
+      return
+    }
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.nodes)) {
+      setErr('The spec needs a nodes[] array — joints[] is optional.')
+      return
+    }
+    onApply({
+      archetype: 'custom',
+      nodes: obj.nodes,
+      joints: Array.isArray(obj.joints) ? obj.joints : [],
+      title: typeof obj.title === 'string' && obj.title ? obj.title.slice(0, 80) : brief.title,
+    })
+    onClose()
+  }
+  return h('div', {
+    style: S.paletteBackdrop,
+    onClick: (e) => { if (e.target === e.currentTarget) onClose() },
+  },
+  h('div', { ref: dialogRef, tabIndex: -1, style: { ...S.palette, maxHeight: 'none', width: 'min(640px, 94vw)', padding: 0 }, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Edit machine spec' },
+    h('div', { style: { padding: '16px 18px 0' } },
+      h('div', { style: { ...S.simpleLabel, margin: '0 0 4px' } }, 'edit the machine spec'),
+      h('div', { style: { ...S.hint, marginBottom: '10px' } },
+        'nodes[] place shapes (kind, at, size/r/h…, joint or slide, print), joints[] are the axes (axis, pivot, min/max, parent — or slide+travel). The engine measures and checks everything; bad entries are named, never silently dropped.')),
+    h('textarea', {
+      'data-rf': 'specInput',
+      style: {
+        ...S.paletteInput,
+        fontFamily: C.mono, fontSize: '11.5px', height: '300px', resize: 'vertical',
+        border: `1px solid ${err ? C.red : C.line}`,
+        margin: '0 18px', width: 'calc(100% - 36px)', padding: '10px', lineHeight: 1.5,
+      },
+      value: text,
+      autoFocus: true,
+      'aria-label': 'Machine spec JSON',
+      onChange: (e) => { setText(e.target.value); setErr('') },
+    }),
+    h('div', { style: { padding: '8px 18px 0', minHeight: '26px' } },
+      err
+        ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
+        : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
+          'Kinds: box rbox cyl ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
+    h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
+      h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
+      h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'BUILD IT'))))
+}
+
 function CommandPalette({ open, commands, onClose }) {
   const dialogRef = useDialogFocus(open, onClose)
   const [q, setQ] = useState('')
@@ -487,6 +551,7 @@ function Studio() {
   }
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
+  const [specOpen, setSpecOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
   const [compareOpen, setCompareOpen] = useState(false)
   const [history, setHistory] = useState([])
@@ -1673,6 +1738,14 @@ function Studio() {
           : null),
         h('div', { style: { display: 'flex', gap: '6px' } },
           h('button', { style: S.btnPrimary, onClick: onBuild }, 'BUILD'),
+          brief.archetype === 'custom'
+            ? h('button', {
+              style: { ...S.btn, flex: '0 0 auto', padding: '0 10px', gap: '6px' },
+              title: 'edit this machine\'s nodes/joints spec — the JSON IS the design',
+              'aria-label': 'Edit machine spec',
+              onClick: () => setSpecOpen(true),
+            }, 'SPEC')
+            : null,
           h('button', {
             style: { ...S.btn, flex: '0 0 auto', padding: '0 10px', gap: '6px' },
             title: 'load a worked example — deterministic, not a random draw',
@@ -2413,6 +2486,12 @@ function Studio() {
       open: codeOpen,
       onOpen: (b) => { setBrief({ ...DEFAULT_BRIEF, ...b }); setMission(b.mission || ''); setSimple(false) },
       onClose: () => setCodeOpen(false),
+    }),
+    h(SpecDialog, {
+      open: specOpen,
+      brief,
+      onApply: (spec) => setBrief((cur) => ({ ...cur, ...spec })),
+      onClose: () => setSpecOpen(false),
     }),
   )
 }
