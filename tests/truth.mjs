@@ -1179,7 +1179,17 @@ check('fix suggestions: cert lift failures prescribe sized payloads honestly', (
   const sized = A.fixSuggestions({ brief: { archetype: 'arm', payloadKg: 2 }, autotest: [{ pass: false, detail: 'best carry Wrist pitch at 0.64× stall holding 350g' }] })
     .find((f) => /Fix lift/.test(f.msg))
   assert(sized && !sized.apply, '350g under a 2kg rating needs no payload patch')
-  return `arm→payloadKg 1.2 · humanoid→verbal · sized→verbal`
+  // non-lift cert failures aggregate into one row, not one row per leg
+  const mixed = A.fixSuggestions({ brief: { archetype: 'humanoid' }, autotest: [
+    { pass: true, label: 'TROT', detail: 'ok' },
+    { pass: false, label: 'R:reach mug', detail: 'err 42mm' },
+    { pass: false, label: 'L:reach block', detail: 'err 88mm' },
+    { pass: false, label: 'L:LIMITS', detail: 'wrist min unreached' },
+  ] })
+  const agg = mixed.filter((f) => /Cert: \d+ leg/.test(f.msg))
+  assert(agg.length === 1 && /3 leg/.test(agg[0].msg) && /R:reach mug/.test(agg[0].msg),
+    `expected one aggregated cert row naming 3 fails, got ${JSON.stringify(mixed.map((f) => f.msg))}`)
+  return `arm→payloadKg 1.2 · humanoid→verbal · sized→verbal · mixed→1 aggregated row`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────

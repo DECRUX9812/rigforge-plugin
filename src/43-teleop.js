@@ -593,10 +593,11 @@ function fixSuggestions(s) {
   // servos (verified: wrist-pitch 0.22→1.08 N·m going 1→3kg) — declaring the
   // load is the honest fix. Humanoid arm servos are sized by structure, so
   // there the prescription stays verbal.
+  const certFails = []
   for (const r of s.autotest || []) {
     if (r.pass) continue
     const m = /best carry (.+?) at ([\d.]+)× stall holding (\d+)g/.exec(r.detail || '')
-    if (!m) continue
+    if (!m) { certFails.push(r.label || r.id || 'leg'); continue }
     const [, joint, margin, grams] = m
     const kg = Math.ceil((Number(grams) / 1000) * 10) / 10
     const cur = brief.payloadKg || 0
@@ -607,6 +608,12 @@ function fixSuggestions(s) {
     } else {
       push('warn', `Fix lift: ${joint} held ${grams}g at ${margin}× stall — shorten the arm or accept the limit`)
     }
+  }
+  // every other failed leg (reach, limits, gait…) still deserves a row —
+  // aggregated so a humanoid's 6 arm fails don't eat the whole panel
+  if (certFails.length) {
+    const shown = certFails.slice(0, 2).join(', ')
+    push('warn', `Cert: ${certFails.length} leg(s) failed (${shown}${certFails.length > 2 ? '…' : ''}) — see TEST for the full log`)
   }
   if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
     push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
