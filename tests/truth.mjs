@@ -644,6 +644,42 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
 })
 
+// ── 27b. joint sim: servo speed follows a real torque-speed curve ───────────
+check('joint sim: slew speed derates with gravity load, dies near stall', () => {
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const names = design.joints.map((j) => j.id)
+  const measure = (pose) => {
+    const s = A.createJointSim(design, analysis)
+    s.snap(pose)
+    s.setTargets(design.joints.map((j) => j.min + (j.max - j.min) * 0.9))
+    s.step(1 / 240, 0)
+    s.step(1 / 240, 1000) // second step forces the 2 Hz load refresh
+    return design.joints.map((j, k) => ({
+      lr: s.state.stallNm[k] > 0 ? s.state.loadNm[k] / s.state.stallNm[k] : 0,
+      dps: Math.abs(s.state.vel[k]),
+      rated: s.state.servoKey[k] && A.PARTS[s.state.servoKey[k]] ? 60 / A.PARTS[s.state.servoKey[k]].speed : 200,
+    }))
+  }
+  const extended = design.joints.map((j, k) => j.min + (j.max - j.min) * (k % 2 ? 0.85 : 0.15))
+  const m = measure(extended)
+  // every moving joint's speed must match the datasheet curve
+  // dps = rated · (1 − loadR)^0.75, and a heavily loaded joint must crawl
+  let checked = 0, worst = 0
+  for (const x of m) {
+    if (x.lr < 0.05 || x.lr > 0.97 || x.dps < 1) continue
+    const expect = x.rated * Math.pow(1 - Math.min(x.lr, 1), 0.75)
+    worst = Math.max(worst, Math.abs(x.dps - expect) / Math.max(expect, 1))
+    checked++
+  }
+  assert(checked >= 3, `only ${checked} joints carried measurable load — curve untested`)
+  assert(worst < 0.15, `slew speed deviates ${Math.round(worst * 100)}% from torque-speed curve`)
+  const heavy = m.filter((x) => x.lr > 0.8)
+  if (heavy.length) {
+    for (const x of heavy) assert(x.dps < x.rated * 0.35, `${names[m.indexOf(x)]} at ${x.lr.toFixed(2)} stall-load should crawl, got ${x.dps.toFixed(0)} vs rated ${x.rated.toFixed(0)}`)
+  }
+  return `${checked} loaded joints track the curve (worst dev ${Math.round(worst * 100)}%); ${heavy.length} near-stall joints crawl`
+})
+
 // ── 28. OpenSCAD is a file a maker can work in ──────────────────────────────
 check('OpenSCAD export: one named module per node, each instantiated once, every archetype', () => {
   let total = 0
