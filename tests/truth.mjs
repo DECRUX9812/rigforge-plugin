@@ -830,6 +830,11 @@ check('workspace map: IK-sampled cloud respects joint limits and lift torque', (
   assert(r.err < 15, `workspace point re-solve err ${r.err.toFixed(1)}mm — cloud claims unreachable`)
   const ov = A.workspaceOverlay(ws)
   assert(ov && ov.verts === ws.pts.length * 6, `overlay verts ${ov && ov.verts} != ${ws.pts.length * 6}`)
+  // the spec carries the same sampled numbers when extras are provided
+  const md = A.toSpecMarkdown(design, A.composeDesign({ ...armP.brief }).analysis, { ws })
+  assert(/Sampled workspace \| .*reachable/.test(md), 'spec missing the IK-sampled workspace row')
+  const mdBare = A.toSpecMarkdown(design, A.composeDesign({ ...armP.brief }).analysis)
+  assert(!/Sampled workspace/.test(mdBare), 'spec claims workspace numbers it was not given')
   return `workspace ${reach}/${total} reachable, ${lift} lift 100g; re-solve ${r.err.toFixed(1)}mm`
 })
 
@@ -862,6 +867,10 @@ check('leg workspace: gait machines get per-leg reach clouds, yaw joints counted
   const ov = A.legWorkspaceOverlay(qm)
   const nPts = qm.legs.reduce((s, l) => s + l.pts.length, 0)
   assert(ov && ov.verts === nPts * 6, `leg overlay verts ${ov && ov.verts} != ${nPts * 6}`)
+  // spec export carries the per-leg table when given the map
+  const { analysis: qa2 } = A.composeDesign({ ...quadP.brief })
+  const md = A.toSpecMarkdown(qd, qa2, { legWs: qm })
+  assert(/Foot workspace[\s\S]*FL \| \d+\/\d+/.test(md), 'spec missing per-leg workspace table')
   return `quad legs reach ${qm.legs.map((l) => `${l.key} ${l.reach}/${l.total}`).join(' ')}; humanoid ${hm.legs.length} legs`
 })
 
