@@ -470,7 +470,13 @@ function analyze(design) {
     pins,
     power,
     harness,
-    reach: armReachBound(primaryArmTip(design)),
+    reach: (() => {
+      const whole = armTipChain(design)
+      const tip = whole || armChainFor(design, 'r')
+      const b = armReachBound(tip)
+      // multi-limb fallback: the bound describes ONE arm, say which
+      return b && !whole ? { ...b, side: 'r' } : b
+    })(),
     cost,
     costBuy,
     costShop: cost - costBuy,
