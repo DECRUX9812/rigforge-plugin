@@ -1392,7 +1392,11 @@ function Studio() {
     for (const p of POSE_PRESETS[design.archetype] || []) {
       list.push({
         id: `act-pose-${p.name}`, group: 'ACTION', label: `Pose: ${p.name}`,
-        run: () => { const a = applyPosePreset(design, p.name); if (a) setPose(a) },
+        run: () => {
+          const live = simRef.current && simRef.current.state ? simRef.current.state.angles : null
+          const a = applyPosePreset(design, p.name, live)
+          if (a) setPose(a)
+        },
       })
     }
     return list

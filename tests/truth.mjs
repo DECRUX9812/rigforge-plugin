@@ -1223,7 +1223,17 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   assert(A.applyPosePreset(h, 'NOPE') === null, 'unknown preset must return null')
   const { design: q } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
   assert(A.applyPosePreset(q, 'WAVE') === null, 'quadruped has no presets — must return null')
-  return `5 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · unknown→null`
+  // WIDE: leg-IK replants feet wider than stance — soles must actually move out
+  const wide = A.applyPosePreset(h, 'WIDE', Array(h.joints.length).fill(0))
+  const footW = (jid, nid) => {
+    const d2 = { ...h, joints: h.joints.map((j, i) => ({ ...j, angle: wide[i] })) }
+    const node = d2.nodes.find((nn) => nn.joint === jid && nn.id.includes(nid))
+    return A.benchNodeWorld(d2, A.chainsFor(d2), node)
+  }
+  const lSole = footW('l-ankle-roll', 'sole'), rSole = footW('r-ankle-roll', 'sole')
+  assert(lSole[0] > 50 && rSole[0] < -50, `WIDE should plant soles beyond ±50mm, got ${lSole[0].toFixed(0)}/${rSole[0].toFixed(0)}`)
+  assert(lSole[2] < 20 && rSole[2] < 20, 'planted soles stay near the floor')
+  return `5 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · WIDE replants feet · unknown→null`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────
