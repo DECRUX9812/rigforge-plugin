@@ -674,7 +674,11 @@ function fixSuggestions(s) {
       push('warn', `Fix thermal: servo hit ${Math.round(s.power.tempMax)}°C${s.power.cuts ? ` after ${s.power.cuts} cutoff${s.power.cuts > 1 ? 's' : ''}` : ''} — ease off stalls or pick hotter-rated servos`)
     }
   }
-  return out.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'fail' ? -1 : 1))
+  // severity first, then actionable first within a severity: the ⚒ row shows
+  // fixes[0] and its APPLY FIX button keys off fixes[0].apply — a fail with no
+  // patch ("wheels can't pull") must not hide a fail that has one ("fit 150mm
+  // wheels"), or the button silently disappears while a fix exists.
+  return out.sort((a, b) => (a.sev === b.sev ? Number(!!b.apply) - Number(!!a.apply) : a.sev === 'fail' ? -1 : 1))
 }
 
 

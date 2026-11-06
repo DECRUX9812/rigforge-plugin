@@ -335,9 +335,10 @@ check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () =>
   return `${meshes} GLB part-meshes, ${verts} verts across presets`
 })
 
-// ── 9g. STEP: AP214 faceted B-rep — one PRODUCT per node, real mm units ──────
-// Structure is asserted here; kernel-level validity (solids, volume, bounds)
-// was verified against OpenCascade during development — see PR notes.
+// ── 9g. STEP: AP214 faceted B-rep — assembly tree, real mm units ────────────
+// Structure is asserted here; kernel-level validity (solids, volume, bounds,
+// assembly traversal) was verified against OpenCascade during development —
+// see PR notes.
 check('STEP: AP214 structure, one faceted solid per part, mm units, deterministic', () => {
   let products = 0
   eachPreset((p, { design }) => {
@@ -347,11 +348,20 @@ check('STEP: AP214 structure, one faceted solid per part, mm units, deterministi
     assert(step.includes("FILE_SCHEMA(('AUTOMOTIVE_DESIGN"), `${p.id} STEP schema`)
     assert(step.includes('SI_UNIT(.MILLI.,.METRE.)'), `${p.id} STEP not mm`)
     const want = new Set(A.buildMesh(design).map((t) => t.node || '_')).size
-    const nProd = (step.match(/PRODUCT_DEFINITION_SHAPE/g) || []).length
+    const nProd = (step.match(/PRODUCT\('/g) || []).length
     const nBrep = (step.match(/FACETED_BREP\(/g) || []).length
     const nShell = (step.match(/CLOSED_SHELL\(/g) || []).length
-    assert(nProd === want && nBrep === want && nShell === want,
-      `${p.id}: STEP products ${nProd}/breps ${nBrep}/shells ${nShell} vs ${want} parts`)
+    const nNauo = (step.match(/NEXT_ASSEMBLY_USAGE_OCCURRENCE\(/g) || []).length
+    const nCdsr = (step.match(/CONTEXT_DEPENDENT_SHAPE_REPRESENTATION\(/g) || []).length
+    // multi-part designs get one assembly product on top of the parts, and
+    // every part is linked into it — single-part designs stay a lone product
+    const wantProd = want + (want > 1 ? 1 : 0)
+    const wantLinks = want > 1 ? want : 0
+    assert(nProd === wantProd && nBrep === want && nShell === want,
+      `${p.id}: STEP products ${nProd}/breps ${nBrep}/shells ${nShell} vs ${wantProd}/${want}/${want}`)
+    assert(nNauo === wantLinks && nCdsr === wantLinks,
+      `${p.id}: assembly links NAUO ${nNauo}/CDSR ${nCdsr} vs ${wantLinks} parts`)
+    if (want > 1) assert(step.includes(`PRODUCT('assembly'`), `${p.id}: no assembly product`)
     const badLines = step.split('\n').filter((l) => l.startsWith('#') && !l.trimEnd().endsWith(';'))
     assert(!badLines.length, `${p.id}: ${badLines.length} entities missing ';'`)
     assert(A.toSTEP(design) === step, `${p.id}: STEP not deterministic`)
@@ -1469,6 +1479,31 @@ check('fix suggestions: cert lift failures prescribe sized payloads honestly', (
   assert(agg.length === 1 && /3 leg/.test(agg[0].msg) && /R:reach mug/.test(agg[0].msg),
     `expected one aggregated cert row naming 3 fails, got ${JSON.stringify(mixed.map((f) => f.msg))}`)
   return `arm→payloadKg 1.2 · humanoid→verbal · sized→verbal · mixed→1 aggregated row`
+})
+
+check('fix suggestions: an applyable fix leads its severity group', () => {
+  // rover stalled on stairs: "Fix drive" (stall, no patch) and "Fix steps"
+  // (bumps, wheelMm patch) are both fails — the patchable one must surface
+  // first or the ⚒ row's APPLY FIX button keys off the wrong entry
+  const out = A.fixSuggestions({
+    drive: { stall: true, slide: false, throttle: 1, bumps: 2, course: 'stairs', surface: 'wood' },
+    brief: { archetype: 'rover', wheelMm: 100 },
+  })
+  const driveFix = out.find((f) => /Fix drive/.test(f.msg))
+  const stepFix = out.find((f) => /Fix steps/.test(f.msg))
+  assert(driveFix && stepFix, `expected both drive+steps fixes, got ${JSON.stringify(out.map((f) => f.msg))}`)
+  assert(!driveFix.apply && stepFix.apply && stepFix.apply.wheelMm === 150,
+    `steps fix should carry wheelMm 150 patch, got ${JSON.stringify(stepFix.apply)}`)
+  assert(out[0] === stepFix, `applyable fix must lead — got ${out[0].msg} first`)
+  // severity still dominates: a warn-with-patch never outranks a fail
+  const sev = A.fixSuggestions({
+    drive: { stall: true, slide: false, throttle: 1, bumps: 0, course: 'rack', surface: 'hardwood' },
+    power: { dead: true, cuts: 0, tempMax: 40 },
+    brief: { archetype: 'rover', wheelMm: 100, battery: 'lipo2s' },
+  })
+  assert(sev[0].sev === 'fail' && /Fix drive|Fix power/.test(sev[0].msg),
+    `fail must still lead warns — got ${sev[0].sev} ${sev[0].msg}`)
+  return `steps(wheelMm) leads drive(stall) · fail>warn preserved`
 })
 
 check('pose presets: named poses resolve in-limits, presets are FK-verified', () => {
