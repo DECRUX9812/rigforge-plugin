@@ -14,36 +14,9 @@
 function createArmTeleop(design) {
   const joints = design.joints || []
   if (!joints.length || joints.length > 8) return null
-  const chains = chainsFor(design)
-
-  // The end-effector chain: the joint with the deepest revolute ancestry.
-  // Ambiguous machines (humanoid legs, quadruped) have several equal chains —
-  // picking one silently would be a lie, so they get no IK mode.
-  let tipJoint = null
-  let tipChain = null
-  let tie = false
-  for (const j of joints) {
-    if (j.slide) continue
-    const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
-    if (!tipChain || ch.length > tipChain.length) {
-      tipChain = ch; tipJoint = j; tie = false
-    } else if (ch.length === tipChain.length && tipJoint && j.id !== tipJoint.id) {
-      tie = true
-    }
-  }
-  if (!tipChain || tipChain.length < 3 || tie) return null
-
-  // Tip node: the node rigidly attached to the last joint, farthest from its
-  // pivot — the business end of the arm.
-  const tj = tipJoint
-  const attached = (design.nodes || []).filter((n) => n.joint === tj.id && n.pos)
-  if (!attached.length) return null
-  let tipNode = attached[0]
-  let bestD = -1
-  for (const n of attached) {
-    const d = Math.hypot(n.pos[0] - tj.pivot[0], n.pos[1] - tj.pivot[1], n.pos[2] - tj.pivot[2])
-    if (d > bestD) { bestD = d; tipNode = n }
-  }
+  const tip = armTipChain(design)
+  if (!tip) return null
+  const { tipChain, tipNode } = tip
 
   // Scratch design: IK mutates joint angles, so it must never touch `design`.
   const scratch = { ...design, joints: joints.map((j) => ({ ...j })) }
@@ -61,19 +34,8 @@ function createArmTeleop(design) {
   const MOVE = 220 // mm/s at full deflection
   const ZONE = { x: 0.12, y: 0.12, z: 0.12 } // stick deadzone per axis
 
-  // Workspace bound for the REACH overlay: link lengths summed along the
-  // chain plus the tool offset is the triangle-inequality outer bound —
-  // every reachable tip point sits inside the sphere, none outside it.
-  const reachSphere = (() => {
-    const c = tipChain[0].pivot
-    const last = tipChain[tipChain.length - 1].pivot
-    let r = Math.hypot(tipNode.pos[0] - last[0], tipNode.pos[1] - last[1], tipNode.pos[2] - last[2])
-    for (let i = 0; i < tipChain.length - 1; i++) {
-      const a = tipChain[i].pivot, b = tipChain[i + 1].pivot
-      r += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
-    }
-    return { c: [c[0], c[1], c[2]], r: Math.round(r) }
-  })()
+  // Workspace bound for the REACH overlay — shared with the spec's reach row.
+  const reachSphere = armReachBound(tip)
 
   return {
     kind: 'ik',

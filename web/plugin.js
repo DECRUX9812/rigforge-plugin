@@ -3124,6 +3124,7 @@ function analyze(design) {
     pins,
     power,
     harness,
+    reach: armReachBound(armTipChain(design)),
     cost,
     costBuy,
     costShop: cost - costBuy,
@@ -3652,6 +3653,53 @@ function chainsFor(design) {
     chains.set(j.id, chain)
   }
   return chains
+}
+
+/**
+ * The end-effector chain of an arm-like machine: the joint with the deepest
+ * revolute ancestry plus the node rigidly attached to it, farthest from its
+ * pivot. Ambiguous machines (humanoid legs, quadruped) have several equal
+ * chains — picking one silently would be a lie, so they get null.
+ * Shared by IK teleop, the reach overlay and the spec's reach bound.
+ */
+function armTipChain(design) {
+  const joints = design.joints || []
+  if (!joints.length || joints.length > 8) return null
+  const chains = chainsFor(design)
+  let tipJoint = null, tipChain = null, tie = false
+  for (const j of joints) {
+    if (j.slide) continue
+    const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
+    if (!tipChain || ch.length > tipChain.length) {
+      tipChain = ch; tipJoint = j; tie = false
+    } else if (ch.length === tipChain.length && tipJoint && j.id !== tipJoint.id) {
+      tie = true
+    }
+  }
+  if (!tipChain || tipChain.length < 3 || tie) return null
+  const attached = (design.nodes || []).filter((n) => n.joint === tipJoint.id && n.pos)
+  if (!attached.length) return null
+  let tipNode = attached[0], bestD = -1
+  for (const n of attached) {
+    const d = Math.hypot(n.pos[0] - tipJoint.pivot[0], n.pos[1] - tipJoint.pivot[1], n.pos[2] - tipJoint.pivot[2])
+    if (d > bestD) { bestD = d; tipNode = n }
+  }
+  return { tipJoint, tipChain, tipNode }
+}
+
+/** Workspace outer bound: link lengths along the chain + tool offset — the
+ *  triangle-inequality bound; every reachable tip point sits inside. */
+function armReachBound(tip) {
+  if (!tip) return null
+  const { tipChain, tipNode } = tip
+  const last = tipChain[tipChain.length - 1].pivot
+  let r = Math.hypot(tipNode.pos[0] - last[0], tipNode.pos[1] - last[1], tipNode.pos[2] - last[2])
+  for (let i = 0; i < tipChain.length - 1; i++) {
+    const a = tipChain[i].pivot, b = tipChain[i + 1].pivot
+    r += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+  }
+  const c = tipChain[0].pivot
+  return { c: [c[0], c[1], c[2]], r: Math.round(r) }
 }
 
 /** Apply a joint chain's rotations (root → leaf) to a rest-pose point. */
@@ -4684,6 +4732,7 @@ function toSpecMarkdown(design, a) {
   L.push(`| Print | ${fmt(a.print.hours, 0)} h |`)
   L.push(`| Controller | ${a.mcu.name} |`)
   if (m.joints) L.push(`| Actuated joints | ${m.joints} |`)
+  if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended) |`)
   if (m.runtimeMin) L.push(`| Runtime | ~${Math.round(m.runtimeMin)} min |`)
   L.push('')
 
@@ -4718,7 +4767,11 @@ function toSpecMarkdown(design, a) {
     for (const r of a.harness.rows) {
       L.push(`| ${r.label || r.id} | ~${r.run}mm | ${r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead length' : r.lead === 'extend' ? 'needs extension' : r.lead} | ${r.vdrop}V |`)
     }
-    L.push('', a.harness.note, '')
+    const totalM = a.harness.rows.reduce((s, r) => s + (r.run || 0), 0) / 1000
+    const ext = a.harness.rows.filter((r) => r.lead === 'extend').length
+    L.push('', a.harness.note,
+      `Estimated joint-run total: ~${totalM.toFixed(2)} m across ${a.harness.rows.length} joints (includes 35% routing slack)` +
+      (ext ? `; ${ext} extension lead${ext > 1 ? 's' : ''} in the BOM` : '') + '.', '')
   }
 
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
@@ -6004,36 +6057,9 @@ function livingRoomTris() {
 function createArmTeleop(design) {
   const joints = design.joints || []
   if (!joints.length || joints.length > 8) return null
-  const chains = chainsFor(design)
-
-  // The end-effector chain: the joint with the deepest revolute ancestry.
-  // Ambiguous machines (humanoid legs, quadruped) have several equal chains —
-  // picking one silently would be a lie, so they get no IK mode.
-  let tipJoint = null
-  let tipChain = null
-  let tie = false
-  for (const j of joints) {
-    if (j.slide) continue
-    const ch = (chains.get(j.id) || []).filter((x) => !x.slide)
-    if (!tipChain || ch.length > tipChain.length) {
-      tipChain = ch; tipJoint = j; tie = false
-    } else if (ch.length === tipChain.length && tipJoint && j.id !== tipJoint.id) {
-      tie = true
-    }
-  }
-  if (!tipChain || tipChain.length < 3 || tie) return null
-
-  // Tip node: the node rigidly attached to the last joint, farthest from its
-  // pivot — the business end of the arm.
-  const tj = tipJoint
-  const attached = (design.nodes || []).filter((n) => n.joint === tj.id && n.pos)
-  if (!attached.length) return null
-  let tipNode = attached[0]
-  let bestD = -1
-  for (const n of attached) {
-    const d = Math.hypot(n.pos[0] - tj.pivot[0], n.pos[1] - tj.pivot[1], n.pos[2] - tj.pivot[2])
-    if (d > bestD) { bestD = d; tipNode = n }
-  }
+  const tip = armTipChain(design)
+  if (!tip) return null
+  const { tipChain, tipNode } = tip
 
   // Scratch design: IK mutates joint angles, so it must never touch `design`.
   const scratch = { ...design, joints: joints.map((j) => ({ ...j })) }
@@ -6051,19 +6077,8 @@ function createArmTeleop(design) {
   const MOVE = 220 // mm/s at full deflection
   const ZONE = { x: 0.12, y: 0.12, z: 0.12 } // stick deadzone per axis
 
-  // Workspace bound for the REACH overlay: link lengths summed along the
-  // chain plus the tool offset is the triangle-inequality outer bound —
-  // every reachable tip point sits inside the sphere, none outside it.
-  const reachSphere = (() => {
-    const c = tipChain[0].pivot
-    const last = tipChain[tipChain.length - 1].pivot
-    let r = Math.hypot(tipNode.pos[0] - last[0], tipNode.pos[1] - last[1], tipNode.pos[2] - last[2])
-    for (let i = 0; i < tipChain.length - 1; i++) {
-      const a = tipChain[i].pivot, b = tipChain[i + 1].pivot
-      r += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
-    }
-    return { c: [c[0], c[1], c[2]], r: Math.round(r) }
-  })()
+  // Workspace bound for the REACH overlay — shared with the spec's reach row.
+  const reachSphere = armReachBound(tip)
 
   return {
     kind: 'ik',
@@ -10235,7 +10250,10 @@ function TabPower({ analysis }) {
             h('td', { style: { ...S.td, color: r.lead === 'extend' ? C.red : r.lead === 'check' ? C.amber : C.faint, fontSize: '9.5px' } },
               r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead' : r.lead === 'extend' ? 'needs ext.' : r.lead),
             h('td', { style: { ...S.tdNum, color: r.vdrop > 0.5 ? C.red : C.faint } }, `${r.vdrop}V`))))),
-        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } }, analysis.harness.note))
+        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } },
+          analysis.harness.note +
+          `  Run total ~${(analysis.harness.rows.reduce((s, r) => s + (r.run || 0), 0) / 1000).toFixed(2)} m` +
+          (analysis.harness.rows.some((r) => r.lead === 'extend') ? ' — extension leads are in the BOM.' : '.')))
       : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },
