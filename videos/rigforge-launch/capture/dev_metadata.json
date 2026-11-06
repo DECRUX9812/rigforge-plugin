@@ -1,0 +1,19 @@
+{
+  "tool": "RigForge",
+  "repo": "rigforge-plugin",
+  "url": "https://github.com/DECRUX9812/rigforge-plugin",
+  "description": "Print-ready robot and machine design studio: sentence → engineered machine → honest simulation → DFM → exports.",
+  "version": "master@01c8a35",
+  "license": "see LICENSE/NOTICE",
+  "archetypes": ["iot","pcb","arm","rover","quad","gripper","humanoid","robot","gadget","gantry","custom"],
+  "truthClaims": "63/63",
+  "keyFeatures": [
+    "one-sentence machine briefs via command palette",
+    "pre-print bench: CoM, support polygon, torque margins",
+    "field-test drive/gait/IK/grip/sense/gantry teleop with WASD",
+    "AUTO certification with scored legs and honest pass/fail",
+    "break→fix loop: live failures prescribe rebuilds (APPLY FIX)",
+    "plate-aware DFM: bed fit, packing, overhang, brim, wall thickness",
+    "exports: STL/3MF per-plate, GLB, STEP, OpenSCAD, URDF/MJCF, BOM/CPL, firmware, spec .md, build codes"
+  ]
+}
