@@ -571,7 +571,7 @@ const PARTS = {
   },
   fuse: {
     name: 'Inline fuse holder + blade fuse', cat: 'mech', price: 3, mass: 10, volts: 0,
-    conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
+    dims: [32, 12, 18], conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
     note: 'A $3 part that stands between a shorted rail and a lithium fire.',
   },
   cap1000: {
@@ -1385,6 +1385,10 @@ function buildArm(brief) {
   elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
   elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
   elec(d, 'buck5a', 'buck5a', [0, 64, 18])
+  // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
+  // beside it — the $3 part between a short and a lithium fire
+  elec(d, 'fuse', 'fuse', [-40, 64, 19])
+  elec(d, 'cap1000', 'cap1000', [40, 64, 20])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
@@ -1603,6 +1607,11 @@ function buildRover(brief) {
   elec(d, 'bts7960-a', 'bts7960', [-wheelbase * 0.22, -track * 0.15, deckTop + 10])
   elec(d, 'bts7960-b', 'bts7960', [-wheelbase * 0.22, track * 0.15, deckTop + 10])
   elec(d, 'buck5a', 'buck5a', [-wheelbase * 0.08, 0, deckTop + 6])
+  // power path on the open deck: ATO fuse at the pack feed, rail cap at the
+  // drivers, rocker on the deck edge — all catalog dims
+  elec(d, 'fuse', 'fuse', [-wheelbase * 0.178, 0, deckTop + 9])
+  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, 0, deckTop + 8])
+  elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
   cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
@@ -1896,6 +1905,11 @@ function buildGripper(brief) {
   elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
   elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
   elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
+  // power path on the front deck strip: ATO fuse, rail cap, power rocker —
+  // clear of keepers (y≤29.5) and the cheek (z≤46)
+  elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
+  elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
+  elec(d, 'rocker', 'rocker', [-deckL / 2 + 42, deckW / 2 - 8, deckZ + 9])
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
@@ -3148,6 +3162,11 @@ function buildGantry(brief) {
     elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
     for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
       elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
+    // power path on the cage floor: ATO fuse, rail cap, power rocker —
+    // flat on the base, clear of the wall-mounted boards above
+    elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
+    elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
+    elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
