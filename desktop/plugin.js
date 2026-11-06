@@ -1384,7 +1384,13 @@ function buildArm(brief) {
   wedge(d, 'gusset-l', [30, 6, 30], [16, -ARM_SEG.w / 2 + 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   wedge(d, 'gusset-r', [30, 6, 30], [16, ARM_SEG.w / 2 - 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   cyl(d, 'shoulder-hub', 22, ARM_SEG.w + 10, [0, 0, baseH], 'y', 'metal', { joint: 'yaw' })
-  servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
+  const ratioOf = (label) => (d.actuators.find((a) => a.label === label) || {}).ratio || 1
+  if (ratioOf('Shoulder pitch') > 1) {
+    // stage hangs below the pivot, outboard far enough to clear the tower wall
+    beltStageY(d, { prefix: 'shoulder', pivot: [0, 0, baseH], ratio: ratioOf('Shoulder pitch'), servoKey: svc('shoulder', 'ds3218'), servoJoint: 'yaw', outJoint: 'shoulder', beltY: -54 })
+  } else {
+    servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
+  }
   bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
   bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
 
@@ -1395,7 +1401,11 @@ function buildArm(brief) {
     box(d, `upper-rib-${sy}`, [L1 * 0.86, 4, ARM_SEG.h * 0.42], [L1 / 2, sy * (ARM_SEG.w / 2 + 2), baseH + 2], 'accent', { joint: 'shoulder', print: true })
   }
   cyl(d, 'elbow-hub', 18, ARM_SEG.w + 8, [L1, 0, baseH], 'y', 'metal', { joint: 'shoulder' })
-  servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
+  if (ratioOf('Elbow pitch') > 1) {
+    beltStageY(d, { prefix: 'elbow', pivot: [L1, 0, baseH], ratio: ratioOf('Elbow pitch'), servoKey: svc('elbow', 'mg996r'), servoJoint: 'shoulder', outJoint: 'elbow', beltY: -38 })
+  } else {
+    servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
+  }
   bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
   bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
 
@@ -1413,7 +1423,11 @@ function buildArm(brief) {
 
   if (dof >= 4) {
     cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
-    servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
+    if (ratioOf('Wrist pitch') > 1) {
+      beltStageY(d, { prefix: 'wrist', pivot: [wristX, 0, baseH], ratio: ratioOf('Wrist pitch'), servoKey: svc('wrist', 'mg90s'), servoJoint: chain, outJoint: 'wrist-pitch', beltY: -33 })
+    } else {
+      servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
+    }
     joint(d, 'wrist-pitch', 'Wrist pitch', 'y', [wristX, 0, baseH], -110, 110)
     chain = 'wrist-pitch'
     box(d, 'wrist-link', [L3, 36, 32], [wristX + L3 / 2, 0, baseH], 'shell', { joint: chain, print: true })

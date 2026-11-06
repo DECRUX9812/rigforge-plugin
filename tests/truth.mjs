@@ -948,8 +948,7 @@ check('electronics: BOM parts stay clear of the mechanism at every pose', () => 
 // beltStageY can build; a 'z' yaw stage would be a different mechanism.
 check('belt stage: over-torqued y-joints expose pinion, gear and runs', () => {
   const misses = []
-  for (const p of A.PRESETS) {
-    const { design } = A.composeDesign({ ...p.brief })
+  const audit = (design, tag) => {
     const ids = new Set(design.nodes.map((n) => n.id))
     for (const a of design.actuators || []) {
       if (a.ratio <= 1) continue
@@ -957,12 +956,19 @@ check('belt stage: over-torqued y-joints expose pinion, gear and runs', () => {
       if (!j || j.axis !== 'y') continue
       const pre = `${j.id}-belt-`
       for (const suf of ['shaft', 'pinion', 'driven', 'runa', 'runb'])
-        if (!ids.has(pre + suf)) misses.push(`${p.id}:${a.label} missing ${pre + suf}`)
+        if (!ids.has(pre + suf)) misses.push(`${tag}:${a.label} missing ${pre + suf}`)
       const pin = design.nodes.find((n) => n.id === pre + 'pinion')
       const drv = design.nodes.find((n) => n.id === pre + 'driven')
       if (pin && drv && drv.teeth !== pin.teeth * a.ratio)
-        misses.push(`${p.id}:${a.label} teeth ${pin.teeth}:${drv.teeth} ≠ ${a.ratio}:1`)
+        misses.push(`${tag}:${a.label} teeth ${pin.teeth}:${drv.teeth} ≠ ${a.ratio}:1`)
     }
+  }
+  for (const p of A.PRESETS) audit(A.composeDesign({ ...p.brief }).design, p.id)
+  // dormant paths: heavy briefs push arm/robot joints past 1:1 — the stage
+  // must appear there too, not just on the stock presets
+  for (const arch of ['arm', 'robot']) {
+    const p = A.PRESETS.find((x) => x.brief.archetype === arch)
+    audit(A.composeDesign({ ...p.brief, payloadKg: 5 }).design, `${arch}@5kg`)
   }
   assert(!misses.length, `belt stage geometry missing or mis-geared: ${misses.slice(0, 8).join(' · ')}`)
   return 'every over-torqued y-joint shows its GT2 pinion, gear and belt runs'
