@@ -871,6 +871,34 @@ check('DFM brim: contact ratio measured per part, narrow footprints flagged', ()
   return `${checked} parts measured, ${flagged} flagged for brim (gantry corners verified)`
 })
 
+// ── 28b. DFM wall thickness: axis raycasts flag thin skins, clear real walls ──
+check('wall thickness: raycast DFM flags thin skins, clears real walls', () => {
+  const mk = (size) => ({ nodes: [{ id: 't', kind: 'box', print: true, size, pos: [0, 0, 0], mat: 0 }], joints: [], brief: {} })
+  const skin = A.wallReport(mk([40, 40, 0.6]))
+  const slab = A.wallReport(mk([40, 40, 8]))
+  const mid = A.wallReport(mk([40, 40, 2]))
+  assert(skin.parts.length === 1 && skin.parts[0].p10 < 1.2,
+    `0.6mm skin not flagged thin (p10=${skin.parts[0] && skin.parts[0].p10})`)
+  assert(skin.thin.length === 1, '0.6mm skin missing from the thin list')
+  assert(slab.parts.length === 1 && slab.parts[0].p10 > 5 && slab.thin.length === 0,
+    `8mm slab misread as thin (p10=${slab.parts[0] && slab.parts[0].p10})`)
+  assert(mid.parts.length === 1 && mid.parts[0].p10 > 1.2 && mid.thin.length === 0,
+    `2mm wall falsely flagged (p10=${mid.parts[0] && mid.parts[0].p10})`)
+  // every preset's printed parts get measured; thinnest is a real number
+  let measured = 0
+  eachPreset((p, { design }) => {
+    const w = A.wallReport(design)
+    const printed = design.nodes.filter((n) => n.print).length
+    assert(w.parts.length <= printed, `${p.id}: wall rows exceed printed nodes`)
+    assert(w.thinnest == null || (w.thinnest > 0 && w.thinnest < 500), `${p.id}: implausible thinnest ${w.thinnest}`)
+    for (const part of w.parts) {
+      assert(part.p10 > 0 && part.p10 < 500, `${p.id}/${part.id}: implausible p10 ${part.p10}`)
+    }
+    measured += w.parts.length
+  })
+  return `${measured} parts measured · 0.6mm skin flagged · 2mm/8mm walls clear`
+})
+
 // ── 29. servo harness: stock leads must reach, voltage drop stays bounded ────
 check('servo harness: runs measured from joint pivots, long leads flagged honestly', () => {
   let rows = 0

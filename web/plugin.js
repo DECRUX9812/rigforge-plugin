@@ -3200,6 +3200,16 @@ function analyze(design) {
       msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
     })
   }
+  const wall = wallReport(design)
+  if (wall.thin.length) {
+    const names = wall.thin.slice(0, 3).map((p) => `${prettyPart(p.id)} (~${p.p10}mm)`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${wall.thin.length} printed part(s) measure under ${wall.minWall}mm walls — ${names}. Three 0.4mm nozzle lines need ~1.2mm; thinner walls print as a skin that strings or splits. Thicken the wall or switch to a finer nozzle.`,
+    })
+  } else if (wall.parts.length) {
+    checks.push({ level: 'ok', msg: `Wall check: every printed part holds ≥${wall.minWall}mm walls — thinnest reads ~${wall.thinnest}mm.` })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
@@ -3233,7 +3243,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
@@ -4765,6 +4775,105 @@ function overhangReport(design) {
     worst: parts.find((p) => p.unsupported > 0) || null,
     brim: parts.filter((p) => p.brim),
   }
+}
+
+/**
+ * DFM wall-thickness check on the bed-oriented tris the STL pack ships.
+ *
+ * From sampled surface points, a ray along the face normal that comes back
+ * hits the far side of the wall — counted only when the hit face's own
+ * normal opposes the ray (~180°), which rejects corner and rib-edge hits.
+ * Open edges return no hit: infinite thickness, correctly not "thin". The
+ * part metric is a low percentile of finite samples so a few bad rays can't
+ * condemn a good part. 1.2mm ≈ three 0.4mm nozzle lines — thinner prints as
+ * a skin that strings or splits.
+ */
+const MIN_WALL_MM = 1.2
+
+function wallReport(design) {
+  // Möller–Trumbore, origins/dirs/dists in mm — returns hit distance or null
+  const rayTri = (ox, oy, oz, dx, dy, dz, t) => {
+    const [a, b, c] = t.pts
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2]
+    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2]
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x
+    const det = e1x * px + e1y * py + e1z * pz
+    if (Math.abs(det) < 1e-9) return null
+    const inv = 1 / det
+    const tx = ox - a[0], ty = oy - a[1], tz = oz - a[2]
+    const u = (tx * px + ty * py + tz * pz) * inv
+    if (u < -0.001 || u > 1.001) return null
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x
+    const v = (dx * qx + dy * qy + dz * qz) * inv
+    if (v < -0.001 || u + v > 1.001) return null
+    const d = (e2x * qx + e2y * qy + e2z * qz) * inv
+    return d > 0.05 ? d : null
+  }
+  const parts = []
+  let thinnest = null
+  for (const node of design.nodes) {
+    if (!node.print) continue
+    let tris = nodeTriangles({ ...design, joints: [] }, node, null, null)
+    if (CONVEX_KINDS.has(node.kind)) tris = orientConvex(tris)
+    tris = printReadyTris(tris)
+    if (tris.length < 6) continue
+    // per-tri unit normal + centroid once; rays reuse them for the facing test
+    const info = []
+    for (const t of tris) {
+      const [a, b, c] = t.pts
+      const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2]
+      const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2]
+      const nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x
+      const nl = Math.hypot(nx, ny, nz)
+      if (nl < 1e-6) continue
+      info.push({
+        t, area2: nl,
+        nx: nx / nl, ny: ny / nl, nz: nz / nl,
+        cx: (a[0] + b[0] + c[0]) / 3, cy: (a[1] + b[1] + c[1]) / 3, cz: (a[2] + b[2] + c[2]) / 3,
+      })
+    }
+    if (info.length < 6) continue
+    // Wall thickness = material between opposing surfaces along a principal
+    // axis. Face-normal rays fail here: near edges they measure edge gap,
+    // not wall. So rays run axis-aligned, cast only from cap faces
+    // (|normal·axis| > 0.6) — the two sides of the part along that axis —
+    // and the first hit whose face is also axis-perpendicular is the far
+    // wall (or a rib inside a cavity, which is thin too, honestly).
+    const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    let partP10 = null
+    for (const axis of AXES) {
+      const cap = info.filter((s) => Math.abs(s.nx * axis[0] + s.ny * axis[1] + s.nz * axis[2]) > 0.9)
+      if (cap.length < 2) continue
+      const step = Math.max(1, Math.floor(cap.length / 24))
+      const reads = []
+      for (let i = 0; i < cap.length; i += step) {
+        const s = cap[i]
+        if (s.area2 < 0.02) continue
+        for (const dir of [1, -1]) {
+          const dx = axis[0] * dir, dy = axis[1] * dir, dz = axis[2] * dir
+          let best = Infinity
+          for (const o of info) {
+            if (o === s) continue
+            const d = rayTri(s.cx, s.cy, s.cz, dx, dy, dz, o.t)
+            if (d == null || d >= best) continue
+            if (Math.abs(o.nx * axis[0] + o.ny * axis[1] + o.nz * axis[2]) > 0.8) best = d
+          }
+          if (best < 500) reads.push({ d: best, w: s.area2 })
+        }
+      }
+      if (reads.length < 4) continue
+      reads.sort((a, b) => a.d - b.d)
+      const totalW = reads.reduce((acc, x) => acc + x.w, 0)
+      let acc = 0, p10 = reads[reads.length - 1].d
+      for (const x of reads) { acc += x.w; if (acc >= totalW * 0.1) { p10 = x.d; break } }
+      partP10 = partP10 == null ? p10 : Math.min(partP10, p10)
+    }
+    if (partP10 == null) continue
+    const row = { id: node.id, p10: Math.round(partP10 * 100) / 100, reads: info.length }
+    parts.push(row)
+    thinnest = thinnest == null ? row.p10 : Math.min(thinnest, row.p10)
+  }
+  return { parts, thinnest, minWall: MIN_WALL_MM, thin: parts.filter((p) => p.p10 < MIN_WALL_MM) }
 }
 
 /**
