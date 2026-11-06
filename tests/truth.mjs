@@ -1395,7 +1395,7 @@ check('fix suggestions: cert lift failures prescribe sized payloads honestly', (
 
 check('pose presets: named poses resolve in-limits, presets are FK-verified', () => {
   // every preset on every archetype resolves to a full in-limits angle array
-  for (const arch of ['arm', 'robot', 'humanoid', 'gripper', 'rover', 'quadruped']) {
+  for (const arch of ['arm', 'robot', 'humanoid', 'gripper', 'rover', 'quadruped', 'gantry']) {
     const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
     for (const p of A.POSE_PRESETS[arch]) {
       const angles = A.applyPosePreset(design, p.name)
@@ -1440,7 +1440,7 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   }
   const fl = qFoot('tibia-fl'), rl = qFoot('tibia-rl')
   assert(fl[0] > 105 && rl[0] < -105, `PROWL should stagger feet (fl ${fl[0].toFixed(0)} / rl ${rl[0].toFixed(0)})`)
-  return `6 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · unknown→null`
+  return `7 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · gantry PROBE/EXTREME resolve · unknown→null`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────
