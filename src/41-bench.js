@@ -389,6 +389,37 @@ function wireOverlay(design, harness) {
 }
 
 /**
+ * Joint-load overlay: a small crosshair at every driven joint's live pivot,
+ * coloured by the sim's own gravity-load ratio — green under half stall,
+ * amber past it, red near/at stall (thermal cutouts read as stalled too).
+ * Same {data,verts} contract as the other overlays; design space, mm.
+ */
+function loadOverlay(design, loadNm, stallNm, stalled) {
+  if (!loadNm || !loadNm.length) return null
+  const chains = chainsFor(design)
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  design.joints.forEach((j, i) => {
+    if (j.slide) return
+    const fr = jointFrameWorld(chains, j.id)
+    if (!fr) return
+    const p = fr.pivotW
+    const s = stallNm && stallNm[i] > 0 ? stallNm[i] : 0
+    const ratio = s > 0 ? (loadNm[i] || 0) / s : 0
+    const col = (stalled && stalled[i]) || ratio >= 1
+      ? [1.0, 0.25, 0.22]
+      : ratio > 0.9 ? [1.0, 0.32, 0.28]
+      : ratio > 0.5 ? [1.0, 0.72, 0.18]
+      : [0.35, 0.90, 0.55]
+    const r = 9
+    seg([p[0] - r, p[1], p[2]], [p[0] + r, p[1], p[2]], col)
+    seg([p[0], p[1] - r, p[2]], [p[0], p[1] + r, p[2]], col)
+    seg([p[0], p[1], p[2] - r], [p[0], p[1], p[2] + r], col)
+  })
+  return arr.length ? { data: new Float32Array(arr), verts: arr.length / 6 } : null
+}
+
+/**
  * Reach-envelope overlay for IK machines: a wireframe sphere at the arm's
  * base joint, radius = sum of link lengths + tool offset — the
  * triangle-inequality bound, so every reachable tip point sits inside it.

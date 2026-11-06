@@ -842,6 +842,28 @@ check('cable overlay: one run per joint, pose-aware, verdict colours', () => {
   return `cable overlay live: ${ov.verts} verts, pose moves wires, ${reds.length / 2} segments flagged extend-red`
 })
 
+// ── 29b2. load overlay: joint pivots coloured by the sim's load ratio ────────
+check('load overlay: crosshair per joint, colour tracks load/stall honestly', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  const n = design.joints.filter((j) => !j.slide).length
+  // joint 0 loafing, joint 1 over stall, joint 2 thermally cut
+  const load = design.joints.map((_, i) => (i === 1 ? 1.2 : i === 2 ? 0.4 : 0.1))
+  const stall = design.joints.map(() => 1)
+  const stalled = design.joints.map((_, i) => i === 2)
+  const ov = A.loadOverlay(design, load, stall, stalled)
+  assert(ov && ov.verts === n * 6, `expected ${n * 6} verts (3 segs × 2 per joint), got ${ov && ov.verts}`)
+  // colour lives at +3..+5 of each vert: count green vs red dominated verts
+  let green = 0, red = 0
+  for (let i = 0; i < ov.data.length; i += 6) {
+    const r = ov.data[i + 3], g = ov.data[i + 4], b = ov.data[i + 5]
+    if (g > r && g > b) green += 1
+    if (r > g && r > b) red += 1
+  }
+  // joints 0,3,4 green (3×6=18), joints 1,2 red (2×6=12)
+  assert(green === 18 && red === 12, `expected 18 green / 12 red verts, got ${green}/${red}`)
+  return `load overlay: ${n} joints → ${green} green / ${red} red verts`
+})
+
 // ── 29c. reach overlay: workspace sphere contains every reachable tip ────────
 check('reach overlay: sphere bound contains the live tip, quad gets none', () => {
   const armP = A.PRESETS.find((p) => p.brief.archetype === 'arm')
