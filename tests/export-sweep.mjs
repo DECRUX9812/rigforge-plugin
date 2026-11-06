@@ -73,6 +73,8 @@ const expectExt = [
   // pack", so the zip rule claimed it and the gate failed a correct download.
   // Specific before general.
   [/3mf/i, '.3mf'],
+  [/step/i, '.step'],
+  [/glb|gltf/i, '.glb'],
   [/print pack|board pack|fab \+ assembly/i, '.zip'],
   [/openscad/i, '.scad'],
   [/build spec/i, '.md'],
