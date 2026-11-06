@@ -489,6 +489,7 @@ function Studio() {
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
   const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false })
+  const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
   // the same length as the chain, or the sliders lie about the machine.
@@ -620,7 +621,7 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: dispPose[i] || 0 })),
   }), [design, dispPose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? 1 : 0), [posedDesign, opts.explode])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0), [posedDesign, opts.explode, explodeF])
 
   // teleop handles + kind live above the overlay memos: REACH reads them.
   const ikRef = useRef(null)
@@ -2019,6 +2020,15 @@ function Studio() {
               title: `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
               onClick: () => setOpts((o) => ({ ...o, [key]: !o[key] })),
             }, label))),
+          opts.explode
+            ? h('input', {
+              type: 'range', min: 0.1, max: 1.2, step: 0.05, value: explodeF,
+              style: { width: 72, accentColor: '#ff6b1a' },
+              'aria-label': 'explode amount',
+              title: 'assembly spread — scrub to separate the parts',
+              onChange: (e) => setExplodeF(Number(e.target.value)),
+            })
+            : null,
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'projection' },
             h('button', {
