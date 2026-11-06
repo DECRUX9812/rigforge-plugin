@@ -737,6 +737,46 @@ check('slide chain: gantry axes compose, portal stays on X, limits hold', () => 
   return 'quill XYZ composed · portal X-only · clamps + holds + resets'
 })
 
+// ── 23c. mesh integrity: every primitive kind is closed + outward on all axes ─
+check('mesh integrity: primitives are watertight, outward-wound, positive-volume', () => {
+  const q = (v) => Math.round(v * 1e4) / 1e4
+  const vol = (ts) => ts.reduce((s, t) => {
+    const [a, b, c] = t
+    return s + a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }, 0) / 6
+  const cases = [
+    ['cyl', { radius: 8, height: 12, segs: 18 }, ['z', 'y', 'x']],
+    ['ring', { outer: 10, inner: 5, height: 8 }, ['z', 'y', 'x']],
+    ['torus', { R: 15, r: 5 }, ['z', 'y', 'x']],
+    ['bend', { R: 15, r: 5, arc: 270 }, ['z', 'y', 'x']],
+    ['sphere', { radius: 9 }, ['z']],
+    ['gear', { module: 1, teeth: 12, width: 10 }, ['z', 'y', 'x']],
+    ['box', { size: [20, 14, 10] }, ['z']],
+    ['rbox', { size: [20, 14, 10], r: 2 }, ['z']],
+    ['wedge', { size: [20, 14, 10], dir: 1 }, ['z']],
+    ['rack', { size: [30, 10, 8], teeth: 8 }, ['z']],
+  ]
+  const bad = []
+  for (const [kind, props, axes] of cases) {
+    for (const axis of axes) {
+      const node = { id: 't', kind, pos: [0, 0, 0], mat: 'pla', axis, ...props }
+      const { design } = A.composeDesign({ archetype: 'custom', nodes: [node], joints: [] })
+      const tris = A.buildMesh(design).filter((t) => t.node === 't').map((t) => t.pts)
+      const edges = new Map()
+      for (const t of tris) for (let i = 0; i < 3; i += 1) {
+        const a = t[i]; const b = t[(i + 1) % 3]
+        const k = [[q(a[0]), q(a[1]), q(a[2])].join(','), [q(b[0]), q(b[1]), q(b[2])].join(',')].sort().join('|')
+        edges.set(k, (edges.get(k) || 0) + 1)
+      }
+      const open = [...edges.values()].filter((c) => c !== 2).length
+      const v = vol(tris)
+      if (!tris.length || open || v <= 0) bad.push(`${kind}/${axis}:${tris.length}t vol=${v.toFixed(0)} open=${open}`)
+    }
+  }
+  assert(!bad.length, `non-manifold or inside-out meshes: ${bad.join(' · ')}`)
+  return '22 kind×axis cases: all watertight, outward, positive volume'
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })

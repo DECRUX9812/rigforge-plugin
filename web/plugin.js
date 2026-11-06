@@ -4357,15 +4357,17 @@ function ringTris(outer, inner, h, axis, segs) {
     const a = (t / segs) * Math.PI * 2
     const u = Math.cos(a) * r; const v = Math.sin(a) * r
     if (axis === 'z') return [u, v, side ? h : -h]
-    if (axis === 'y') return [u, side ? h : -h, v]
+    if (axis === 'y') return [u, side ? h : -h, -v]
     return [side ? h : -h, u, v]
   }
   for (let i = 0; i < segs; i += 1) {
     const t0 = i; const t1 = i + 1
-    tris.push([pt(outer, t0, 1), pt(outer, t1, 1), pt(outer, t1, 0)])
-    tris.push([pt(outer, t0, 1), pt(outer, t1, 0), pt(outer, t0, 0)])
-    tris.push([pt(inner, t0, 0), pt(inner, t1, 0), pt(inner, t1, 1)])
-    tris.push([pt(inner, t0, 0), pt(inner, t1, 1), pt(inner, t0, 1)])
+    // wall order verified outward in the canonical z-frame; the y/x maps
+    // below are proper rotations (det=+1) so it stays outward on every axis
+    tris.push([pt(outer, t0, 0), pt(outer, t1, 0), pt(outer, t1, 1)])
+    tris.push([pt(outer, t0, 0), pt(outer, t1, 1), pt(outer, t0, 1)])
+    tris.push([pt(inner, t0, 0), pt(inner, t1, 1), pt(inner, t1, 0)])
+    tris.push([pt(inner, t0, 0), pt(inner, t0, 1), pt(inner, t1, 1)])
     tris.push([pt(outer, t0, 1), pt(inner, t0, 1), pt(inner, t1, 1)])
     tris.push([pt(outer, t0, 1), pt(inner, t1, 1), pt(outer, t1, 1)])
     tris.push([pt(outer, t1, 0), pt(inner, t0, 0), pt(inner, t1, 0)])
@@ -4373,15 +4375,19 @@ function ringTris(outer, inner, h, axis, segs) {
   }
   // The cap windings above only face outward for some axes — enforce it
   // geometrically: a cap tri's normal must point along its own side's axis.
+  // Only true caps qualify: every ring vertex sits at axial=±h, so wall tris
+  // ALSO have all |axial|=h — the old |p[ax]|===h test caught them too and
+  // flipped walls at random (ring/y collapsed to vol −616). Same-sign test
+  // separates caps (all verts one side) from walls (verts on both sides).
   const ax = axis === 'z' ? 2 : axis === 'y' ? 1 : 0
   return tris.map((t) => {
-    if (!t.every((p) => Math.abs(p[ax]) === h)) return t
-    const side = t[0][ax] > 0 ? 1 : -1
+    const s0 = Math.sign(t[0][ax])
+    if (!t.every((p) => Math.sign(p[ax]) === s0)) return t
     const [a, b, c] = t
     const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
     const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
     const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-    return Math.sign(n[ax]) === side ? t : [a, c, b]
+    return Math.sign(n[ax]) === s0 ? t : [a, c, b]
   })
 }
 
@@ -4394,9 +4400,10 @@ function torusTris(R, r, axis, arcDeg) {
     const v = (j / N) * Math.PI * 2
     const rr = R + r * Math.cos(v)
     const x = Math.cos(u) * rr; const y = Math.sin(u) * rr; const z = r * Math.sin(v)
+    // proper rotations only (det=+1) — mirrors wind the tube inside-out
     if (axis === 'z') return [x, y, z]
-    if (axis === 'y') return [x, z, y]
-    return [z, y, x]
+    if (axis === 'y') return [x, z, -y]
+    return [z, x, y]
   }
   for (let i = 0; i < M; i += 1) for (let j = 0; j < N; j += 1) {
     tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
@@ -4407,7 +4414,8 @@ function torusTris(R, r, axis, arcDeg) {
     const uM = Math.PI * 2 * (arcDeg / 360)
     const centre = (u) => {
       const x = Math.cos(u) * R; const y = Math.sin(u) * R
-      return axis === 'z' ? [x, y, 0] : axis === 'y' ? [x, 0, y] : [0, y, x]
+      // matches pt()'s proper rotations so cap winding stays consistent
+      return axis === 'z' ? [x, y, 0] : axis === 'y' ? [x, 0, -y] : [0, x, y]
     }
     const c0 = centre(0); const cM = centre(uM)
     for (let j = 0; j < N; j += 1) {
@@ -4426,7 +4434,15 @@ function sphereTris(r) {
     const v = (j / N) * Math.PI
     return [r * Math.sin(v) * Math.cos(u), r * Math.sin(v) * Math.sin(u), r * Math.cos(v)]
   }
-  for (let i = 0; i < M; i += 1) for (let j = 0; j < N - 1; j += 1) {
+  // pole rings degenerate to points — fan them from real apex vertices
+  // instead of emitting zero-area tris, and cover the polar caps the old
+  // j<N-1 loop silently dropped (the sphere was open at the bottom)
+  const Np = [0, 0, r]; const Sp = [0, 0, -r]
+  for (let i = 0; i < M; i += 1) {
+    tris.push([Np, pt(i, 1), pt(i + 1, 1)])
+    tris.push([Sp, pt(i + 1, N - 1), pt(i, N - 1)])
+  }
+  for (let i = 0; i < M; i += 1) for (let j = 1; j < N - 1; j += 1) {
     tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
     tris.push([pt(i, j), pt(i + 1, j + 1), pt(i, j + 1)])
   }
