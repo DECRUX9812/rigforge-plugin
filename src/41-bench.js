@@ -433,7 +433,7 @@ function reachOverlay(sphere, tip) {
  * Returns {pts:[{p,lift}], stats} or null for non-IK designs.
  */
 function workspaceMap(design, analysis, opts = {}) {
-  const tip = primaryArmTip(design)
+  const tip = primaryArmTip(design, opts.side)
   if (!tip) return null
   const sphere = armReachBound(tip)
   if (!sphere) return null

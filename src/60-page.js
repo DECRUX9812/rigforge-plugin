@@ -618,13 +618,16 @@ function Studio() {
 
   // teleop handles + kind live above the overlay memos: REACH reads them.
   const ikRef = useRef(null)
+  const ikLRef = useRef(null) // left-arm teleop on dual-arm machines (humanoid)
   const [teleopKind, setTeleopKind] = useState(null)
-  // Dual-mode machines (the robot: wheels + arm) toggle chassis vs arm IK
-  // with M or the ARM chip; the chassis holds position while the arm poses.
+  // Dual-mode machines (the robot: wheels + arm; the humanoid: legs + two
+  // arms) cycle body → right arm → left arm with M or the ARM chip; the
+  // body holds position while an arm poses. armMode: 0 body, 1 right, 2 left.
   // Declared up here because the overlay memos below read armMode.
-  const [armMode, setArmMode] = useState(false)
+  const [armMode, setArmMode] = useState(0)
   const [dualMode, setDualMode] = useState(false)
-  const armModeRef = useRef(false)
+  const [armSides, setArmSides] = useState(1)
+  const armModeRef = useRef(0)
   armModeRef.current = armMode
 
   // Live bench overlay: support polygon + CoM plumb recomputed with the pose,
@@ -643,19 +646,20 @@ function Studio() {
   // when teleop is running. The sphere itself is pose-independent — it
   // renders for arm designs even before DRIVE mode is engaged.
   const designReach = useMemo(() => {
-    const tip = primaryArmTip(design)
+    const tip = primaryArmTip(design, armMode === 2 ? 'l' : undefined)
     return tip ? armReachBound(tip) : null
-  }, [design])
+  }, [design, armMode])
   const reachOv = useMemo(() => {
     if (!opts.reach || !designReach) return null
-    const t = (teleopKind === 'ik' || (armMode && ikRef.current)) ? ikRef.current : null
+    const armIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
+    const t = (teleopKind === 'ik' || (armMode && armIk)) ? armIk : null
     return reachOverlay(designReach, t ? t.tipPos(dispPose) : null)
   }, [opts.reach, teleopKind, armMode, designReach, design, dispPose])
   // Sampled workspace: the sphere is the bound; the cloud is what IK actually
   // reaches — cyan reachable, green also-liftable at the payload rating.
   const wsMap = useMemo(
-    () => (opts.reach ? workspaceMap(design, analysis) : null),
-    [opts.reach, design, analysis],
+    () => (opts.reach ? workspaceMap(design, analysis, { side: armMode === 2 ? 'l' : undefined }) : null),
+    [opts.reach, design, analysis, armMode],
   )
   const wsOv = useMemo(() => workspaceOverlay(wsMap), [wsMap])
   // Legged machines get the same honest sampling per foot — where each leg
@@ -735,14 +739,18 @@ function Studio() {
     gripRef.current = (driveRef.current || gaitRef.current) ? null : createGripTeleop(design)
     senseRef.current = (driveRef.current || gaitRef.current || gripRef.current) ? null : createSensorTeleop(design)
     ikRef.current = createArmTeleop(design)
+    // second arm only exists on side-prefixed designs (the humanoid)
+    ikLRef.current = ikRef.current ? createArmTeleop(design, 'l') : null
     const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : null
     setTeleopKind(kind)
     autotestRef.current = createAutotest(driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current)
     setDriveAvail(!!kind)
     setDualMode(!!((driveRef.current || gaitRef.current) && ikRef.current))
+    setArmSides((ikRef.current ? 1 : 0) + (ikLRef.current ? 1 : 0))
     setChassis(null)
-    setArmMode(false)
+    setArmMode(0)
     if (ikRef.current) ikRef.current.reset()
+    if (ikLRef.current) ikLRef.current.reset()
     if (gaitRef.current) gaitRef.current.reset()
     if (gripRef.current) gripRef.current.reset()
     powerRef.current = createPowerSim(design)
@@ -758,6 +766,8 @@ function Studio() {
     if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
+    const ikL = ikLRef.current
+    const ikUse = armModeRef.current === 2 ? (ikL || ik) : ik
     const gait = gaitRef.current
     const grip = gripRef.current
     const sense = senseRef.current
@@ -775,9 +785,9 @@ function Studio() {
       const k = keysRef.current
       const gps = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
       const gp = gps && gps[0]
-      // dual-mode: arm IK owns the sticks while M is toggled, unless the
-      // autopilot is mid-certification (it always drives the chassis)
-      const armDrive = !!(armModeRef.current && ik && !(autotestRef.current && autotestRef.current.running))
+      // dual-mode: an arm IK owns the sticks while M cycles body→R→L, unless
+      // the autopilot is mid-certification (it always runs the primary mode)
+      const armDrive = !!(armModeRef.current && (ik || ikL) && !(autotestRef.current && autotestRef.current.running))
       if (!pwrDead && drive && !armDrive) {
         const at = autotestRef.current
         let throttle, steer
@@ -803,7 +813,7 @@ function Studio() {
         if (gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed && !gpBtnRef.current) drive.shove(15)
         gpBtnRef.current = !!(gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed)
         setChassis({ ...drive.state })
-      } else if (!pwrDead && ik && (armModeRef.current || !gait)) {
+      } else if (!pwrDead && ikUse && (armModeRef.current || !gait)) {
         // WASD/arrows plane, R/F height; left stick plane, right stick height
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
@@ -830,7 +840,7 @@ function Studio() {
         }
         // certification runs carry their own IK-solved pose — applying it
         // directly skips the velocity-cmd layer the script already bypassed
-        const desired = certPose || ik.step({ x: cx, y: cy, z: cz }, dt, actual)
+        const desired = certPose || ikUse.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
       } else if (!pwrDead && gait) {
         // W/S walk speed, A/D steer; gamepad left stick same
@@ -973,9 +983,12 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); ikLRef.current && ikLRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
-      if (key === 'm' && (driveRef.current || gaitRef.current) && ikRef.current && !(autotestRef.current && autotestRef.current.running)) setArmMode((v) => !v)
+      if (key === 'm' && (driveRef.current || gaitRef.current) && ikRef.current && !(autotestRef.current && autotestRef.current.running)) {
+        const sides = (ikRef.current ? 1 : 0) + (ikLRef.current ? 1 : 0)
+        setArmMode((v) => (sides > 1 ? (v + 1) % 3 : v ? 0 : 1))
+      }
     }
     const up = (e) => { keysRef.current[e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase()] = false }
     window.addEventListener('keydown', dn)
@@ -1064,8 +1077,9 @@ function Studio() {
     return { data: out, verts: rawOv.verts }
   }, [rawOv, chassis, benchEnv])
 
-  const armHud = armMode && ikRef.current && !(autotestRef.current && autotestRef.current.running)
-  const teleop = (armHud ? ikRef.current : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
+  const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
+  const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
+  const teleop = (armHud ? armHudIk : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -2011,12 +2025,14 @@ function Studio() {
             }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
             dualMode ? h('button', {
               style: armMode ? S.viewChipOn : S.viewChip,
-              'aria-pressed': armMode,
-              title: armMode
-                ? 'arm mode — WASD plane, R/F height drives the arm (right arm on humanoid); body holds. M or click to switch back'
+              'aria-pressed': !!armMode,
+              title: armMode === 2
+                ? 'left-arm mode — WASD plane, R/F height drives the left arm; body holds. M cycles back'
+                : armMode === 1
+                ? 'arm mode — WASD plane, R/F height drives the arm; body holds. M cycles' + (armSides > 1 ? ' to left arm' : ' back to body')
                 : 'body mode — WASD/gamepad drives or walks; M or click to pose the arm',
-              onClick: () => setArmMode((v) => !v),
-            }, 'ARM') : null,
+              onClick: () => setArmMode((v) => (armSides > 1 ? (v + 1) % 3 : v ? 0 : 1)),
+            }, armMode === 2 ? 'ARM·L' : armMode === 1 ? 'ARM·R' : 'ARM') : null,
             autotestRef.current ? h('button', {
               style: autotestRef.current.running || (autotestRef.current.done && !autotestRef.current.results.every((r) => r.pass)) ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!(autotestRef.current && autotestRef.current.running),
@@ -2026,7 +2042,7 @@ function Studio() {
                 if (!at) return
                 if (at.running) { at.stop(); return }
                 at.start()
-                setArmMode(false) // certification always runs the primary mode
+                setArmMode(0) // certification always runs the primary mode
                 autoReportOffRef.current = false
                 setDriveOn(true)
               },
