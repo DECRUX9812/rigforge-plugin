@@ -48,6 +48,16 @@ function buildFullRobot(brief) {
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
   box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
+  // the rest of the electronics BOM, stacked on the avionics board where a
+  // real build mounts shield boards — motor driver, servo driver, controller,
+  // two UBECs. Clear of the IMU, the turret column (x<-24,y>-46) and the
+  // pack box (x>8,y>-71); verified against boundsOf at every pose.
+  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const az = deckZ + 22
+  box(d, 'bts7960', [43, 43, 5], [ax - 21.7, ay - 30.1, az + 0.5], 'pcb')
+  box(d, 'pca9685', [24, 50, 5], [ax + 18.3, ay - 5.1, az + 0.5], 'pcb')
+  box(d, 'esp32', [26, 22, 4], [ax + 17.3, ay + 37.9, az], 'pcb')
+  box(d, 'buck5a-a', [33, 16, 3], [ax - 22.7, ay + 15.9, az - 0.5], 'pcb')
+  box(d, 'buck5a-b', [33, 16, 3], [ax + 18.3, ay - 42.1, az - 0.5], 'pcb')
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
