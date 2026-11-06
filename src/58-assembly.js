@@ -68,7 +68,7 @@ function TabAssembly({ design, analysis }) {
     return acc
   }, {})
 
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     placements.length
       ? h('div', { style: { marginBottom: '16px' } },
         h('div', { style: S.sectionLabel }, 'placements on this board'),
@@ -115,7 +115,7 @@ function TabAssembly({ design, analysis }) {
         'every part in this BOM plugs in — JST, XT60 or 0.1\" headers. Nothing to solder on this build.'),
 
     h('div', { style: { ...S.sectionLabel, marginTop: '18px' } }, 'solder checker — your own board'),
-    h('div', { style: S.hint, marginBottom: '8px' },
+    h('div', { style: { ...S.hint, marginBottom: '8px' } },
       'Does not touch the BOM above. Type the footprints from any board and it answers the real question: can you place this by hand?'),
     h('input', {
       style: { ...S.input, fontFamily: C.mono, fontSize: '11.5px' },
@@ -168,5 +168,5 @@ function TabAssembly({ design, analysis }) {
         },
       }, 'Copy handoff summary'),
       h('button', { style: S.btn, onClick: () => host.openExternal?.('https://www.pcbway.com/assembly-capabilities.html') }, 'Assembly capabilities ↗')),
-  ]
+  ])
 }

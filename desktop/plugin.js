@@ -5423,6 +5423,10 @@ function toMJCF(design, analysis) {
     childOf.get(p).push(j)
   }
   const hardware = analysis ? Math.max(0, analysis.mass.totalG - (analysis.print ? analysis.print.grams : 0)) : 0
+  const bi = boxInertia(Math.max(1, hardware), [120, 120, 40])
+  // small links have ~1e-5 inertia — r4 would emit 0.0000, which MuJoCo
+  // rejects. Inertia gets 3 significant digits; masses stay at 4 decimals.
+  const ri = (v) => Number(v).toPrecision(3)
   const r4 = (v) => Number(v).toFixed(4)
 
   const L = []
@@ -5439,7 +5443,7 @@ function toMJCF(design, analysis) {
   L.push('    <geom name="floor" type="plane" size="1 1 0.02"/>')
   L.push(`    <body name="base" pos="0 0 ${r4(0.05)}">`)
   L.push('      <freejoint/>')
-  L.push(`      <inertial pos="0 0 0" mass="${r4(Math.max(0.001, hardware / 1000))}" diaginertia="0.001 0.001 0.001"/>`)
+  L.push(`      <inertial pos="0 0 0" mass="${r4(Math.max(0.001, hardware / 1000))}" diaginertia="${ri(bi.ixx)} ${ri(bi.iyy)} ${ri(bi.izz)}"/>`)
   L.push('      <geom type="box" size="0.06 0.06 0.02"/>')
 
   const emit = (parentId, depth) => {
@@ -5454,7 +5458,7 @@ function toMJCF(design, analysis) {
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
       const kind = j.slide ? 'slide' : 'hinge'
       L.push(`${pad}<body name="b_${j.id}" pos="${pivot}">`)
-      L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="${r4(ji.ixx)} ${r4(ji.iyy)} ${r4(ji.izz)}"/>`)
+      L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="${ri(ji.ixx)} ${ri(ji.iyy)} ${ri(ji.izz)}"/>`)
       L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axis}" range="${range}" damping="0.4"/>`)
       L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.split(' ').map((v) => r4(Number(v) * 0.06)).join(' ')}" size="0.012"/>`)
       emit(j.id, depth + 1)
@@ -9867,7 +9871,7 @@ function h(tag, props, ...kids) {
   const key = p.key != null ? p.key : undefined
   delete p.key
   if (kids.length === 1) p.children = kids[0]
-  else if (kids.length > 1) p.children = kids.map((k, i) => (k && k.$$el && k.key == null ? { ...k, key: 'k' + i } : k))
+  else if (kids.length > 1) p.children = kids.map((k, i) => (k && k.$$typeof && k.key == null ? { ...k, key: 'k' + i } : k))
   return key === undefined ? jsx(tag, p) : jsx(tag, p, key)
 }
 
@@ -10050,7 +10054,7 @@ function TabSpec({ design, analysis }) {
       blocks.push(h('div', { style: { fontSize: '11px', color: C.dim, lineHeight: 1.5, marginBottom: '6px', paddingLeft: '8px', borderLeft: `1px solid ${C.line}` } }, n))
     }
   }
-  return blocks
+  return h('div', { style: { display: 'contents' } }, ...blocks)
 }
 
 /** TEST: the pre-print bench. Would this machine stand, climb and hold? */
@@ -10149,13 +10153,13 @@ function TabTest({ design, analysis, certHistory }) {
     blocks.push(h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px' } },
       'Each AUTO run is scored by measured sim results — distance, stall time, climb height, carried mass — and kept here so you can see whether a design change actually helped. The strip is the same history as bars: green full-pass, amber partial, red failing.'))
   }
-  return blocks
+  return h('div', { style: { display: 'contents' } }, ...blocks)
 }
 
 function TabParts({ design, analysis }) {
   const rows = design.parts.map((p) => ({ ...p, part: PARTS[p.key] }))
   rows.sort((x, y) => y.part.price * y.qty - x.part.price * x.qty)
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: { ...S.th, textAlign: 'right' } }, 'QTY'),
@@ -10170,7 +10174,7 @@ function TabParts({ design, analysis }) {
     h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${C.line}`, fontFamily: C.mono, fontSize: '11px' } },
       h('span', { style: { color: C.faint } }, `FILAMENT ${Math.round(analysis.print.grams)}g`),
       h('span', { style: { color: C.accent, fontWeight: 600 } }, `TOTAL ${money(analysis.cost)}`)),
-  ]
+  ])
 }
 
 function TabPins({ analysis }) {
@@ -10178,7 +10182,7 @@ function TabPins({ analysis }) {
   const dirColor = (d) => (d === 'pwr' ? C.amber : d === 'in' ? C.green : d === 'bus' || d === 'pwm' ? C.cyan : C.dim)
   // A 380px rail cannot carry four table columns: pin + signal on one line,
   // the annotation underneath. Same data, half the wrapping.
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     h('div', { style: { fontSize: '11px', color: C.dim, marginBottom: '10px', lineHeight: 1.5 } },
       `${analysis.mcu.name} · ${rows.length} assignments · ${analysis.mcu.pinBudget} GPIO available. ` +
       `Strapping pins 0/3/45/46 and the SPI flash bus are never allocated.`),
@@ -10202,7 +10206,7 @@ function TabPins({ analysis }) {
         r.note ? h('div', { style: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, marginTop: '1px', whiteSpace: 'nowrap' } }, r.note) : null),
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', color: dirColor(r.dir) } }, r.dir))
     }),
-  ]
+  ])
 }
 
 function TabPower({ analysis }) {
@@ -10220,7 +10224,7 @@ function TabPower({ analysis }) {
       h('div', { style: { fontSize: '10px', color: C.faint, marginTop: '3px' } },
         v.items.map((i) => `${PARTS[i.key].name.split(' ')[0]} ${fmt(i.peak, 2)}A`).join(' · '))))
 
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'TYPICAL', value: `${fmt(typ, 2)}A` }),
       h(StatBlock, { label: 'PEAK', value: `${fmt(peak, 2)}A`, color: C.accent })),
@@ -10271,7 +10275,7 @@ function TabPower({ analysis }) {
         : null),
     h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '10px', lineHeight: 1.55 } },
       'Green = typical draw, orange = worst case with every actuator at stall. The wire is sized for the orange bar (its ampacity is printed beside it) and the fuse never exceeds that ampacity — a fuse bigger than its wire protects nothing. A fuse below stall current is normal: it is protecting the wire, not the servo.'),
-  ]
+  ])
 }
 
 function TabPrint({ design, analysis }) {
@@ -10282,7 +10286,7 @@ function TabPrint({ design, analysis }) {
   const total = rows.reduce((s, r) => s + r.mm3, 0) || 1
   const overhang = new Map((analysis.print.overhang ? analysis.print.overhang.parts : []).map((p) => [p.id, p]))
   const supportG = overhang.size ? [...overhang.values()].reduce((s, p) => s + p.unsupported, 0) : 0
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
       h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts · largest ${Math.round(analysis.printFit ? analysis.printFit.worst.largest : 0)}mm on a ${analysis.printFit ? analysis.printFit.bed : 256}mm bed` })),
@@ -10321,12 +10325,12 @@ function TabPrint({ design, analysis }) {
         style: { ...S.btn, height: '28px' },
         onClick: () => download(`${slug(design.title)}.scad`, toOpenSCAD(design), 'text/plain'),
       }, 'Download OpenSCAD')),
-  ]
+  ])
 }
 
 function TabCode({ design }) {
   const lines = design.firmware.split('\n').length
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } },
       h('div', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint } }, `${lines} lines · arduino-cli · 115200`),
       h('button', {
@@ -10341,11 +10345,11 @@ function TabCode({ design }) {
         },
       }, 'Copy')),
     h('pre', { style: S.pre }, design.firmware),
-  ]
+  ])
 }
 
 function TabSteps({ design, analysis }) {
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     ...design.steps.map((s) => h('div', { key: s.n, style: S.step },
       h('div', { style: S.stepNo }, String(s.n)),
       h('div', { style: { flex: '1', minWidth: 0 } },
@@ -10360,7 +10364,7 @@ function TabSteps({ design, analysis }) {
       h('span', { style: { color: C.faint } }, 'ESTIMATED BUILD'),
       h('span', { style: { color: C.text } }, `${(design.steps.reduce((s, x) => s + x.min, 0) / 60).toFixed(1)} h`)),
     h('div', { style: { height: '20px' } }),
-  ]
+  ])
 }
 
 // ── assembly: what you can solder, and what you should hand over ─────────────
@@ -10433,7 +10437,7 @@ function TabAssembly({ design, analysis }) {
     return acc
   }, {})
 
-  return [
+  return h('div', { style: { display: 'contents' } }, ...[
     placements.length
       ? h('div', { style: { marginBottom: '16px' } },
         h('div', { style: S.sectionLabel }, 'placements on this board'),
@@ -10480,7 +10484,7 @@ function TabAssembly({ design, analysis }) {
         'every part in this BOM plugs in — JST, XT60 or 0.1\" headers. Nothing to solder on this build.'),
 
     h('div', { style: { ...S.sectionLabel, marginTop: '18px' } }, 'solder checker — your own board'),
-    h('div', { style: S.hint, marginBottom: '8px' },
+    h('div', { style: { ...S.hint, marginBottom: '8px' } },
       'Does not touch the BOM above. Type the footprints from any board and it answers the real question: can you place this by hand?'),
     h('input', {
       style: { ...S.input, fontFamily: C.mono, fontSize: '11.5px' },
@@ -10533,7 +10537,7 @@ function TabAssembly({ design, analysis }) {
         },
       }, 'Copy handoff summary'),
       h('button', { style: S.btn, onClick: () => host.openExternal?.('https://www.pcbway.com/assembly-capabilities.html') }, 'Assembly capabilities ↗')),
-  ]
+  ])
 }
 
 // ── audit: show the working ─────────────────────────────────────────────────
