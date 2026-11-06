@@ -651,15 +651,17 @@ check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => 
     if (A.createGripTeleop(design)) return 'grip'
     if (A.createSensorTeleop(design)) return 'sense'
     if (A.createArmTeleop(design)) return 'ik'
+    if (A.createGantryTeleop(design)) return 'gantry'
     return null
   }
-  const got = { rover: kind('rover'), robot: kind('robot'), arm: kind('arm'), quadruped: kind('quadruped'), humanoid: kind('humanoid'), gripper: kind('gripper') }
+  const got = { rover: kind('rover'), robot: kind('robot'), arm: kind('arm'), quadruped: kind('quadruped'), humanoid: kind('humanoid'), gripper: kind('gripper'), gantry: kind('gantry') }
   assert(got.rover === 'drive', `rover teleop: ${got.rover}`)
   assert(got.robot === 'drive', `robot teleop: ${got.robot}`)
   assert(got.arm === 'ik', `arm teleop: ${got.arm}`)
   assert(got.quadruped === 'gait', `quadruped teleop: ${got.quadruped}`)
   assert(got.humanoid === 'gait', `humanoid teleop: ${got.humanoid}`)
   assert(got.gripper === 'grip', `gripper teleop: ${got.gripper}`)
+  assert(got.gantry === 'gantry', `gantry teleop: ${got.gantry}`)
   // dual-mode pairs: chassis/legs AND an IK-able arm on the same machine
   const dual = (arch) => {
     const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
@@ -682,7 +684,43 @@ check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => 
   const ltip = hil.tipPos(hrest)
   assert(Math.sign(ltip[0]) !== Math.sign(htip[0]) || Math.abs(ltip[0] - htip[0]) > 30,
     `left tip ${ltip[0].toFixed(0)} should mirror right tip ${htip[0].toFixed(0)}`)
-  return '6 archetypes interactive: ' + Object.entries(got).map(([k, v]) => `${k}:${v}`).join(' ')
+  return '7 archetypes interactive: ' + Object.entries(got).map(([k, v]) => `${k}:${v}`).join(' ')
+})
+
+// ── 23b. slide chains: gantry quill inherits portal+saddle, Z drops ─────────
+check('slide chain: gantry axes compose, portal stays on X, limits hold', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'gantry').brief })
+  const centroid = (nodeId, angs) => {
+    const d2 = JSON.parse(JSON.stringify(design))
+    d2.joints.forEach((j, i) => { j.angle = angs[i] || 0 })
+    const n = d2.nodes.find((x) => x.id === nodeId)
+    const ts = A.nodeTriangles(d2, n)
+    let x = 0, y = 0, z = 0, c = 0
+    for (const t of ts) for (const v of t.pts) { x += v[0]; y += v[1]; z += v[2]; c += 1 }
+    return c ? [x / c, y / c, z / c] : null
+  }
+  const rest = centroid('spindle', [0, 0, 0])
+  const posed = centroid('spindle', [100, 50, 30])
+  assert(Math.abs(posed[0] - rest[0] - 100) < 0.5, `quill X: ${posed[0].toFixed(1)} vs ${rest[0].toFixed(1)}+100`)
+  assert(Math.abs(posed[1] - rest[1] - 50) < 0.5, `quill Y: ${posed[1].toFixed(1)} vs ${rest[1].toFixed(1)}+50`)
+  assert(Math.abs(posed[2] - rest[2] + 30) < 0.5, `quill Z should DROP 30mm (joint sign -1): ${posed[2].toFixed(1)} vs ${rest[2].toFixed(1)}`)
+  const bRest = centroid('bridge', [0, 0, 0])
+  const bPose = centroid('bridge', [100, 50, 30])
+  assert(Math.abs(bPose[0] - bRest[0] - 100) < 0.5 && Math.abs(bPose[1] - bRest[1]) < 0.5 && Math.abs(bPose[2] - bRest[2]) < 0.5,
+    'portal must move X only — saddle/quill angles must not leak into it')
+  // teleop clamps at joint limits and holds position on release
+  const tel = A.createGantryTeleop(design)
+  assert(tel, 'gantry teleop missing')
+  for (let i = 0; i < 400; i++) tel.step({ x: 1, y: 1, z: 1 }, 0.05)
+  const p = tel.state
+  assert(p.x === design.joints[0].max && p.y === design.joints[1].max && p.z === design.joints[2].max,
+    `teleop must clamp exactly at limits: ${JSON.stringify(p)}`)
+  tel.step({ x: 0, y: 0, z: 0 }, 1)
+  const held = tel.step({ x: 0, y: 0, z: 0 }, 1)
+  assert(JSON.stringify(held) === JSON.stringify(tel.step({ x: 0, y: 0, z: 0 }, 1)), 'released axes must hold position')
+  tel.reset()
+  assert(tel.state.x === 0 && tel.state.y === 0 && tel.state.z === 0, 'reset must recenter')
+  return 'quill XYZ composed · portal X-only · clamps + holds + resets'
 })
 
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────

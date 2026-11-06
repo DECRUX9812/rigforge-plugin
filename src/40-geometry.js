@@ -230,14 +230,27 @@ function applyChain(chain, point) {
   ]
 }
 
-/** Linear-joint displacement for a node that rides a slide. */
+/** Linear-joint displacement for a node that rides a slide. Slide joints
+ *  chain like revolute ones: a node tagged on a child slide inherits every
+ *  slide ancestor's displacement (gantry quill = Z drop + saddle Y + portal
+ *  X). Each joint contributes dir·angle·(j.sign||1); the node's own sign
+ *  flips only the joint it is tagged on. */
 function slideDisp(design, node) {
   if (!node.slide) return [0, 0, 0]
-  const j = design.joints.find((jj) => jj.id === node.slide.joint)
-  if (!j || !j.slide) return [0, 0, 0]
-  const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
-  const t = j.angle * (node.slide.sign || 1)
-  return [dir[0] * t, dir[1] * t, dir[2] * t]
+  const j0 = design.joints.find((jj) => jj.id === node.slide.joint)
+  if (!j0 || !j0.slide) return [0, 0, 0]
+  const out = [0, 0, 0]
+  const seen = new Set()
+  let j = j0, own = true
+  while (j && j.slide && !seen.has(j.id)) {
+    seen.add(j.id)
+    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+    const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
+    out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
+    own = false
+    j = j.parent ? design.joints.find((jj) => jj.id === j.parent) : null
+  }
+  return out
 }
 
 // ── local vertex generators (centred at origin) ─────────────────────────────
