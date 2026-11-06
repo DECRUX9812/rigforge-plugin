@@ -379,21 +379,34 @@ function TabPrint({ design, analysis }) {
     analysis.print.pack && analysis.print.pack.items.length
       ? (() => {
         const pk = analysis.print.pack
+        // plates as a grid of bed squares — a 6-plate pack is six print jobs,
+        // not one squished strip. Plate-local rects + per-plate origin.
+        const nPlates = Math.max(1, pk.plates)
+        const cols = Math.min(nPlates, Math.ceil(Math.sqrt(nPlates)))
+        const rows = Math.ceil(nPlates / cols)
+        const cell = pk.bed + 24
+        const byPlate = Array.from({ length: nPlates }, (_, i) => pk.items.filter((it) => it.plate === i))
         return h('div', { style: { marginBottom: '12px' } },
           h('svg', {
-            viewBox: `0 0 ${pk.bed} ${pk.bed}`, width: '100%', height: 'auto',
+            viewBox: `0 0 ${cols * cell} ${rows * cell}`, width: '100%', height: 'auto',
             style: { display: 'block', borderRadius: '6px', border: `1px solid ${C.line}`, background: C.panel2 },
-            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts, ${pk.offBed} off-bed`,
+            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts on ${nPlates} plate(s), ${pk.offBed} off-bed`,
           },
-            h('rect', { x: 8, y: 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
-            ...pk.items.map((it) => h('rect', {
-              key: it.id, x: it.rect.x, y: it.rect.y, width: it.rect.w, height: it.rect.d,
-              fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
-              stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
-              style: { cursor: 'default' },
-            }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
-            h('text', { x: 10, y: pk.bed - 6, fill: C.faint, fontSize: 9, fontFamily: C.mono },
-              `${pk.bed}mm bed · ${pk.items.length} parts${pk.offBed ? ` · ${pk.offBed} off-bed → ~${pk.plates} plate(s)` : ' · fits one plate'}`)))
+            ...byPlate.flatMap((plateItems, p) => {
+              const ox = (p % cols) * cell, oy = Math.floor(p / cols) * cell
+              return [
+                h('rect', { key: `b${p}`, x: ox, y: oy, width: pk.bed, height: pk.bed, fill: 'none', stroke: C.faint, strokeWidth: 1 }),
+                h('rect', { key: `u${p}`, x: ox + 8, y: oy + 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
+                h('text', { key: `t${p}`, x: ox + 8, y: oy + pk.bed + 14, fill: C.faint, fontSize: 9, fontFamily: C.mono },
+                  `P${p + 1} · ${plateItems.length} part${plateItems.length === 1 ? '' : 's'}`),
+                ...plateItems.map((it) => h('rect', {
+                  key: `${p}-${it.id}`, x: ox + it.rect.x, y: oy + it.rect.y, width: it.rect.w, height: it.rect.d,
+                  fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
+                  stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
+                  style: { cursor: 'default' },
+                }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
+              ]
+            })))
       })()
       : null,
     h('table', { style: S.table },
