@@ -178,7 +178,9 @@ function buildGadget(brief) {
   box(d, 'lid', [w - 4, h - 4, 4], [0, 0, thick + 2], 'accent', { print: true })
   box(d, 'pcb', [w - 16, h - 16, 2], [0, 0, 4], 'pcb')
   cyl(d, 'port-usb', 5, 10, [w / 2 - 2, 0, 8], 'x', 'metal')
-  box(d, 'vent', [2, 30, 12], [-w / 2 - 0.5, 0, 20], 'metal')
+  // louvered vent: sawtooth prism through the left wall — corrugated slots
+  // instead of a flat plate; non-convex profile exercises ear-clipped caps
+  prism(d, 'vent', [[-15, -6], [15, -6], [15, 2], [10, 6], [5, 2], [0, 6], [-5, 2], [-10, 6], [-15, 2]], 3, [-w / 2 - 0.5, 0, 20], 'x', 'metal')
 
   const chosen = []
   for (const rule of GADGET_RULES) {
