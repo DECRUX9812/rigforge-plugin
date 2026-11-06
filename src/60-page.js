@@ -749,7 +749,13 @@ function Studio() {
     ikLRef.current = ikRef.current ? createArmTeleop(design, 'l') : null
     const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : null
     setTeleopKind(kind)
-    autotestRef.current = createAutotest(driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current)
+    // the primary suite doesn't have to be the only one: a humanoid walks AND
+    // reaches with both arms, a drive robot with an arm tours the desk too
+    const primaryTel = driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current
+    const armSubs = []
+    if (primaryTel !== ikRef.current && ikRef.current) armSubs.push({ t: ikRef.current, tag: ikLRef.current ? 'R' : 'ARM' })
+    if (ikLRef.current) armSubs.push({ t: ikLRef.current, tag: 'L' })
+    autotestRef.current = createAutotest(primaryTel, armSubs)
     setDriveAvail(!!kind)
     setDualMode(!!((driveRef.current || gaitRef.current) && ikRef.current))
     setArmSides((ikRef.current ? 1 : 0) + (ikLRef.current ? 1 : 0))
@@ -794,7 +800,11 @@ function Studio() {
       // dual-mode: an arm IK owns the sticks while M cycles body→R→L, unless
       // the autopilot is mid-certification (it always runs the primary mode)
       const armDrive = !!(armModeRef.current && (ik || ikL) && !(autotestRef.current && autotestRef.current.running))
-      if (!pwrDead && drive && !armDrive) {
+      // a sequenced autopilot (gait + both arms) reports which suite is live —
+      // route the tick to that teleop's channel instead of the machine's primary
+      const atKind = autotestRef.current && autotestRef.current.running && autotestRef.current.activeKind
+        ? autotestRef.current.activeKind : null
+      if (!pwrDead && drive && !armDrive && (!atKind || atKind === 'drive')) {
         const at = autotestRef.current
         let throttle, steer
         if (at && at.running) {
@@ -819,7 +829,7 @@ function Studio() {
         if (gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed && !gpBtnRef.current) drive.shove(15)
         gpBtnRef.current = !!(gp && gp.buttons && gp.buttons[1] && gp.buttons[1].pressed)
         setChassis({ ...drive.state })
-      } else if (!pwrDead && ikUse && (armModeRef.current || !gait)) {
+      } else if (!pwrDead && ikUse && (atKind ? atKind === 'ik' : (armModeRef.current || !gait))) {
         // WASD/arrows plane, R/F height; left stick plane, right stick height
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
@@ -848,7 +858,7 @@ function Studio() {
         // directly skips the velocity-cmd layer the script already bypassed
         const desired = certPose || ikUse.step({ x: cx, y: cy, z: cz }, dt, actual)
         if (desired) setPose(desired)
-      } else if (!pwrDead && gait) {
+      } else if (!pwrDead && gait && (!atKind || atKind === 'gait')) {
         // W/S walk speed, A/D steer; gamepad left stick same
         const want = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         const turn = (k.a || k.arrowleft ? 1 : 0) - (k.d || k.arrowright ? 1 : 0)
@@ -882,12 +892,12 @@ function Studio() {
           const desired = gait.step({ x: gx }, dt, actual)
           if (desired) setPose(desired)
         }
-      } else if (!pwrDead && grip) {
+      } else if (!pwrDead && grip && (!atKind || atKind === 'grip')) {
         const at = autotestRef.current
         const gcmd = at && at.running ? at.tick(dt) : { grip: k.space, gripEdge: spaceEdgeRef.current }
         const desired = grip.step(gcmd, dt)
         if (desired) setPose(desired)
-      } else if (!pwrDead && sense) {
+      } else if (!pwrDead && sense && (!atKind || atKind === 'sense')) {
         // sensor nodes have no motion cmd — the autopilot writes stimulus
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current

@@ -39,12 +39,17 @@ function createArmTeleop(design, side) {
 
   // Workspace bound for the REACH overlay — shared with the spec's reach row.
   const reachSphere = armReachBound(tip)
+  // The joints this arm actually drives — certification scopes its LIMITS
+  // sweep and lift margins to these so a humanoid's legs can't fail an arm test.
+  const chainIds = tipChain.map((j) => j.id)
+  const chainIdx = chainIds.map((id) => joints.findIndex((j) => j.id === id)).filter((i) => i >= 0)
 
   return {
     kind: 'ik',
     state,
     design,          // read-only: autotest poses a clone for torque checks
     distalJoint: tipNode.joint, // the joint the tip rides — payloads hang here
+    chainIds, chainIdx, // design.joints scope this arm's certification covers
     reachSphere,     // {c,r} mm — outer bound of the arm's workspace
     /**
      * cmd: {x,y,z} each -1..1. actualAngles: current joint angles (deg).

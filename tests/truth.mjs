@@ -981,6 +981,43 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
   return at.results.map((r) => `${r.label}:${r.pass ? 'P' : 'F'}(${r.detail})`).join(' · ')
 })
 
+check('autotest: humanoid certifies gait AND both arms, chain-scoped', () => {
+  const { design } = presetDesign('humanoid')
+  const gait = A.createGaitTeleop(design)
+  const ikR = A.createArmTeleop(design)
+  const ikL = A.createArmTeleop(design, 'l')
+  assert(ikR && ikL, 'humanoid should expose both arm teleops')
+  // same composition the page builds: gait primary, then R and L reach suites
+  const at = A.createAutotest(gait, [{ t: ikR, tag: 'R' }, { t: ikL, tag: 'L' }])
+  at.start()
+  let actual = design.joints.map(() => 0)
+  const env = { surface: 'hardwood', slopeDeg: 0, course: 'rack' }
+  for (let i = 0; i < 60 * 120 && at.running; i++) {
+    const c = at.tick(1 / 60, actual)
+    if (at.activeKind === 'ik') {
+      if (c && c.pose) actual = c.pose.slice()
+    } else if (c) {
+      const r = gait.locomote(c, 1 / 60, actual, env)
+      if (r && r.pose) actual = r.pose
+    }
+  }
+  assert(at.done, 'sequenced certification did not finish')
+  const gaitRes = at.results.filter((r) => !/^[RL]: /.test(r.label))
+  const armR = at.results.filter((r) => r.label.startsWith('R: '))
+  const armL = at.results.filter((r) => r.label.startsWith('L: '))
+  assert(gaitRes.length === 6, `gait suite should contribute 6 results, got ${gaitRes.length}`)
+  assert(armR.length === 8 && armL.length === 8, `each arm suite is 8 results — R:${armR.length} L:${armL.length}`)
+  // chain scoping: each arm's LIMITS sweep covers only its own joints — a
+  // 23-joint humanoid must not report "all 23" for a 4-joint arm test
+  for (const [tag, ik] of [['R', ikR], ['L', ikL]]) {
+    const lim = at.results.find((r) => r.id === `${tag}-limits`)
+    assert(lim && lim.pass, `${tag} arm LIMITS should pass — ${lim && lim.detail}`)
+    assert(lim.detail.includes(`all ${ik.chainIdx.length} joints`), `${tag} LIMITS scope wrong — ${lim.detail}`)
+  }
+  const kinds = []
+  return `22 results — gait ${gaitRes.filter((r) => r.pass).length}/6 · R-arm ${armR.filter((r) => r.pass).length}/8 · L-arm ${armL.filter((r) => r.pass).length}/8`
+})
+
 check('autotest gait: quadruped locomotion suite passes on rack', () => {
   const { design } = presetDesign('quadruped')
   const gait = A.createGaitTeleop(design)
