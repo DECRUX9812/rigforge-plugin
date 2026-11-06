@@ -20,7 +20,7 @@ a complete machine from one brief:
 | servo harness | per-joint wire runs measured pivot→electrical home vs the BOM's stock leads — extensions auto-added to cost/BOM, stall-current voltage drop, and a live **CABLES** overlay coloured by verdict |
 | certification | one-click **AUTO** runs a measured maneuver suite per machine — sprint, turn, climb, load, shove, stand, jaw hold, slide-axis traverse/drop/return on gantries, and **a reach tour for every arm it has** (dual-arm humanoids certify R and L separately) — scored pass/fail with real numbers, kept as per-machine history with a score trend; failed legs feed **Break→Fix** prescriptions (cert lift margins → sized payloads, reach bounds → longer arms) |
 | poses | named **pose presets** per archetype — EXTEND/STOW/UP, WAVE, OPEN/CLOSE, scan presets — plus IK-replanted **stance** poses (WIDE, PROWL) whose feet stay on the ground at any machine size |
-| DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships, brim/contact ratios, **bed + plate-fit packing**, and **wall-thickness raycasts** — parts that would print on edge, need support, won't fit the plate, or have sub-nozzle walls say so |
+| DFM | overhang analysis on the exact bed-oriented triangles the STL pack ships, brim/contact ratios, **bed + plate-fit packing**, **wall-thickness raycasts**, and **rest-pose interference** — ray-parity narrowphase flags printed parts that would occupy the same volume at assembly (jointed links that legitimately nest are skipped) — parts that would print on edge, need support, won't fit the plate, have sub-nozzle walls, or can't be assembled as modeled say so |
 | trust | **show the working** on every headline number, and **before/after** on every change — recomputed, never remembered |
 | sharing | a design is a **build code**: `RF1-…`, ~200 characters for parametric machines (a custom spec carries its nodes/joints, so longer), rebuilds exactly on someone else's machine; the field-test **REPORT** download carries the bench log + engineering summary |
 
@@ -88,7 +88,7 @@ Every claim above is backed by a gate that can fail. These run by hand
 
 | gate | what it asserts | current |
 |---|---|---|
-| `tests/truth.mjs` | 65 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **65/65** |
+| `tests/truth.mjs` | 66 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness/interference, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **66/66** |
 | `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
 | `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
 | `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
@@ -184,7 +184,7 @@ src/20..29-*.js       archetype generators (arm, rover, quadruped, gripper/gadge
                       spec-driven custom machines)
 src/30-analysis.js    pin map, power budget, mass/cost/print, readiness checks
 src/35-firmware.js    Arduino generation + assembly steps
-src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness
+src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness + rest-pose interference
 src/41-bench.js       statics: CoM, support polygon, slope tip-over, torque vs stall, CCD IK
 src/41-sim-export.js  URDF + MJCF export for ROS / MuJoCo / PyBullet
 src/42-physics.js     joint dynamics: servo-speed slew, stall sag, thermal, bus current
@@ -217,7 +217,7 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
-node tests/truth.mjs            # 65 behaviour-contract claims — the numbers must stay honest
+node tests/truth.mjs            # 66 behaviour-contract claims — the numbers must stay honest
 node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
