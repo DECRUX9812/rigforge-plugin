@@ -12091,6 +12091,8 @@ function Studio() {
   const sweepRef = useRef({ active: false, t: 0 })
   // joint telemetry ring: actual (not commanded) angles at ~10Hz for the scope
   const telemetryRef = useRef({ samples: [], n: 0 })
+  // POSES▸ cycles presets per archetype without a chip row the layout gate hates
+  const presetCycleRef = useRef({ arch: null, i: 0 })
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
@@ -13511,8 +13513,21 @@ function Studio() {
               h('button', { style: S.poseTab, title: 'every joint back to zero', onClick: () => setPose(design.joints.map(() => 0)) }, 'HOME'),
               h('button', {
                 style: S.poseTab,
-                title: 'a quick working pose',
-                onClick: () => setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55)))),
+                title: (POSE_PRESETS[design.archetype] || []).length
+                  ? `cycle pose presets: ${(POSE_PRESETS[design.archetype] || []).map((p) => p.name).join(' → ')}`
+                  : 'a quick working pose',
+                onClick: () => {
+                  const list = POSE_PRESETS[design.archetype] || []
+                  if (list.length) {
+                    const cyc = presetCycleRef.current
+                    const i = cyc.arch === design.archetype ? (cyc.i + 1) % list.length : 0
+                    presetCycleRef.current = { arch: design.archetype, i }
+                    const live = simRef.current && simRef.current.state ? simRef.current.state.angles : null
+                    const a = applyPosePreset(design, list[i].name, live)
+                    if (a) { setPose(a); return }
+                  }
+                  setPose(design.joints.map((j, i) => (i === 0 && design.joints.length > 1 ? 0 : Math.round(i % 2 ? j.max * 0.6 : j.min * 0.55))))
+                },
               }, 'POSE'),
               design.joints.length
                 ? h('button', {
