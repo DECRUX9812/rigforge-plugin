@@ -363,7 +363,7 @@ function stepsFor(design, a) {
   const printed = design.nodes.filter((n) => n.print)
   const grams = Math.round(a.print.grams)
 
-  push('Print the frame', `${printed.length} printed parts, ${grams}g ${a.print.material.name}, ${fmt(a.print.hours, 0)}h on a 0.4mm nozzle at 0.2mm layers. Orient load-bearing links so layer lines run along the load, not across it.`, ['printer', 'slicer'], Math.round(a.print.hours * 60))
+  push('Print the frame', `${printed.length} printed parts, ${grams}g ${a.print.material.name}, ${fmt(a.print.hours, 0)}h on a 0.4mm nozzle at 0.2mm layers. The STLs arrive bed-flat; for links that bend, check in your slicer that layer lines run along the load, not across it.`, ['printer', 'slicer'], Math.round(a.print.hours * 60))
 
   if (design.archetype === 'arm') {
     push('Press in the bearings', 'Heat-set the M3 inserts first (200°C, straight in, let it cool). Then press 608 bearings into the base and shoulder hubs — a vise or a clamp, never a hammer.', ['heat-set insert tip', 'vise'], 25)
