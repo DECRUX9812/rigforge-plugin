@@ -13,11 +13,13 @@ function buildGantry(brief) {
 
   const railW = 60 // gantry beam depth, mm
   const beamH = 80
-  const z0 = 90 // gantry height above the bed
+  // Bridge height above the bed. The quill stack (spindle + clamp + carriage,
+  // ~125mm) has to fit *below* the beam with its tip near the spoilboard, so
+  // the superstructure stands well clear of the bed — a real CNC is tall.
+  const z0 = 260
   const bedZ = 0
 
   d.title = `${spanX}mm gantry machine`
-  d.subtitle = `${spanX}×${spanY}×${spanZ}mm travel · belt XY · leadscrew Z`
   d.metrics = { spanX, spanY, spanZ }
 
   // ── motion: three chained slides — portal X, saddle Y, quill Z ──────────
@@ -39,6 +41,7 @@ function buildGantry(brief) {
   const onX = { slide: { joint: 'gantry-x', sign: 1 } }
   const onY = { slide: { joint: 'gantry-y', sign: 1 } }
   const onZ = { slide: { joint: 'gantry-z', sign: 1 } }
+  d.subtitle = `${spanX}×${spanY}mm · belt XY · Z drop ${jz.max}mm`
 
   // ── frame: two side rails, a bed, and the moving gantry bridge ───────────
   for (const sx of [-1, 1]) {
@@ -55,29 +58,58 @@ function buildGantry(brief) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
 
+  // X rails: the portal's fixed guidance — one extrusion per bridge end,
+  // spanning frame X with the ends bedded onto the side rails. The carriage
+  // cheeks below wrap them; without these the portal had nothing to ride.
+  for (const sy of [-1, 1]) {
+    rbox(d, `x-rail-${sy > 0 ? 'b' : 'f'}`, [spanX + 80, 26, 20], [0, sy * (spanY / 2 + 10), 68], 2, 'metal')
+  }
+
   // gantry bridge: one beam carrying X, two uprights riding Y
   rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false, ...onX })
+  // Y rail on the bridge crown — the saddle's guidance, moves with the portal
+  rbox(d, 'y-rail', [26, spanY + 50, 14], [0, 0, z0 + beamH + 7], 2, 'metal', onX)
+  // portal legs: from the X-rail carriages up to the bridge underside
+  const legBot = railW + 27 // flush on the y-carriage top
   for (const sy of [-1, 1]) {
-    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false, ...onX })
-    // Y carriage: rail block + rollers
+    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0 - legBot], [0, sy * (spanY / 2 + 10), (z0 + legBot) / 2], 2, 'accent', { print: false, ...onX })
+    // Y carriage: rail block riding the X rail (MGN-style, like the BOM's mgn12)
     rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
-    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel', onX)
   }
-  // X carriage + Z column
+
+  // X carriage + Z axis. The column is the quill's guide post — fixed to the
+  // bridge, top buried in the beam — and the quill (carriage → clamp →
+  // spindle) slides on it, always *below* the beam where the tool is visible.
+  // Built positions are the raised pose; jz.max drops the stack to tipWork.
+  const tipWork = bedZ + railW + 28 // spindle tip at full drop: ~8mm over spoilboard
+  const colBot = 190
+  const colTop = z0 + beamH - 5 // top edge stays inside the beam
+  const colH = colTop - colBot
+  const zCar = tipWork + 97 + jz.max // carriage centre, raised (work 185)
+  const zClamp = tipWork + 62 + jz.max // clamp centre, raised (work 150)
+  const zSpin = tipWork + 23 + jz.max // spindle centre, raised (work 111)
   rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal', onY)
-  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false, ...onY })
-  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal', onZ)
-  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel', onZ)
+  rbox(d, 'z-column', [34, 34, colH], [0, 0, (colTop + colBot) / 2], 2, 'accent', { print: false, ...onY })
+  rbox(d, 'z-carriage', [56, 56, 30], [0, 0, zCar], 2, 'metal', onZ)
+  rbox(d, 'spindle-clamp', [64, 64, 40], [0, 0, zClamp], 3, 'accent', { print: true, ...onZ })
+  cyl(d, 'spindle', 16, 46, [0, 0, zSpin], 'z', 'steel', onZ)
 
   // drive: motors, belts (as flat straps), leadscrew, limit switches
   cyl(d, 'motor-x', 21, 40, [spanX / 2 + 10, -(spanY / 2 + 10), z0 + beamH + 6], 'x', 'servo')
-  cyl(d, 'motor-y', 21, 40, [0, -(spanY / 2 + 10), railW + 10], 'y', 'servo')
+  // Y motor rides the portal beside the front leg — the saddle it drives does
+  cyl(d, 'motor-y', 21, 40, [-55, -(spanY / 2 + 10), (legBot + z0) / 2], 'y', 'servo', onX)
   cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo', onY)
   rbox(d, 'belt-x', [8, spanY + 40, 6], [spanX / 2 + 10, 0, z0 + beamH - 10], 1, 'belt')
   rbox(d, 'belt-y', [spanX, 8, 6], [0, -(spanY / 2 + 10), railW + 22], 1, 'belt')
-  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel', onY)
-  for (const [ax, pos] of [['x', [spanX / 2 - 20, -(spanY / 2 + 10), z0 + 10]], ['y', [0, -(spanY / 2 + 20), railW + 10]], ['z', [30, 0, z0 + beamH + 40]]]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb')
+  // leadscrew: motor coupling down to the quill nut — the working span, not
+  // the column's full guide length
+  cyl(d, 'leadscrew', 6, z0 + beamH + 40 - (tipWork + 60), [0, 0, (z0 + beamH + 40 + tipWork + 60) / 2], 'z', 'steel', onY)
+  for (const [ax, pos, tag] of [
+    ['x', [spanX / 2 - 20, -(spanY / 2 + 10), z0 + 10], null],
+    ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
+    ['z', [30, 0, z0 + beamH + 40], null],
+  ]) {
+    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the
@@ -90,7 +122,6 @@ function buildGantry(brief) {
     rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 32, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
   }
   rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
-  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true, ...onZ })
 
   // ── parts ────────────────────────────────────────────────────────────────
   const railMetres = Math.ceil((2 * (spanY + 120) + 2 * spanX + 4 * 400) / 1000 * 2) / 2
