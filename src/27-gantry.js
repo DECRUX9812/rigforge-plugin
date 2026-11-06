@@ -87,7 +87,7 @@ function buildGantry(brief) {
     mesh(d, `corner-${sx}${sy}`, 'BRACKET', [58, 58, 26], [sx * (spanX / 2 + 26), sy * (spanY / 2 + 26), railW + 8], 'accent', { print: true })
   }
   for (const sy of [-1, 1]) {
-    rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
+    rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 32, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
   }
   rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
   rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true, ...onZ })
