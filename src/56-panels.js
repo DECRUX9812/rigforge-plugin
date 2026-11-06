@@ -376,6 +376,26 @@ function TabPrint({ design, analysis }) {
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
       h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts · largest ${Math.round(analysis.printFit ? analysis.printFit.worst.largest : 0)}mm on a ${analysis.printFit ? analysis.printFit.bed : 256}mm bed` })),
+    analysis.print.pack && analysis.print.pack.items.length
+      ? (() => {
+        const pk = analysis.print.pack
+        return h('div', { style: { marginBottom: '12px' } },
+          h('svg', {
+            viewBox: `0 0 ${pk.bed} ${pk.bed}`, width: '100%', height: 'auto',
+            style: { display: 'block', borderRadius: '6px', border: `1px solid ${C.line}`, background: C.panel2 },
+            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts, ${pk.offBed} off-bed`,
+          },
+            h('rect', { x: 8, y: 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
+            ...pk.items.map((it) => h('rect', {
+              key: it.id, x: it.rect.x, y: it.rect.y, width: it.rect.w, height: it.rect.d,
+              fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
+              stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
+              style: { cursor: 'default' },
+            }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
+            h('text', { x: 10, y: pk.bed - 6, fill: C.faint, fontSize: 9, fontFamily: C.mono },
+              `${pk.bed}mm bed · ${pk.items.length} parts${pk.offBed ? ` · ${pk.offBed} off-bed → ~${pk.plates} plate(s)` : ' · fits one plate'}`)))
+      })()
+      : null,
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),

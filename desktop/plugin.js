@@ -3164,6 +3164,15 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
+  // the pack as a whole: per-part fit is not plate fit — shelf packing can
+  // still run off the bed in depth, and the 3MF ships exactly this layout
+  const pack = packBedLayout(design, design.brief && design.brief.bedMm)
+  if (pack.items.length && pack.offBed) {
+    checks.push({
+      level: 'warn',
+      msg: `The print pack needs ~${pack.plates} plate(s) on a ${pack.bed}mm bed — ${pack.offBed} of ${pack.items.length} parts land off the printable square in the 3MF. Print in batches from the STL pack, or pick a bigger bed.`,
+    })
+  }
   const overhang = overhangReport(design)
   if (overhang.unsupportedMm2 > 150) {
     const w = overhang.worst
@@ -3216,7 +3225,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
@@ -4466,17 +4475,17 @@ function printReadyTris(tris) {
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**
- * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
- * want: one file, named bodies, real units, laid out on a virtual bed.
- * Every printed node becomes an object with its bed-oriented triangles
- * inline; items are shelf-packed so parts don't overlap at origin.
+ * Shelf-pack every printed node onto a bed of bedMm — the exact layout the
+ * 3MF export ships, now bed-aware. Returns per-part bed-space rects, the
+ * 3MF transform offsets, an offBed flag for anything past the usable
+ * square, and the plate count a slicer would actually need. Items are
+ * never dropped: off-bed parts stay in the file so the user sees them.
  */
-function to3MF(design, material) {
-  const matName = typeof material === 'string' ? material : material && material.name
-  const objects = []
+function packBedLayout(design, bedMm) {
+  const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
+  const usable = bed - 8, GAP = 8
   const items = []
-  const BED_W = 300, GAP = 8
-  let cx = 10, cy = 10, rowH = 0, oid = 1
+  let cx = 10, cy = 10, rowH = 0
   for (const node of design.nodes) {
     if (!node.print) continue
     let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
@@ -4489,8 +4498,34 @@ function to3MF(design, material) {
       if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
     }
     const w = maxx - minx, d = maxy - miny
-    if (cx + w > BED_W && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
-    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${(cx - minx).toFixed(3)} ${(cy - miny).toFixed(3)} 0"/>`)
+    if (cx + w > usable && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
+    items.push({
+      id: node.id, tris,
+      x: cx - minx, y: cy - miny,          // 3MF transform offsets
+      rect: { x: cx, y: cy, w, d },        // bed-space footprint, mm
+      offBed: cx + w > usable || cy + d > usable,
+    })
+    cx += w + GAP
+    rowH = Math.max(rowH, d)
+  }
+  const depth = items.length ? cy + rowH : 0
+  return { bed, usable, items, plates: items.length ? Math.max(1, Math.ceil(depth / usable)) : 0, offBed: items.filter((i) => i.offBed).length }
+}
+
+/**
+ * 3MF print pack — what modern slicers (Bambu Studio, Orca, Prusa) actually
+ * want: one file, named bodies, real units, laid out on a virtual bed.
+ * Every printed node becomes an object with its bed-oriented triangles
+ * inline; items are shelf-packed so parts don't overlap at origin.
+ */
+function to3MF(design, material) {
+  const matName = typeof material === 'string' ? material : material && material.name
+  const objects = []
+  const items = []
+  const layout = packBedLayout(design, design.brief && design.brief.bedMm)
+  layout.items.forEach((it, i) => {
+    const oid = i + 1
+    const tris = it.tris
     const vmap = new Map()
     const verts = []
     const faces = []
@@ -4508,11 +4543,9 @@ function to3MF(design, material) {
     for (let i = 0; i < verts.length; i += 3) {
       vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
     }
-    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(node.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
-    cx += w + GAP
-    rowH = Math.max(rowH, d)
-    oid += 1
-  }
+    objects.push(`<object id="${oid}" type="model" name="${xmlEsc(it.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${it.y.toFixed(3)} 0"/>`)
+  })
   if (!objects.length) return null
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
@@ -10964,6 +10997,26 @@ function TabPrint({ design, analysis }) {
     h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' } },
       h(StatBlock, { label: 'FILAMENT', value: `${Math.round(analysis.print.grams)}g`, sub: `${(analysis.print.grams / 1000).toFixed(2)} of a 1kg spool` }),
       h(StatBlock, { label: 'MACHINE TIME', value: `${fmt(analysis.print.hours, 1)}h`, sub: `${rows.length} parts · largest ${Math.round(analysis.printFit ? analysis.printFit.worst.largest : 0)}mm on a ${analysis.printFit ? analysis.printFit.bed : 256}mm bed` })),
+    analysis.print.pack && analysis.print.pack.items.length
+      ? (() => {
+        const pk = analysis.print.pack
+        return h('div', { style: { marginBottom: '12px' } },
+          h('svg', {
+            viewBox: `0 0 ${pk.bed} ${pk.bed}`, width: '100%', height: 'auto',
+            style: { display: 'block', borderRadius: '6px', border: `1px solid ${C.line}`, background: C.panel2 },
+            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts, ${pk.offBed} off-bed`,
+          },
+            h('rect', { x: 8, y: 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
+            ...pk.items.map((it) => h('rect', {
+              key: it.id, x: it.rect.x, y: it.rect.y, width: it.rect.w, height: it.rect.d,
+              fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
+              stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
+              style: { cursor: 'default' },
+            }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
+            h('text', { x: 10, y: pk.bed - 6, fill: C.faint, fontSize: 9, fontFamily: C.mono },
+              `${pk.bed}mm bed · ${pk.items.length} parts${pk.offBed ? ` · ${pk.offBed} off-bed → ~${pk.plates} plate(s)` : ' · fits one plate'}`)))
+      })()
+      : null,
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),

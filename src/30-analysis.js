@@ -429,6 +429,15 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
+  // the pack as a whole: per-part fit is not plate fit — shelf packing can
+  // still run off the bed in depth, and the 3MF ships exactly this layout
+  const pack = packBedLayout(design, design.brief && design.brief.bedMm)
+  if (pack.items.length && pack.offBed) {
+    checks.push({
+      level: 'warn',
+      msg: `The print pack needs ~${pack.plates} plate(s) on a ${pack.bed}mm bed — ${pack.offBed} of ${pack.items.length} parts land off the printable square in the 3MF. Print in batches from the STL pack, or pick a bigger bed.`,
+    })
+  }
   const overhang = overhangReport(design)
   if (overhang.unsupportedMm2 > 150) {
     const w = overhang.worst
@@ -481,7 +490,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
