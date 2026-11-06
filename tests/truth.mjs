@@ -448,6 +448,17 @@ check('CPL: every placement has designator, layer and coordinates', () => {
   return `${rows} centroid rows`
 })
 
+// ── 12b. board courtyards are manufacturable, and bad briefs fail loudly ─────
+check('board fit: pcb courtyards clear outline, keep-outs and each other', () => {
+  const p = A.PRESETS.find((x) => x.id === 'pcb')
+  const { analysis } = A.composeDesign({ ...p.brief })
+  const fitFails = analysis.checks.filter((c) => c.level === 'fail' && /courtyard|keep-out|connector zone|drill-to-copper/.test(c.msg))
+  assert(fitFails.length === 0, `default ${analysis.checks && ''}board has ${fitFails.length} fit failures: ${fitFails[0] && fitFails[0].msg}`)
+  const small = A.composeDesign({ ...p.brief, reachMm: 60 }).analysis
+  assert(small.checks.some((c) => c.level === 'fail' && /courtyard/.test(c.msg)), 'a 60mm outline should fail courtyard fit, not silently clamp')
+  return 'default clean · 60mm honestly refused'
+})
+
 // ── 13. wiring: the wire carries the stall case, the fuse never exceeds it ──
 check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table', () => {
   let rows = 0
