@@ -1861,8 +1861,10 @@ function buildGripper(brief) {
 
   // ── linear rail + carriages carry the jaw load, racks only drive ─────────
   cyl(d, 'rail', 3, Math.min(deckL * 0.86, span * 0.9 + 60), [0, 0, deckZ + 3], 'x', 'steel', { segs: 10 })
+  // the BOM's mgn12×2 are these: ground aluminum rail sections the carriage
+  // trucks straddle — not printed drawer slides pretending to be linear guides
   for (const sy of [-1, 1]) {
-    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 7, 8], [0, sy * railY, deckZ + 4], 'shell', { print: true })
+    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 12, 10], [0, sy * railY, deckZ + 5], 'metal')
   }
 
   // ── jaw assemblies: carriage pair + riser + L-finger + replaceable pad ────
