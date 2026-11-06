@@ -713,10 +713,10 @@ function box(d, id, size, pos, mat, extra) {
  *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
  *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
  *  [2,0,1] stands a board on edge). Defaults to lying flat. */
-function elec(d, id, key, pos, axes) {
+function elec(d, id, key, pos, axes, extra) {
   const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
   const m = axes || [0, 1, 2]
-  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb')
+  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb', extra)
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
@@ -3228,7 +3228,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
+    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the

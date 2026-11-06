@@ -134,7 +134,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
+    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the
