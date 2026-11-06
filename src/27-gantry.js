@@ -65,7 +65,7 @@ function buildGantry(brief) {
     rbox(d, `x-rail-${sy > 0 ? 'b' : 'f'}`, [spanX + 80, 26, 20], [0, sy * (spanY / 2 + 10), 68], 2, 'metal')
   }
 
-  // gantry bridge: one beam carrying X, two uprights riding Y
+  // gantry bridge: one beam the saddle rides in Y, two legs carrying portal X
   rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false, ...onX })
   // Y rail on the bridge crown — the saddle's guidance, moves with the portal
   rbox(d, 'y-rail', [26, spanY + 50, 14], [0, 0, z0 + beamH + 7], 2, 'metal', onX)
@@ -78,8 +78,9 @@ function buildGantry(brief) {
   }
 
   // X carriage + Z axis. The column is the quill's guide post — fixed to the
-  // bridge, top buried in the beam — and the quill (carriage → clamp →
-  // spindle) slides on it, always *below* the beam where the tool is visible.
+  // bridge, top buried in the beam — and the quill (spindle → clamp →
+  // carriage, bottom-up) slides on it, always *below* the beam where the
+  // tool is visible.
   // Built positions are the raised pose; jz.max drops the stack to tipWork.
   const tipWork = bedZ + railW + 28 // spindle tip at full drop: ~8mm over spoilboard
   const colBot = 190
