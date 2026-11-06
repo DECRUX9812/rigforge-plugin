@@ -5,32 +5,108 @@
 // designator, a package and a rotation, because that is what a centroid file is.
 
 // designator, part key, x fraction, y fraction, rotation°, package
+// Fractions map onto the usable field (half-board minus a 6mm edge margin).
+// These were laid out by courtyard, not by eye: the ESP32 module owns the
+// bottom-left, breakouts fill the top band, the rocker hangs the right edge —
+// auditBoardFit proves no two courtyards touch at the default 120×79mm.
 const PCB_PARTS = [
-  ['U1', 'esp32s3', 0, 0.08, 0, 'MODULE 62×26'],
-  ['U2', 'bme280', -0.34, 0.3, 0, 'LGA-8'],
-  ['U3', 'ssd1306', 0.32, 0.3, 0, 'MODULE 27×27'],
-  ['U4', 'ina219', 0.34, -0.12, 0, 'SOT-23-8'],
-  ['J1', 'jst_kit', -0.38, -0.34, 0, 'JST-XH 4'],
-  ['J2', 'rocker', 0.36, -0.36, 0, 'THT 3'],
+  ['U1', 'esp32s3', -0.39, -0.76, 0, 'MODULE 62×26'],
+  ['U2', 'bme280', -0.07, 0.66, 0, 'LGA-8'],
+  ['U3', 'ssd1306', -0.56, 0.60, 0, 'MODULE 27×27'],
+  ['U4', 'ina219', 0.65, 0.15, 0, 'SOT-23-8'],
+  ['J1', 'jst_kit', 0.56, 0.99, 0, 'JST-XH 4'],
+  ['J2', 'rocker', 0.89, -0.63, 90, 'THT 3'],
 ]
 
 // the passives a board like this actually needs, and the reason each exists
-// x and y are fractions of the half-board, same as the modules: a board that
-// grows must not fling its passives off the edge.
+// x and y are fractions of the same usable field as the modules.
 const PCB_PASSIVES = [
-  ['C1', '0402', -0.22, -0.3, 0, 'input bulk'],
-  ['C2', '0402', -0.14, -0.3, 0, 'decoupling · 3V3'],
-  ['C3', '0402', -0.06, -0.3, 90, 'decoupling · 1V1'],
-  ['C4', '0402', 0.02, -0.3, 0, 'decoupling · ADC ref'],
-  ['R1', '0402', 0.12, -0.16, 0, 'I²C pull-up · SDA'],
-  ['R2', '0402', 0.2, -0.16, 0, 'I²C pull-up · SCL'],
-  ['R3', '0603', 0.1, 0.34, 90, 'LED series'],
-  ['R4', '0603', 0.18, 0.34, 0, 'boot pull-up'],
+  ['C1', '0402', -0.65, -0.27, 0, 'input bulk'],
+  ['C2', '0402', -0.52, -0.27, 0, 'decoupling · 3V3'],
+  ['C3', '0402', -0.39, -0.27, 90, 'decoupling · 1V1'],
+  ['C4', '0402', -0.26, -0.27, 0, 'decoupling · ADC ref'],
+  ['R1', '0402', 0.19, 0.72, 0, 'I²C pull-up · SDA'],
+  ['R2', '0402', 0.26, 0.72, 0, 'I²C pull-up · SCL'],
+  ['R3', '0603', 0.37, -1.04, 90, 'LED series'],
+  ['R4', '0603', 0.48, -1.04, 0, 'boot pull-up'],
 ]
+
+// ── board fit audit ────────────────────────────────────────────────────────
+// A placement list is a claim that this board can be built. Before we say it,
+// check it: every courtyard inside the outline, no two courtyards touching,
+// nothing in the antenna keep-out, nothing over a drill pad. Courtyards are
+// the real part outline plus the clearance a fab needs — the drawn body is
+// 0.86× the part on purpose, so auditing the drawing would understate it.
+
+// courtyard [w, d] mm per package; modules use their catalog dims + margin
+const COURTYARD = { '0402': [1.5, 1.0], '0603': [2.7, 1.6] }
+const COURT_MARGIN = 0.8 // mm added to a module's catalog footprint
+
+function courtyardOf(p) {
+  if (p.kind === 'passive') return COURTYARD[p.pkg] || [2.0, 1.2]
+  const part = PARTS[p.key]
+  const dims = (part && part.dims) || [10, 10]
+  return [dims[0] + COURT_MARGIN, dims[1] + COURT_MARGIN]
+}
+
+// AABB of a w×d rect rotated rot° about its centre, as [x0,y0,x1,y1]
+function placedAabb(p, cw) {
+  const [w, d] = cw
+  const r = ((p.rot || 0) * Math.PI) / 180
+  const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r))
+  const hw = (w * c + d * s) / 2, hd = (w * s + d * c) / 2
+  return [p.x - hw, p.y - hd, p.x + hw, p.y + hd]
+}
+
+function auditBoardFit(d, placed, W, H) {
+  const edge = 0.3 // outline keeps this much copper off the board edge
+  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
+  // antenna keep-out and the USB-C tongue zone are board features, not parts
+  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
+  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
+  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
+
+  const boxes = placed.map((p) => ({ p, cw: courtyardOf(p), bb: placedAabb(p, courtyardOf(p)) }))
+  const name = (p) => `${p.des} ${p.pkg && p.kind === 'passive' ? p.pkg : (PARTS[p.key] && PARTS[p.key].name) || p.key}`
+
+  // 1 — every courtyard inside the outline (fail: the board cannot be built)
+  for (const { p, cw, bb } of boxes) {
+    if (bb[0] < bx0 || bb[1] < by0 || bb[2] > bx1 || bb[3] > by1) {
+      const needW = Math.ceil(cw[0]), needH = Math.ceil(cw[1])
+      d.checks.push({ level: 'fail',
+        msg: `${name(p)} needs a ${needW}×${needH}mm courtyard but the ${W}×${H}mm outline leaves ${Math.floor(bx1 - bx0)}×${Math.floor(by1 - by0)}mm usable — grow reachMm or move the part in.` })
+    }
+  }
+
+  // 2 — courtyard overlaps (fail: two parts cannot occupy the same pads)
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].bb, b = boxes[j].bb
+    const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0])
+    const oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1])
+    if (ox > 0 && oy > 0) {
+      d.checks.push({ level: 'fail',
+        msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards overlap by ${ox.toFixed(1)}×${oy.toFixed(1)}mm — the pick-and-place file would collide.` })
+    }
+  }
+
+  // 3 — antenna keep-out and USB tongue are keep-outs, not courtyards
+  for (const { p, bb } of boxes) {
+    const hit = (k) => bb[0] < k[2] && bb[2] > k[0] && bb[1] < k[3] && bb[3] > k[1]
+    if (hit(keepout)) d.checks.push({ level: 'warn', msg: `${name(p)} sits inside the antenna keep-out — the radio range claim no longer holds.` })
+    if (hit(usb)) d.checks.push({ level: 'warn', msg: `${name(p)} overlaps the USB-C connector zone.` })
+    // 4 — drill pads need copper clearance: no courtyard within pad r + 0.5mm
+    for (const [hx, hy] of holes) {
+      if (hx > bb[0] - 3.5 && hx < bb[2] + 3.5 && hy > bb[1] - 3.5 && hy < bb[3] + 3.5) {
+        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard reaches a mounting hole pad — keep 0.5mm drill-to-copper.` })
+        break
+      }
+    }
+  }
+}
 
 function buildPcb(brief) {
   const d = newDesign('pcb', brief)
-  const W = clamp(Math.round(brief.reachMm || 92), 40, 160)
+  const W = clamp(Math.round(brief.reachMm || 120), 40, 160)
   const H = clamp(Math.round(W * 0.66), 30, 120)
   const T = 1.6
 
@@ -51,9 +127,10 @@ function buildPcb(brief) {
 
   // ── placed parts: modules, then the passives ───────────────────────────
   const placed = []
+  const FIELD_X = W / 2 - 6, FIELD_Y = H / 2 - 6
   for (const [des, key, fx, fy, rot, pkg] of PCB_PARTS) {
-    const x = Math.round(fx * (W / 2 - 12))
-    const y = Math.round(fy * (H / 2 - 10))
+    const x = Math.round(fx * FIELD_X)
+    const y = Math.round(fy * FIELD_Y)
     const part = PARTS[key]
     if (!part) continue
     const [l, w, h] = part.dims || [10, 10, 3]
@@ -67,8 +144,8 @@ function buildPcb(brief) {
     placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
   }
   for (const [des, pkg, fx, fy, rot, why] of PCB_PASSIVES) {
-    const x = Math.round(fx * (W / 2 - 10))
-    const y = Math.round(fy * (H / 2 - 8))
+    const x = Math.round(fx * FIELD_X)
+    const y = Math.round(fy * FIELD_Y)
     const size = pkg === '0603' ? [1.6, 0.8] : [1.0, 0.5]
     box(d, `pass-${des}`, [size[0], size[1], 0.5], [x, y, T / 2 + 0.25], 'metal', {
       rot: [0, 0, (rot * Math.PI) / 180],
@@ -76,6 +153,7 @@ function buildPcb(brief) {
     placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
   }
   d.pcb = { placed, W, H, T }
+  auditBoardFit(d, placed, W, H)
 
   // ── BOM ────────────────────────────────────────────────────────────────
   addPart(d, brief.mcu || 'esp32s3', 1, 'U1 controller')
@@ -96,7 +174,9 @@ function buildPcb(brief) {
   // joints on the board itself: two per passive, and a header row per module
   d.pcb.joints = placed.reduce((n, p) => n + (p.kind === 'passive' ? 2 : 8), 0)
   d.notes.push(`${placed.length} placements: ${handPlaced} modules you solder or socket, ${machinePlaced} passives a pick-and-place machine does in seconds.`)
-  d.notes.push(`Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
+  d.notes.push(W > 100
+    ? `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — over the 100mm cheap-tier width, so the next fab price band.`
+    : `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
   // the envelope includes what sticks out past the outline (USB-C, headers)
   const bb = boundsOf(d.nodes)
   const envelope = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]].map((v) => Math.round(v))

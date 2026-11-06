@@ -505,6 +505,7 @@ const PARTS = {
   jst_kit: {
     shop: true, // consumable: bought once, lasts many builds
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
+    dims: [16, 10, 8], // JST-XH 4-pin housing + pin header footprint
     conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
