@@ -1389,8 +1389,14 @@ function Studio() {
     list.push({ id: 'act-save', group: 'ACTION', label: 'Save this build to the shelf', run: saveToShelf })
     list.push({ id: 'act-simple', group: 'ACTION', label: 'Toggle plain words / engineering', run: () => { const n = !simple; setSimple(n); if (CTX) CTX.storage.set('simple', n) } })
     list.push({ id: 'act-home', group: 'ACTION', label: 'Reset every joint to zero', run: () => setPose(design.joints.map(() => 0)) })
+    for (const p of POSE_PRESETS[design.archetype] || []) {
+      list.push({
+        id: `act-pose-${p.name}`, group: 'ACTION', label: `Pose: ${p.name}`,
+        run: () => { const a = applyPosePreset(design, p.name); if (a) setPose(a) },
+      })
+    }
     return list
-  }, [simple, brief])
+  }, [simple, brief, design])
 
   const fails = analysis.checks.filter((c) => c.level === 'fail').length
   const warns = analysis.checks.filter((c) => c.level === 'warn').length

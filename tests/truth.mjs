@@ -1195,6 +1195,37 @@ check('fix suggestions: cert lift failures prescribe sized payloads honestly', (
   return `arm→payloadKg 1.2 · humanoid→verbal · sized→verbal · mixed→1 aggregated row`
 })
 
+check('pose presets: named poses resolve in-limits, presets are FK-verified', () => {
+  // every preset on every archetype resolves to a full in-limits angle array
+  for (const arch of ['arm', 'robot', 'humanoid', 'gripper', 'rover']) {
+    const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
+    for (const p of A.POSE_PRESETS[arch]) {
+      const angles = A.applyPosePreset(design, p.name)
+      assert(angles && angles.length === design.joints.length, `${arch}/${p.name}: bad angle array`)
+      design.joints.forEach((j, i) => {
+        assert(angles[i] >= j.min - 1e-6 && angles[i] <= j.max + 1e-6,
+          `${arch}/${p.name}: ${j.id}=${angles[i]} outside [${j.min},${j.max}]`)
+      })
+    }
+  }
+  // gripper open/close actually hit the jaw's own limits, not hardcoded values
+  const { design: g } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'gripper').brief })
+  const jaw = g.joints[0]
+  assert(A.applyPosePreset(g, 'OPEN')[0] === jaw.max && A.applyPosePreset(g, 'CLOSE')[0] === jaw.min,
+    'gripper presets must resolve against live joint limits')
+  // humanoid WAVE is the right arm — left arm can't reach overhead (verified err>90)
+  const { design: h } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'humanoid').brief })
+  const wave = A.applyPosePreset(h, 'WAVE')
+  const rIdx = h.joints.findIndex((j) => j.id === 'r-shoulder-pitch')
+  const lIdx = h.joints.findIndex((j) => j.id === 'l-shoulder-pitch')
+  assert(Math.abs(wave[rIdx]) > 5 && wave[lIdx] === 0, 'WAVE should pose the right arm only')
+  // unknown names and preset-less archetypes return null, never a guess
+  assert(A.applyPosePreset(h, 'NOPE') === null, 'unknown preset must return null')
+  const { design: q } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
+  assert(A.applyPosePreset(q, 'WAVE') === null, 'quadruped has no presets — must return null')
+  return `5 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · unknown→null`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
