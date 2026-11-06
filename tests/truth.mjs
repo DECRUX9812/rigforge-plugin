@@ -768,7 +768,8 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
     ['gear', { module: 1, teeth: 12, width: 10 }, ['z', 'y', 'x']],
     ['box', { size: [20, 14, 10] }, ['z']],
     ['rbox', { size: [20, 14, 10], r: 2 }, ['z']],
-    ['wedge', { size: [20, 14, 10], dir: 1 }, ['z']],
+    ['wedge', { size: [20, 14, 10], dir: 'nx' }, ['z']],
+    ['wedge', { size: [20, 14, 10], dir: 'px' }, ['z']],
     ['rack', { size: [30, 10, 8], teeth: 8 }, ['z']],
   ]
   const bad = []
@@ -778,18 +779,26 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
       const { design } = A.composeDesign({ archetype: 'custom', nodes: [node], joints: [] })
       const tris = A.buildMesh(design).filter((t) => t.node === 't').map((t) => t.pts)
       const edges = new Map()
+      const dedges = new Map()
       for (const t of tris) for (let i = 0; i < 3; i += 1) {
         const a = t[i]; const b = t[(i + 1) % 3]
-        const k = [[q(a[0]), q(a[1]), q(a[2])].join(','), [q(b[0]), q(b[1]), q(b[2])].join(',')].sort().join('|')
+        const ak = [q(a[0]), q(a[1]), q(a[2])].join(',')
+        const bk = [q(b[0]), q(b[1]), q(b[2])].join(',')
+        const k = [ak, bk].sort().join('|')
         edges.set(k, (edges.get(k) || 0) + 1)
+        if (!dedges.has(k)) dedges.set(k, [])
+        dedges.get(k).push([ak, bk])
       }
       const open = [...edges.values()].filter((c) => c !== 2).length
+      // shared edges must be traversed in opposite directions — multiplicity
+      // alone misses mixed winding (wedge ramp, bend caps shipped this way)
+      const mixed = [...dedges.values()].filter((ls) => ls.length === 2 && !(ls[0][0] === ls[1][1] && ls[0][1] === ls[1][0])).length
       const v = vol(tris)
-      if (!tris.length || open || v <= 0) bad.push(`${kind}/${axis}:${tris.length}t vol=${v.toFixed(0)} open=${open}`)
+      if (!tris.length || open || mixed || v <= 0) bad.push(`${kind}/${axis}:${tris.length}t vol=${v.toFixed(0)} open=${open} mixed=${mixed}`)
     }
   }
   assert(!bad.length, `non-manifold or inside-out meshes: ${bad.join(' · ')}`)
-  return '22 kind×axis cases: all watertight, outward, positive volume'
+  return '22 kind×axis cases: watertight, consistently oriented, positive volume'
 })
 
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────

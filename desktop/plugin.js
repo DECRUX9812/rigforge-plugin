@@ -4266,15 +4266,24 @@ function boxTris(sx, sy, sz) {
  * Chamfered box: each corner cut at distance r along its three edges.
  * 6 octagonal faces + 12 edge chamfers + 8 corner triangles — the machined look.
  */
-// Convex shapes centred on the origin: a face's outward normal always has
-// positive dot with its centroid — flip stragglers so winding is uniform.
-// Generators can't be trusted per-axis (cyl caps wind inward off-axis).
+// Convex shapes: a face's outward normal always has positive dot with the
+// vector from an interior point to the face — flip stragglers so winding is
+// uniform. Generators can't be trusted per-axis (cyl caps wind inward
+// off-axis, and the wedge's ramp plane threads the origin itself).
 function orientTrisOutward(tris) {
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
   const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+  // Reference point must be strictly inside the solid. Bbox centre fails
+  // for the wedge: its bbox is origin-centred AND the ramp plane threads
+  // that centre, leaving n·(g−c)≈0 — a floating-point coin toss that shipped
+  // mixed winding (BRepCheck-invalid solids). The vertex average is a
+  // convex combination of solid points, so it is always interior.
+  const c = [0, 0, 0]; let nv = 0
+  for (const t of tris) for (const p of t) { c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; nv += 1 }
+  c[0] /= nv; c[1] /= nv; c[2] /= nv
   for (const t of tris) {
     const n = cr(sub(t[1], t[0]), sub(t[2], t[0]))
-    const g = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3]
+    const g = [(t[0][0] + t[1][0] + t[2][0]) / 3 - c[0], (t[0][1] + t[1][1] + t[2][1]) / 3 - c[1], (t[0][2] + t[1][2] + t[2][2]) / 3 - c[2]]
     if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) { const tmp = t[1]; t[1] = t[2]; t[2] = tmp }
   }
   return tris
@@ -4314,9 +4323,9 @@ function wedgeTris(sx, sy, sz, dir) {
   const E = [sx, -sy, -sz]; const F = [sx, sy, -sz]
   const tris = [
     [A, B, D], [A, D, C],   // tall face at -x
-    [A, E, F], [A, F, C],   // bottom face at -z
+    [A, F, E], [A, C, F],   // bottom face at -z
     [B, E, F], [B, F, D],   // hypotenuse
-    [A, B, E],              // -y triangle
+    [A, E, B],              // -y triangle
     [C, D, F],              // +y triangle
   ]
   // base has the tall face at -x; spin about z until dir is where it rises
@@ -4419,8 +4428,10 @@ function torusTris(R, r, axis, arcDeg) {
     }
     const c0 = centre(0); const cM = centre(uM)
     for (let j = 0; j < N; j += 1) {
-      tris.push([c0, pt(0, j + 1), pt(0, j)])
-      tris.push([cM, pt(M, j), pt(M, j + 1)])
+      // ring edges must run opposite to the wall quads that share them:
+      // the i=0 wall closes its ring edges j+1→j, ring M closes j→j+1
+      tris.push([c0, pt(0, j), pt(0, j + 1)])
+      tris.push([cM, pt(M, j + 1), pt(M, j)])
     }
   }
   return tris
@@ -4927,13 +4938,12 @@ const CONVEX_KINDS = new Set(['box', 'rbox', 'cyl', 'cone', 'sphere', 'wedge'])
 
 function orientConvex(tris) {
   if (!tris.length) return tris
-  const min = [Infinity, Infinity, Infinity]
-  const max = [-Infinity, -Infinity, -Infinity]
-  for (const t of tris) for (const p of t.pts) for (let i = 0; i < 3; i += 1) {
-    if (p[i] < min[i]) min[i] = p[i]
-    if (p[i] > max[i]) max[i] = p[i]
-  }
-  const c = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2]
+  // Interior reference = vertex average (a convex combination, always inside
+  // the solid). Bbox centre sits exactly on the wedge's ramp plane — the
+  // per-tri dot product degenerates to a coin toss and ships mixed winding.
+  const c = [0, 0, 0]; let nv = 0
+  for (const t of tris) for (const p of t.pts) { c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; nv += 1 }
+  c[0] /= nv; c[1] /= nv; c[2] /= nv
   return tris.map((t) => {
     const [a, b, d] = t.pts
     const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
@@ -5335,7 +5345,12 @@ function toGLB(tris) {
 function toSTEP(design) {
   const q = (v) => Math.round(v * 10000) / 10000
   const num = (v) => { const r = q(v); return Object.is(r, -0) ? '0' : String(r) }
-  const pt = (p) => `(${num(p[0])},${num(p[1])},${num(p[2])})`
+  // entity values get 6 decimals — 4-decimal coords put vertices ~1e-4mm off
+  // their quantised face planes, past the declared uncertainty, and strict
+  // kernels (BRepCheck) rejected those solids. Dedup keys stay at 4 decimals
+  // so near-coincident verts still merge into one shared point.
+  const numP = (v) => { const r = Math.round(v * 1e6) / 1e6; return Object.is(r, -0) ? '0' : String(r) }
+  const pt = (p, f = numP) => `(${f(p[0])},${f(p[1])},${f(p[2])})`
   const lines = []
   let n = 1
   const push = (body) => { const id = n; n += 1; lines.push(`#${id} = ${body};`); return id }
@@ -5352,7 +5367,7 @@ function toSTEP(design) {
   const uLen = push(`( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )`)
   const uAng = push(`( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.) )`)
   const uSol = push(`( NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT() )`)
-  const uUnc = push(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-7),#${uLen},'distance_accuracy_value','')`)
+  const uUnc = push(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-4),#${uLen},'distance_accuracy_value','')`)
   const ctx = push(`( GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#${uUnc})) GLOBAL_UNIT_ASSIGNED_CONTEXT((#${uLen},#${uAng},#${uSol})) REPRESENTATION_CONTEXT('','') )`)
   const pointIds = new Map()   // "x,y,z" → CARTESIAN_POINT id (shared across parts)
   const planeIds = new Map()   // quantised normal+offset → PLANE id
@@ -15102,11 +15117,13 @@ export default plugin
 
 // BRACKET — gantry corner brace. Rebuilt as a watertight L-profile
 // extrusion by tools/gen-bracket.mjs (the Sand3D conversion it replaces was
-// broken source data: degenerate tris, edges shared by up to 8 faces).
+// broken source data: degenerate tris, edges shared by up to 8 faces). The L
+// is three edge-matched rectangles so strict B-rep kernels accept the caps.
 globalThis.__RF_PARTS = Object.assign(globalThis.__RF_PARTS || {}, {
   BRACKET: { name: "bracket", scale: 20, tris: [
-    -32767,-32767,-32767,32767,-32767,-32767,32767,-32767,32767,-32767,-32767,-32767,32767,-32767,32767,-32767,-32767,32767,32767,-32767,-32767,32767,-13107,-32767,32767,-13107,32767,32767,-32767,-32767,32767,-13107,32767,32767,-32767,32767,32767,-13107,-32767,-13107,-13107,-32767,-13107,-13107,32767,32767,-13107,-32767,-13107,-13107,32767,32767,-13107,32767,-13107,-13107,-32767,-13107,32767,-32767,-13107,32767,32767,-13107,-13107,-32767,-13107,32767,32767,-13107,-13107,32767,-13107,32767,-32767,-32767,32767,-32767,-32767,32767,32767,-13107,32767,-32767,-32767,32767,32767,-13107,32767,32767,-32767,32767,-32767,-32767,-32767,-32767,-32767,-32767,32767,-32767,
-    32767,-32767,-32767,-32767,32767,-32767,32767,32767,-32767,-32767,-32767,32767,-32767,-32767,32767,-13107,-32767,-32767,-32767,32767,32767,-13107,32767,32767,-32767,32767,-32767,-32767,-32767,32767,-13107,-32767,-13107,-13107,-32767,-32767,-32767,32767,-13107,-13107,32767,32767,-13107,32767,-32767,-32767,-32767,-13107,-13107,-32767,-13107,32767,-32767,-32767,-32767,32767,-13107,32767,32767,-13107,-13107,32767,-32767,-32767,-32767,-13107,32767,-32767,-32767,32767,-32767,-32767,-32767,32767,-32767,32767,32767,-13107,32767,32767
+    -32767,-32767,-32767,-13107,32767,-32767,-13107,-32767,-32767,-32767,-32767,-32767,-32767,32767,-32767,-13107,32767,-32767,-13107,-32767,-32767,32767,32767,-32767,32767,-32767,-32767,-13107,-32767,-32767,-13107,32767,-32767,32767,32767,-32767,32767,-32767,-32767,32767,32767,-13107,32767,-32767,-13107,32767,-32767,-32767,32767,32767,-32767,32767,32767,-13107,32767,-32767,-13107,-13107,32767,-13107,-13107,-32767,-13107,32767,-32767,-13107,32767,32767,-13107,-13107,32767,-13107,-13107,-32767,-13107,-13107,32767,32767,-13107,-32767,32767,-13107,-32767,-13107,-13107,32767,-13107,-13107,32767,32767,-13107,-32767,32767,-32767,32767,32767,-32767,-32767,32767,-13107,
+    -32767,32767,-13107,32767,32767,-32767,32767,32767,-32767,-32767,32767,-32767,32767,-13107,-32767,-32767,-13107,-32767,-32767,32767,-32767,32767,32767,-32767,32767,-13107,-32767,-32767,-13107,-32767,32767,-32767,-32767,-32767,-32767,-32767,-32767,-13107,-32767,32767,-13107,-32767,32767,-32767,-32767,-32767,-32767,-13107,-32767,-32767,-13107,-32767,-13107,-32767,-32767,-32767,-13107,-32767,-13107,-32767,-32767,-13107,-13107,-32767,-32767,32767,-32767,-32767,32767,-32767,-13107,-13107,-32767,-32767,32767,-32767,-13107,-13107,-32767,-13107,-32767,-32767,-13107,-13107,-32767,-13107,-13107,-32767,32767,-32767,-32767,-13107,-13107,-32767,32767,-32767,-32767,32767,-32767,32767,
+    -32767,-13107,32767,-13107,-13107,32767,-32767,-32767,32767,-32767,-32767,32767,-13107,-13107,32767,-13107,-13107,32767,-32767,32767,32767,-13107,32767,32767,-32767,-13107,32767,-32767,-13107,32767,-13107,32767,32767,-13107,-32767,32767,-13107,-13107,32767,32767,-13107,32767,-13107,-32767,32767,-13107,-32767,32767,32767,-13107,32767,32767
   ] },
 })
 
