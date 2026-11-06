@@ -3477,6 +3477,14 @@ function analyze(design) {
   } else if (wall.parts.length) {
     checks.push({ level: 'ok', msg: `Wall check: every printed part holds ≥${wall.minWall}mm walls — thinnest reads ~${wall.thinnest}mm.` })
   }
+  const interference = interferenceReport(design)
+  if (interference.count) {
+    const names = interference.pairs.slice(0, 3).map((p) => `${prettyPart(p.a)} × ${prettyPart(p.b)}`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${interference.count} printed part pair(s) occupy the same space at rest pose — deepest ~${interference.pairs[0].depth}mm (${names}${interference.count > 3 ? '…' : ''}). Each STL prints fine alone, but they can't be assembled as modeled — trim the overlap, pocket one part, or offset the joint.`,
+    })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
@@ -3510,7 +3518,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
@@ -5195,6 +5203,123 @@ function wallReport(design) {
     thinnest = thinnest == null ? row.p10 : Math.min(thinnest, row.p10)
   }
   return { parts, thinnest, minWall: MIN_WALL_MM, thin: parts.filter((p) => p.p10 < MIN_WALL_MM) }
+}
+
+/**
+ * Do two printed parts occupy the same space in the assembled machine?
+ * Each part exports as its own STL, so per-file geometry is always clean —
+ * the failure only shows up at assembly time, which is exactly what a builder
+ * needs warned about BEFORE printing a pack.
+ *
+ * Scope, honestly: only printed-vs-printed pairs at the rest pose, and pairs
+ * whose joint chains intersect are skipped — links legitimately nest around
+ * the servo that joins them (the presets model joints that way on purpose).
+ * What remains are static collisions: joiner plates crossing, pillars sunk
+ * into decks, shells penetrating shells — all unassemblable as modeled.
+ */
+function interferenceReport(design) {
+  const printedIds = new Set(design.nodes.filter((n) => n.print).map((n) => n.id))
+  if (printedIds.size < 2) return { pairs: [], count: 0 }
+  const byNode = new Map()
+  for (const t of buildMesh(design)) {
+    if (!printedIds.has(t.node)) continue
+    if (!byNode.has(t.node)) byNode.set(t.node, [])
+    byNode.get(t.node).push(t.pts)
+  }
+  if (byNode.size < 2) return { pairs: [], count: 0 }
+
+  // joint ancestry per node — pairs sharing a joint are expected to nest
+  const jParent = new Map((design.joints || []).map((j) => [j.id, j.parent || null]))
+  const nodeById = new Map(design.nodes.map((n) => [n.id, n]))
+  const chainCache = new Map()
+  const chainOf = (id) => {
+    if (chainCache.has(id)) return chainCache.get(id)
+    const set = new Set()
+    let cur = (nodeById.get(id) || {}).joint || null
+    let guard = 0
+    while (cur && guard < 24) { set.add(cur); cur = jParent.get(cur) || null; guard += 1 }
+    chainCache.set(id, set)
+    return set
+  }
+  const related = (a, b) => {
+    const ca = chainOf(a); const cb = chainOf(b)
+    for (const j of ca) if (cb.has(j)) return true
+    return false
+  }
+
+  const boxOf = (tris) => {
+    const mn = [Infinity, Infinity, Infinity]; const mx = [-Infinity, -Infinity, -Infinity]
+    for (const t of tris) for (const p of t) for (let i = 0; i < 3; i += 1) {
+      if (p[i] < mn[i]) mn[i] = p[i]
+      if (p[i] > mx[i]) mx[i] = p[i]
+    }
+    return { mn, mx }
+  }
+  const boxes = [...byNode.entries()].map(([id, tris]) => ({ id, tris, box: boxOf(tris) }))
+  const hit = (a, b) => a.mn[0] <= b.mx[0] && a.mx[0] >= b.mn[0] && a.mn[1] <= b.mx[1] && a.mx[1] >= b.mn[1] && a.mn[2] <= b.mx[2] && a.mx[2] >= b.mn[2]
+
+  // signed-distance ray cast; irrational direction avoids axis-aligned
+  // degeneracy, |t|>0.05 ignores hits on the surface itself
+  const DIRS = [[1, 0.371390676, 0.217218839], [0.531, 1, 0.417], [0.291, 0.577, 1]]
+    .map((d) => { const l = Math.hypot(d[0], d[1], d[2]); return [d[0] / l, d[1] / l, d[2] / l] })
+  const rayTri = (ox, oy, oz, dx, dy, dz, t) => {
+    const a = t[0]; const b = t[1]; const c = t[2]
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2]
+    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2]
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x
+    const det = e1x * px + e1y * py + e1z * pz
+    if (Math.abs(det) < 1e-9) return null
+    const inv = 1 / det
+    const tx = ox - a[0], ty = oy - a[1], tz = oz - a[2]
+    const u = (tx * px + ty * py + tz * pz) * inv
+    if (u < -0.001 || u > 1.001) return null
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x
+    const v = (dx * qx + dy * qy + dz * qz) * inv
+    if (v < -0.001 || u + v > 1.001) return null
+    return (e2x * qx + e2y * qy + e2z * qz) * inv
+  }
+  const inside = (x, y, z, tris) => {
+    const [dx, dy, dz] = DIRS[0]
+    let n = 0
+    for (const t of tris) { const d = rayTri(x, y, z, dx, dy, dz, t); if (d != null && d > 0.05) n += 1 }
+    return n % 2 === 1
+  }
+  // penetration estimate: nearest surface hit over 3 rays — shallow grazes
+  // and intentional press-fit slop stay under the floor
+  const depthAt = (x, y, z, tris) => {
+    let best = Infinity
+    for (const [dx, dy, dz] of DIRS) {
+      for (const t of tris) {
+        const d = rayTri(x, y, z, dx, dy, dz, t)
+        if (d != null && Math.abs(d) > 0.05 && Math.abs(d) < best) best = Math.abs(d)
+      }
+    }
+    return best === Infinity ? 0 : best
+  }
+
+  const pairs = []
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const A = boxes[i]; const B = boxes[j]
+      if (related(A.id, B.id) || !hit(A.box, B.box)) continue
+      const [small, big] = A.tris.length <= B.tris.length ? [A, B] : [B, A]
+      const step = Math.max(1, Math.floor(small.tris.length / 120))
+      let deep = 0; let worst = 0
+      for (let k = 0; k < small.tris.length; k += step) {
+        const t = small.tris[k]
+        const cx = (t[0][0] + t[1][0] + t[2][0]) / 3
+        const cy = (t[0][1] + t[1][1] + t[2][1]) / 3
+        const cz = (t[0][2] + t[1][2] + t[2][2]) / 3
+        if (!inside(cx, cy, cz, big.tris)) continue
+        const d = depthAt(cx, cy, cz, big.tris)
+        if (d > 0.8) { deep += 1; if (d > worst) worst = d }
+        if (deep >= 3) break
+      }
+      if (deep >= 3) pairs.push({ a: A.id, b: B.id, depth: Math.round(worst * 10) / 10 })
+    }
+  }
+  pairs.sort((p, q) => q.depth - p.depth)
+  return { pairs, count: pairs.length }
 }
 
 /**

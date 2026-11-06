@@ -1065,6 +1065,36 @@ check('wall thickness: raycast DFM flags thin skins, clears real walls', () => {
   return `${measured} parts measured · 0.6mm skin flagged · 2mm/8mm walls clear`
 })
 
+// ── 28c. interference: printed parts occupying the same space get flagged ────
+check('interference: overlapping printed parts flagged, jointed relatives skipped', () => {
+  // two stacked plates that genuinely interpenetrate must flag
+  const overlap = {
+    nodes: [
+      { id: 'a', kind: 'box', print: true, size: [40, 40, 4], pos: [0, 0, 10] },
+      { id: 'b', kind: 'box', print: true, size: [40, 40, 4], pos: [0, 0, 11] }, // 3mm into a
+      { id: 'c', kind: 'box', print: true, size: [40, 40, 4], pos: [200, 0, 10] }, // clear
+    ],
+    joints: [], brief: {},
+  }
+  const ir = A.interferenceReport(overlap)
+  assert(ir.count >= 1, `overlapping plates not flagged (pairs=${ir.count})`)
+  assert(ir.pairs.some((p) => (p.a === 'a' && p.b === 'b') || (p.a === 'b' && p.b === 'a')),
+    `expected a×b pair, got ${JSON.stringify(ir.pairs)}`)
+  assert(!ir.pairs.some((p) => p.a === 'c' || p.b === 'c'), 'clear part c falsely paired')
+  // presets: jointed links nest legitimately and must NOT flag; what remains
+  // are honest static collisions (joiner plates, brackets) — count stays sane
+  let total = 0
+  eachPreset((p, { design }) => {
+    const r = A.interferenceReport(design)
+    for (const pair of r.pairs) {
+      assert(pair.depth > 0.8, `${p.id}: ${pair.a}×${pair.b} flagged below depth floor (${pair.depth})`)
+      assert(pair.a !== pair.b, `${p.id}: self-pair`)
+    }
+    total += r.count
+  })
+  return `synthetic overlap flagged · ${total} static pairs across presets (jointed nesting skipped)`
+})
+
 // ── 29. servo harness: stock leads must reach, voltage drop stays bounded ────
 check('servo harness: runs measured from joint pivots, long leads flagged honestly', () => {
   let rows = 0
