@@ -1354,6 +1354,7 @@ function Studio() {
           for (const n of design.nodes) if (n.print) rows.push(`${slug(n.id)},${plateOf.get(n.id) || '?'}`)
           entries.push({ name: 'plates.csv', buf: rows.join('\n') })
         }
+        entries.push({ name: 'README.txt', buf: printPackReadme(design, analysis, fileBase) })
         download(`${fileBase}-printpack.zip`, zipStore(entries), 'application/zip')
       }],
     ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {

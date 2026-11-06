@@ -267,6 +267,27 @@ check('print pack: plate-aware layout, honest plate count, nothing dropped', () 
   return `${items} packed parts across presets · ${plates} plates · ${off} can't fit any plate · 3MF = layout`
 })
 
+// ── 9f. print-pack README: the build sheet inside the ZIP tells the truth ────
+check('print-pack README: material, plates and measured notes match analysis', () => {
+  eachPreset((p, { design, analysis }) => {
+    const pk = analysis.print.pack
+    const txt = A.printPackReadme(design, analysis, 'test-base')
+    assert(txt.includes(analysis.print.material.name), `${p.id}: README material mismatch`)
+    assert(txt.includes(`${pk.bed} mm plate`), `${p.id}: README bed mismatch`)
+    assert(txt.includes(`${pk.items.length} printed pieces`), `${p.id}: README part count mismatch`)
+    if (pk.plates > 1) {
+      assert(txt.includes(`test-base-plate${pk.plates}.3mf`), `${p.id}: README missing last plate filename`)
+      assert(txt.includes('plates.csv'), `${p.id}: multi-plate README missing plates.csv`)
+    }
+    const wl = analysis.print.wall
+    if (wl && wl.thinnest != null) assert(txt.includes(`~${wl.thinnest}mm`), `${p.id}: README wall readout missing`)
+    const oh = analysis.print.overhang
+    if (oh && oh.unsupportedMm2 > 0) assert(txt.includes(`~${oh.unsupportedMm2}mm²`), `${p.id}: README overhang readout missing`)
+    if (pk.offBed) assert(txt.includes("can't fit ANY"), `${p.id}: README hides un-fittable parts`)
+  })
+  return 'build sheet verified across presets'
+})
+
 // ── 9d. GLB: binary glTF container, named part meshes, Y-up metres ──────────
 check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () => {
   let meshes = 0, verts = 0
