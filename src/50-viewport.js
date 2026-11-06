@@ -1051,6 +1051,11 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
+    // the fly-through drives the camera object in place and repaints directly:
+    // pushing a React state update at 60Hz re-rendered the whole studio and cost
+    // us 46 of the 60 frames a second
+    globalThis.__rfPaint = () => { cam._basis = null; schedule() }
+    globalThis.__rfCam = () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist })
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
