@@ -95,6 +95,15 @@ const POSE_PRESETS = {
   humanoid: [
     { name: 'WAVE', pose: { 'r-shoulder-roll': 55, 'r-shoulder-pitch': 13, 'r-elbow': -121, 'r-wrist': -80 } },
     { name: 'REACH', pose: { 'r-shoulder-pitch': -37, 'r-elbow': -13, 'r-wrist': 8, 'l-shoulder-pitch': 41, 'l-elbow': 4, 'l-wrist': -2 } },
+    // stance presets name the foot tip joint + a world-mm delta from where
+    // that foot actually is — IK replants it, so feet never float on a
+    // differently-sized humanoid brief
+    { name: 'WIDE', legs: { 'l-ankle-roll': [15, 0, 0], 'r-ankle-roll': [-15, 0, 0] } },
+  ],
+  quadruped: [
+    // PROWL: front pair steps forward, rear pair back — a real weight shift
+    // the gait engine can then walk out of
+    { name: 'PROWL', legs: { 'tibia-fl': [20, 0, 0], 'tibia-fr': [20, 0, 0], 'tibia-rl': [-20, 0, 0], 'tibia-rr': [-20, 0, 0] } },
   ],
   gripper: [
     { name: 'OPEN', pose: { jaw: 'max' } },
@@ -109,11 +118,38 @@ const POSE_PRESETS = {
 
 /** Resolve a named preset to a full angle array in design.joints order.
  *  Joints the preset doesn't mention return to rest (0). Unknown names
- *  and archetypes without presets return null — callers keep the pose. */
-function applyPosePreset(design, name) {
+ *  and archetypes without presets return null — callers keep the pose.
+ *  `legs` presets instead IK each named foot tip to a delta from its live
+ *  position; `actualAngles` seeds that solve (live sim pose preferred). */
+function applyPosePreset(design, name, actualAngles) {
   const preset = (POSE_PRESETS[design && design.archetype] || []).find((p) => p.name === name)
-  if (!preset || !(design.joints || []).length) return null
-  return design.joints.map((j) => {
+  const joints = (design && design.joints) || []
+  if (!preset || !joints.length) return null
+  const base = actualAngles && actualAngles.length === joints.length
+    ? actualAngles.slice() : joints.map(() => 0)
+  if (preset.legs) {
+    const scratch = { ...design, joints: joints.map((j, i) => ({ ...j, angle: base[i] || 0 })) }
+    const out = base.slice()
+    const chains = chainsFor(scratch)
+    for (const [tipId, delta] of Object.entries(preset.legs)) {
+      const chain = (chains.get(tipId) || [])
+        .map((j) => scratch.joints.find((s) => s.id === j.id)).filter((j) => j && !j.slide)
+      if (chain.length < 3) continue
+      const cands = (scratch.nodes || []).filter((n) => n.joint === tipId && n.pos)
+      const foot = cands.find((n) => n.id.includes('sole'))
+        || cands.find((n) => /foot/.test(n.id))
+        || cands.slice().sort((a, b) => a.pos[2] - b.pos[2])[0]
+      if (!foot) continue
+      const tipW = (d) => benchNodeWorld(d, chainsFor(d), foot)
+      const cur = tipW(scratch)
+      const tgt = [cur[0] + delta[0], cur[1] + delta[1], Math.max(2, cur[2] + (delta[2] || 0))]
+      const r = solveChainIK(scratch, chain, tgt, tipW, 60)
+      if (r.err > 20) continue // unreachable delta — keep this leg's pose rather than float the foot
+      chain.forEach((j) => { out[joints.findIndex((x) => x.id === j.id)] = j.angle })
+    }
+    return out
+  }
+  return joints.map((j) => {
     const spec = preset.pose[j.id]
     if (spec == null) return 0
     const v = spec === 'max' ? j.max : spec === 'min' ? j.min : Number(spec)
