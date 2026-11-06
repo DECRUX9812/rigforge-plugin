@@ -57,9 +57,20 @@ function buildGantry(brief) {
   for (let i = -2; i <= 2; i += 1) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
-  // control enclosure in the rail/bed channel — the BOM's controller lives
-  // here; out of the quill's X/Y envelope and clear of the bed slab
-  rbox(d, 'ctrl-box', [30, 150, 90], [-(spanX / 2 + 15), 0, 75], 2, 'shell')
+  // control enclosure in the rail/bed channel — open-top card-cage so the
+  // GRBL stack inside is visible: 3× DRV8825 stepper drivers standing on the
+  // base, ESP32-S3 + buck on the outer wall. Out of the quill's X/Y envelope.
+  {
+    const cb = [-(spanX / 2 + 15), 0, 75]
+    const cbO = { print: true }
+    box(d, 'ctrl-base', [30, 150, 4], [cb[0], cb[1], cb[2] - 43], 'shell', cbO)
+    for (const sy of [-1, 1]) box(d, `ctrl-wall-y${sy}`, [30, 3, 86], [cb[0], cb[1] + sy * 73.5, cb[2] + 2], 'shell', cbO)
+    for (const sx of [-1, 1]) box(d, `ctrl-wall-x${sx}`, [3, 144, 86], [cb[0] + sx * 13.5, cb[1], cb[2] + 2], 'shell', cbO)
+    for (const [i, sy] of [[0, -1], [1, 0], [2, 1]])
+      box(d, `drv8825-${'abc'[i]}`, [4, 40, 40], [cb[0], cb[1] + sy * 46, cb[2] - 20], 'pcb')
+    box(d, 'esp32', [4, 30, 50], [cb[0] - 9.5, cb[1], cb[2] + 15], 'pcb')
+    box(d, 'buck5a', [4, 16, 30], [cb[0] - 9.5, cb[1] + 55, cb[2] - 20], 'pcb')
+  }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
   // spanning frame X with the ends bedded onto the side rails. The carriage

@@ -877,7 +877,7 @@ check('electronics: BOM brains exist as placed geometry in every preset', () => 
     gripper: ['pca9685', 'esp32'],
     humanoid: ['tof', 'imu'],
     robot: ['imu'], // avionics/pack-box/tof/cam predate this check
-    gantry: ['ctrl-box'],
+    gantry: ['esp32', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'buck5a'],
   }
   const missing = []
   for (const [arch, ids] of Object.entries(EXPECTED)) {
@@ -902,7 +902,7 @@ check('electronics: BOM parts stay clear of the mechanism at every pose', () => 
     gripper: ['pca9685', 'esp32'],
     humanoid: ['tof', 'imu'],
     robot: ['imu'],
-    gantry: ['ctrl-box'],
+    gantry: ['ctrl-base', 'ctrl-wall-y-1', 'ctrl-wall-y1', 'ctrl-wall-x-1', 'ctrl-wall-x1', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'esp32', 'buck5a'],
   }
   const bbOf = (design, chains, n) => {
     const w = A.benchNodeWorld(design, chains, n)
