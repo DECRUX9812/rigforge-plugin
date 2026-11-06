@@ -198,12 +198,16 @@ function reachAutotest(ik) {
     if (!d || !leg.pose || !ik.distalJoint) return { pass: false, detail: 'no design or pose to test' }
     const mat = MATERIALS[d.brief && d.brief.material] || null
     // payload hangs ~35mm below the tip — where a gripper would actually hold it
+    const chainSet = new Set(ik.chainIds || [])
     const evalPose = (pose) => {
       const posed = { ...d, joints: d.joints.map((j, i) => ({ ...j, angle: pose[i] != null ? pose[i] : j.angle })) }
       const tip = typeof ik.tipPos === 'function' ? ik.tipPos(pose) : null
       const payPos = tip ? [tip[0], tip[1], tip[2] - 35] : [leg.prop.pos[0], leg.prop.pos[1], leg.prop.pos[2]]
       const tor = benchTorqueMargins(posed, mat, [{ joint: ik.distalJoint, pos: payPos, massG: leg.prop.massG }])
-      return tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity, label: '?' })
+      // only the arm's own joints can fail an arm lift — on a humanoid a
+      // marginal hip servo must not sink the wrist's verdict
+      const scoped = chainSet.size ? tor.filter((t) => chainSet.has(t.joint)) : tor
+      return (scoped.length ? scoped : tor).reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity, label: '?' })
     }
     // certification asks "can it lift this at all" — so give the arm its best
     // honest shot: probe tucked carry poses from several seed configs and keep
@@ -285,27 +289,31 @@ function reachAutotest(ik) {
       st.phase.t = leg.t
       if (!st.seedAngles) st.seedAngles = (actual || []).slice()
       if (leg.kind === 'limitsweep') {
-        const js = (ik.design && ik.design.joints) || []
+        const all = (ik.design && ik.design.joints) || []
+        // scope to the joints this arm drives — on a humanoid the other arm
+        // and the legs hold position instead of joining the sweep
+        const idxs = (ik.chainIdx && ik.chainIdx.length ? ik.chainIdx : all.map((_, i) => i))
+        const sj = idxs.map((i) => all[i]).filter(Boolean)
         const PH = 1.2
-        let pose
-        if (leg.t < PH) pose = js.map((j) => j.min * 0.85)
-        else if (leg.t < PH * 2) pose = js.map((j) => j.max * 0.85)
-        else pose = js.map(() => 0)
+        const hold = (actual || st.seedAngles || []).slice()
+        const pose = all.map((_, i) => hold[i] || 0)
+        const cmd = leg.t < PH ? (j) => j.min * 0.85 : leg.t < PH * 2 ? (j) => j.max * 0.85 : () => 0
+        idxs.forEach((gi, k) => { if (sj[k]) pose[gi] = cmd(sj[k]) })
         // snapshot shortfalls at each window's closing edge
         if (actual && actual.length) {
-          if (leg.t >= PH && leg.t - dt < PH) leg.errMin = js.map((j, i) => Math.abs((actual[i] || 0) - j.min * 0.85))
-          if (leg.t >= PH * 2 && leg.t - dt < PH * 2) leg.errMax = js.map((j, i) => Math.abs((actual[i] || 0) - j.max * 0.85))
+          if (leg.t >= PH && leg.t - dt < PH) leg.errMin = sj.map((j, k) => Math.abs((actual[idxs[k]] || 0) - j.min * 0.85))
+          if (leg.t >= PH * 2 && leg.t - dt < PH * 2) leg.errMax = sj.map((j, k) => Math.abs((actual[idxs[k]] || 0) - j.max * 0.85))
         }
         if (leg.t > PH * 2 + 1.0) {
           let worst = null, worstRatio = 0
-          js.forEach((j, i) => {
+          sj.forEach((j, i) => {
             const tol = Math.max(6, (j.max - j.min) * 0.15)
             const r = Math.max(leg.errMin ? leg.errMin[i] : 999, leg.errMax ? leg.errMax[i] : 999) / tol
             if (r > worstRatio) { worstRatio = r; worst = j.label || j.id }
           })
           const pass = worstRatio <= 1
           pushResult(st, 'limits', 'LIMITS', pass,
-            pass ? `all ${js.length} joints reached both 85% extremes` : `${worst} fell ${(worstRatio * 100 - 100).toFixed(0)}% short of tolerance`)
+            pass ? `all ${sj.length} joints reached both 85% extremes` : `${worst} fell ${(worstRatio * 100 - 100).toFixed(0)}% short of tolerance`)
           if (!advance()) return { x: 0, y: 0, z: 0, pose }
         }
         return { x: 0, y: 0, z: 0, pose }
@@ -536,12 +544,66 @@ function senseAutotest(sense) {
 
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
-function createAutotest(teleop) {
+// Runs several certification suites back-to-back — e.g. a humanoid gets its
+// gait suite, then each arm's reach suite. Results merge into one list with
+// the sub's tag prefixed on ids/labels; activeKind tells the page which
+// teleop channel the current sub-suite drives.
+function sequenceAutotest(subs) {
+  const st = { running: false, done: false, results: [], phase: null }
+  let ai = -1
+  const cur = () => (ai >= 0 && ai < subs.length ? subs[ai] : null)
+  return {
+    get running() { return st.running },
+    get done() { return st.done },
+    get results() { return st.results },
+    get phase() {
+      const s = cur()
+      if (!s || !s.at.phase) return null
+      return { ...s.at.phase, label: `${s.tag ? s.tag + ' ' : ''}${s.at.phase.label}` }
+    },
+    get score() { const p = st.results.filter((r) => r.pass).length; return `${p}/${st.results.length}` },
+    get activeKind() { const s = cur(); return s ? s.kind : null },
+    start() {
+      st.running = true; st.done = false; st.results = []; ai = 0
+      subs[0].at.start()
+    },
+    stop() { st.running = false; st.done = true },
+    tick(dt, actual) {
+      if (!st.running) return null
+      const s = cur()
+      if (!s) return null
+      const c = s.at.tick(dt, actual)
+      if (s.at.done) {
+        for (const r of s.at.results) {
+          st.results.push({ ...r, id: (s.tag ? `${s.tag}-${r.id}` : r.id), label: (s.tag ? `${s.tag}: ` : '') + r.label })
+        }
+        ai++
+        if (ai >= subs.length) { st.running = false; st.done = true; st.phase = null; return c }
+        subs[ai].at.start()
+      }
+      return c
+    },
+  }
+}
+
+function createAutotest(teleop, arms) {
   if (!teleop) return null
-  if (teleop.kind === 'drive' || teleop.wheelD) return driveAutotest(teleop)
-  if (teleop.kind === 'ik') return reachAutotest(teleop)
-  if (teleop.kind === 'gait') return locoGaitAutotest(teleop)
-  if (teleop.kind === 'grip') return gripAutotest(teleop)
-  if (teleop.kind === 'sense') return senseAutotest(teleop)
-  return null
+  const mk = (t) => {
+    if (!t) return null
+    if (t.kind === 'drive' || t.wheelD) return { kind: 'drive', at: driveAutotest(t) }
+    if (t.kind === 'ik') return { kind: 'ik', at: reachAutotest(t) }
+    if (t.kind === 'gait') return { kind: 'gait', at: locoGaitAutotest(t) }
+    if (t.kind === 'grip') return { kind: 'grip', at: gripAutotest(t) }
+    if (t.kind === 'sense') return { kind: 'sense', at: senseAutotest(t) }
+    return null
+  }
+  const primary = mk(teleop)
+  if (!primary) return null
+  const subs = [primary]
+  // `arms`: [{t: ikTeleop, tag}] — extra reach suites run after the primary
+  // (dual-arm humanoids certify R then L; drive robots with arms get a tour too)
+  for (const a of arms || []) {
+    if (a && a.t && a.t.kind === 'ik') subs.push({ kind: 'ik', at: reachAutotest(a.t), tag: a.tag || 'ARM' })
+  }
+  return subs.length === 1 ? subs[0].at : sequenceAutotest(subs)
 }
