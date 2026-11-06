@@ -76,6 +76,46 @@ function clampPayload(d, requested, lo, hi) {
   return got
 }
 
+// ── pose presets: named joint configurations per archetype ─────────────────
+// Angles in degrees, keyed by joint id; 'max'/'min' resolve against the
+// joint's own limits so presets survive re-sizing. Values were verified
+// against forward kinematics — the humanoid WAVE is the right arm because
+// the left arm's workspace genuinely cannot reach overhead (IK err >90mm).
+const POSE_PRESETS = {
+  arm: [
+    { name: 'EXTEND', pose: { yaw: 0, shoulder: 0, elbow: 0, 'wrist-pitch': 0, 'wrist-roll': 0 } },
+    { name: 'STOW', pose: { yaw: 0, shoulder: 55, elbow: -125, 'wrist-pitch': -20, 'wrist-roll': 0 } },
+    { name: 'UP', pose: { yaw: 0, shoulder: 0, elbow: 90, 'wrist-pitch': 0, 'wrist-roll': 0 } },
+  ],
+  robot: [
+    { name: 'EXTEND', pose: { yaw: 0, shoulder: 0, elbow: 0, wrist: 0, roll: 0, 'head-pan': 0 } },
+    { name: 'STOW', pose: { yaw: 0, shoulder: 50, elbow: -120, wrist: 0, roll: 0, 'head-pan': 0 } },
+    { name: 'UP', pose: { yaw: 0, shoulder: 0, elbow: 90, wrist: 0, roll: 0, 'head-pan': 0 } },
+  ],
+  humanoid: [
+    { name: 'WAVE', pose: { 'r-shoulder-roll': 55, 'r-shoulder-pitch': 13, 'r-elbow': -121, 'r-wrist': -80 } },
+    { name: 'REACH', pose: { 'r-shoulder-pitch': -37, 'r-elbow': -13, 'r-wrist': 8, 'l-shoulder-pitch': 41, 'l-elbow': 4, 'l-wrist': -2 } },
+  ],
+  gripper: [
+    { name: 'OPEN', pose: { jaw: 'max' } },
+    { name: 'CLOSE', pose: { jaw: 'min' } },
+  ],
+}
+
+/** Resolve a named preset to a full angle array in design.joints order.
+ *  Joints the preset doesn't mention return to rest (0). Unknown names
+ *  and archetypes without presets return null — callers keep the pose. */
+function applyPosePreset(design, name) {
+  const preset = (POSE_PRESETS[design && design.archetype] || []).find((p) => p.name === name)
+  if (!preset || !(design.joints || []).length) return null
+  return design.joints.map((j) => {
+    const spec = preset.pose[j.id]
+    if (spec == null) return 0
+    const v = spec === 'max' ? j.max : spec === 'min' ? j.min : Number(spec)
+    return Number.isFinite(v) ? clamp(v, j.min, j.max) : 0
+  })
+}
+
 function splitBox(d, base, size, pos, fillet, mat, bed, extra = {}) {
   const usable = Math.max(60, (bed || 256) - 16)
   const gap = 2
