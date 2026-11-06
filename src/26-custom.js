@@ -10,7 +10,7 @@
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|prism|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -21,18 +21,34 @@
 // cyl takes r,h,axis,r2(taper),segs; ring takes ro,ri (RADII),h,axis;
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
 // bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
-// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre).
+// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre);
+// prism takes profile:[[u,v],...] (convex) + depth.
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
 const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0, n).every((x) => Number.isFinite(Number(x)))
   ? v.slice(0, n).map(Number) : null)
 
+/** Strict convexity: every consecutive edge cross-product keeps one sign. */
+function specConvex(pts) {
+  let sign = 0
+  for (let i = 0; i < pts.length; i += 1) {
+    const [x1, y1] = pts[i]; const [x2, y2] = pts[(i + 1) % pts.length]; const [x3, y3] = pts[(i + 2) % pts.length]
+    const cr = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
+    if (Math.abs(cr) < 1e-9) continue
+    const s = Math.sign(cr)
+    if (sign && s !== sign) return false
+    sign = s
+  }
+  return sign !== 0
+}
+
 function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
     cone: 'cone', pyramid: 'cone',
     lathe: 'lathe', revolve: 'lathe', spin: 'lathe',
+    prism: 'prism', extrude: 'prism',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -81,6 +97,18 @@ function specEmit(d, raw, idx, warn) {
       const e = { ...extra }
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       lathe(d, id, prof.map((p) => [+p[0], +p[1]]), at, axis, mat, e); break
+    }
+    case 'prism': {
+      const prof = raw.profile || raw.points || raw.outline
+      const ok = Array.isArray(prof) && prof.length >= 3
+        && prof.every((p) => Array.isArray(p) && p.length >= 2
+          && Number.isFinite(+p[0]) && Number.isFinite(+p[1]))
+      if (!ok) return warn(`node ${id}: prism needs profile:[[u,v],...] with >=3 points`)
+      const pts = prof.map((p) => [+p[0], +p[1]])
+      if (!specConvex(pts)) return warn(`node ${id}: prism profile must be convex — cap fans need an interior centroid`)
+      const dep = CUSTOM_NUM(raw.depth ?? raw.d ?? raw.height, 0)
+      if (!(dep > 0)) return warn(`node ${id}: prism needs depth>0`)
+      prism(d, id, pts, dep, at, axis, mat, extra); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)

@@ -448,6 +448,47 @@ function latheTris(profile, segs, axis) {
   return tris
 }
 
+/** Prism: extrude a closed convex (u,v) polygon `depth` along the axis,
+ *  centred on the node. profile coords are centred by the helper, so the
+ *  polygon's bbox centre sits at pos. Convex-only — caps fan-triangulate
+ *  from the centroid, which is only interior for convex outlines. Axis
+ *  maps are proper rotations; winding enforced by signed volume. */
+function prismTris(profile, depth, axis) {
+  const n = profile.length
+  const map = (u, v, z) => {
+    if (axis === 'z') return [u, v, z]
+    if (axis === 'y') return [u, z, -v]
+    return [z, u, v]
+  }
+  const h = depth / 2
+  let cu = 0; let cv = 0
+  for (const p of profile) { cu += p[0]; cv += p[1] }
+  cu /= n; cv /= n
+  const tris = []
+  const area2 = (a, b, c) => {
+    const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]
+    const vx = c[0] - a[0]; const vy = c[1] - a[1]; const vz = c[2] - a[2]
+    const cx = uy * vz - uz * vy; const cy = uz * vx - ux * vz; const cz = ux * vy - uy * vx
+    return cx * cx + cy * cy + cz * cz
+  }
+  for (let i = 0; i < n; i += 1) {
+    const [u1, v1] = profile[i]; const [u2, v2] = profile[(i + 1) % n]
+    if (u1 === u2 && v1 === v2) continue
+    const b1 = map(u1, v1, -h); const b2 = map(u2, v2, -h)
+    const t1 = map(u1, v1, h); const t2 = map(u2, v2, h)
+    const cB = map(cu, cv, -h); const cT = map(cu, cv, h)
+    tris.push([b1, b2, t2], [b1, t2, t1])   // side wall
+    tris.push([cB, b2, b1], [cT, t1, t2])   // bottom + top cap fans
+  }
+  let vol = 0
+  for (const [a, b, c] of tris) {
+    vol += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }
+  const out = tris.filter((t) => area2(...t) > 1e-9)
+  if (vol < 0) for (const t of out) t.reverse()
+  return out
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -726,6 +767,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
     case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'lathe': local = latheTris(node.profile || [], node.segs || CYL_SEGS, node.axis || 'z'); break
+    case 'prism': local = prismTris(node.profile || [], node.height || 10, node.axis || 'z'); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -1836,6 +1878,9 @@ function toOpenSCAD(design) {
     } else if (n.kind === 'lathe') {
       const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
       prim = `${wrap}rotate_extrude() polygon([${pts}]); /* lathe */`
+    } else if (n.kind === 'prism') {
+      const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
+      prim = `${wrap}linear_extrude(height=${(+n.height).toFixed(1)}, center=true) polygon([${pts}]); /* prism */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -2043,7 +2088,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': case 'cone': case 'lathe': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': case 'lathe': case 'prism': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -2059,6 +2104,14 @@ function boundsOf(nodes) {
     let half
     if (n.kind === 'box' || n.kind === 'rbox' || n.kind === 'wedge' || n.kind === 'rack') {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
+    } else if (n.kind === 'prism') {
+      // profile bbox in the (u,v) plane × depth along the axis
+      const p = n.profile || []
+      const us = p.map((q) => q[0]); const vs = p.map((q) => q[1])
+      const hu = (Math.max(...us) - Math.min(...us)) / 2
+      const hv = (Math.max(...vs) - Math.min(...vs)) / 2
+      const along = (n.height || 0) / 2
+      half = n.axis === 'x' ? [along, hu, hv] : n.axis === 'y' ? [hu, along, hv] : [hu, hv, along]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
       const r = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' ? Math.max(n.radius, n.radius2 || 0)
