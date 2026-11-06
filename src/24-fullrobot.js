@@ -62,47 +62,9 @@ function buildFullRobot(brief) {
     cyl(d, `motor-${i}`, 19, 46, [x, y - side * 26, z0], 'y', 'metal')
   })
 
-  // ── arm ─────────────────────────────────────────────────────────────────
-  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
-  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
-  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
-  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
-
-  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
-  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
-  servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', 'ds3225', 'yaw', 'shoulder')
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
-
-  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
-  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
-  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
-  servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', 'ds3218', 'shoulder', 'elbow')
-  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
-  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
-
-  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
-  const wristX = armX + L1 + L2
-  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
-  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
-
-  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
-  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
-  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
-  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
-  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
-
-  // ── head ────────────────────────────────────────────────────────────────
-  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
-  // clearance in the rest pose, and no way for the boom to shave the sensors.
-  const headX = wheelbase / 2 + 2
-  const headY = 0
-  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
-  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
-  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
-  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
-  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
-
   // ── arm sizing (same cascade as the arm archetype) ──────────────────────
+  // Runs BEFORE the arm geometry: a joint that needs a belt reduction gets
+  // its stage geometry instead of the coaxial servo layout.
   const linkMass = (len) => len * 44 * 40 * 0.34 * density
   const mUpper = linkMass(L1)
   const mFore = linkMass(L2)
@@ -158,6 +120,55 @@ function buildFullRobot(brief) {
   pick('Wrist roll', need.roll)
   pick('Gripper', need.grip)
   d.actuators = stairs
+  const stepOf = (label) => stairs.find((s) => s.label === label) || { servo: 'ds3225', ratio: 1 }
+
+  // ── arm ─────────────────────────────────────────────────────────────────
+  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
+  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
+  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
+  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
+
+  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
+  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
+  if (stepOf('Shoulder pitch').ratio > 1) {
+    beltStageY(d, { prefix: 'shoulder', pivot: [armX, 0, shoulderZ], ratio: stepOf('Shoulder pitch').ratio, servoKey: stepOf('Shoulder pitch').servo, servoJoint: 'yaw', outJoint: 'shoulder', beltY: -44 })
+  } else {
+    servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', stepOf('Shoulder pitch').servo, 'yaw', 'shoulder')
+  }
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
+
+  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
+  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
+  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
+  if (stepOf('Elbow pitch').ratio > 1) {
+    beltStageY(d, { prefix: 'elbow', pivot: [armX + L1, 0, shoulderZ], ratio: stepOf('Elbow pitch').ratio, servoKey: stepOf('Elbow pitch').servo, servoJoint: 'shoulder', outJoint: 'elbow', beltY: -40 })
+  } else {
+    servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', stepOf('Elbow pitch').servo, 'shoulder', 'elbow')
+  }
+  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
+  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
+
+  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
+  const wristX = armX + L1 + L2
+  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
+  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
+
+  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
+  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
+  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
+  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
+  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
+
+  // ── head ────────────────────────────────────────────────────────────────
+  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
+  // clearance in the rest pose, and no way for the boom to shave the sensors.
+  const headX = wheelbase / 2 + 2
+  const headY = 0
+  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
+  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
+  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
+  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
+  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
   // ── drive sizing ────────────────────────────────────────────────────────
   const printKg = (printedVolume(d.nodes) * mat.density) / 1000 / 1000

@@ -506,6 +506,52 @@ function servoBody(d, prefix, pos, axis, partKey, joint, hornJoint, opts) {
   cyl(d, `${prefix}-horn`, 11, 2.5, at(4), a, 'accent', ho)
 }
 
+/** GT2 belt reduction across a 'y'-axis joint. The servo moves below the
+ *  pivot where its shaft stays parallel to the joint axis; a 20T pinion on
+ *  the servo drives a 20·ratio-T gear on an output stub. Because the driven
+ *  gear's centre sits ON the joint axis, pitching the arm just spins it in
+ *  place — the two tangent belt runs stay engaged at every angle.
+ *  o: { prefix, pivot:[x,y,z], ratio, servoKey, servoJoint, outJoint, beltY } */
+function beltStageY(d, o) {
+  const { prefix, pivot, ratio, servoKey, servoJoint = null, outJoint, beltY } = o
+  const px = pivot[0]; const pz = pivot[2]
+  const gm = 2 / Math.PI                    // GT2 belt: 2mm tooth pitch
+  const pin = 20                            // driver pinion teeth
+  const gearN = 20 * Math.max(2, Math.round(ratio))
+  const RoD = (gm * pin) / 2 + 0.85 * gm + 1.1   // belt path radius, driver
+  const RoN = (gm * gearN) / 2 + 0.85 * gm + 1.1 // belt path radius, driven
+  const CD = 2.1 * (RoD + RoN)              // centre distance, compact stage
+  const pzD = pz - CD                       // driver sits below the pivot
+  const by = beltY
+
+  // output side: stub shaft + driven gear — pitches with the arm
+  cyl(d, `${prefix}-belt-shaft`, 4, 24, [px, by + 6, pz], 'y', 'steel', { joint: outJoint })
+  gear(d, `${prefix}-belt-driven`, gm, gearN, 8, [px, by, pz], 'y', 'metal', { joint: outJoint })
+  // motor side: pinion on the servo shaft — yaws with the base, never pitches
+  gear(d, `${prefix}-belt-pinion`, gm, pin, 8, [px, by, pzD], 'y', 'metal', { joint: servoJoint })
+  servoBody(d, `${prefix}-servo`, [px, by - 6, pzD], 'y', servoKey, servoJoint, servoJoint)
+
+  // belt runs: external tangents between the two belt-path circles
+  const dr = RoN - RoD
+  const nz = -dr / CD
+  const nx = Math.sqrt(Math.max(0, 1 - nz * nz))
+  const dx = (RoN - RoD) * nx
+  const dz = CD + (RoN - RoD) * nz
+  const tilt = Math.atan2(dx, dz)
+  const runLen = Math.hypot(dx, dz)
+  for (const s of [1, -1]) {
+    const tx = s * RoN * nx
+    const tz = RoN * nz
+    const bx = s * RoD * nx
+    const bz = -CD + RoD * nz
+    const mx = (tx + bx) / 2
+    const mz = (tz + bz) / 2
+    box(d, `${prefix}-belt-run${s > 0 ? 'a' : 'b'}`, [3, 5, runLen], [px + mx, by, pz + mz], 'belt', {
+      joint: servoJoint, rot: [0, s * tilt, 0],
+    })
+  }
+}
+
 /** Wheel drawn as a wheel: torus tyre + rim ring + hub boss. */
 function wheelAssy(d, id, pos, axis, dia, width, joint, side) {
   const o = { joint }

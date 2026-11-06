@@ -941,6 +941,33 @@ check('electronics: BOM parts stay clear of the mechanism at every pose', () => 
   return 'electronics clear of the mechanism at rest and every pose preset'
 })
 
+// ── 24b. belt stages: a joint that picks a GT2 reduction must show the hardware ──
+// The BOM budgets a gt2_kit and the notes claim a ratio — the pinion, driven
+// gear and belt runs have to exist as nodes, with teeth counts that match the
+// claimed reduction. Scoped to 'y'-axis joints: those are the ones
+// beltStageY can build; a 'z' yaw stage would be a different mechanism.
+check('belt stage: over-torqued y-joints expose pinion, gear and runs', () => {
+  const misses = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    const ids = new Set(design.nodes.map((n) => n.id))
+    for (const a of design.actuators || []) {
+      if (a.ratio <= 1) continue
+      const j = (design.joints || []).find((jj) => jj.label === a.label)
+      if (!j || j.axis !== 'y') continue
+      const pre = `${j.id}-belt-`
+      for (const suf of ['shaft', 'pinion', 'driven', 'runa', 'runb'])
+        if (!ids.has(pre + suf)) misses.push(`${p.id}:${a.label} missing ${pre + suf}`)
+      const pin = design.nodes.find((n) => n.id === pre + 'pinion')
+      const drv = design.nodes.find((n) => n.id === pre + 'driven')
+      if (pin && drv && drv.teeth !== pin.teeth * a.ratio)
+        misses.push(`${p.id}:${a.label} teeth ${pin.teeth}:${drv.teeth} ≠ ${a.ratio}:1`)
+    }
+  }
+  assert(!misses.length, `belt stage geometry missing or mis-geared: ${misses.slice(0, 8).join(' · ')}`)
+  return 'every over-torqued y-joint shows its GT2 pinion, gear and belt runs'
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
