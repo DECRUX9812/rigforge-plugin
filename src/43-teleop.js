@@ -11,14 +11,13 @@
  * (≥3 joints), else null. `step(cmd, dt, actualAngles)` returns the desired
  * joint-angle array (deg) for the pose command, or null when idle.
  */
-function createArmTeleop(design) {
+function createArmTeleop(design, side) {
   const joints = design.joints || []
   if (!joints.length) return null
-  // Unambiguous whole-design scan first; multi-limb machines (the humanoid)
-  // fall back to the right arm — the >8-joint cap only applies to the scan,
-  // the IK chain itself is still capped below.
-  const tipWhole = armTipChain(design)
-  const tip = tipWhole || armChainFor(design, 'r')
+  // Explicit side picks that arm's chain (humanoid L/R); otherwise the
+  // unambiguous whole-design scan, then the right-arm fallback.
+  const tipWhole = side ? null : armTipChain(design)
+  const tip = tipWhole || armChainFor(design, side || 'r')
   if (!tip) return null
   const { tipChain, tipNode } = tip
 

@@ -506,6 +506,12 @@ check('teleop coverage: wheels drive, arm reaches, legs walk, jaw grips', () => 
   const htip = hik.tipPos(hrest)
   hik.seek(htip[0] + 100, htip[1], htip[2] + 40, hrest, 30)
   assert(hik.state.err < 5, `humanoid arm IK err ${hik.state.err.toFixed(1)}mm`)
+  // the left arm is independently IK-able and mirrors to the other side
+  const hil = A.createArmTeleop(hd, 'l')
+  assert(hil, 'humanoid left arm should offer IK')
+  const ltip = hil.tipPos(hrest)
+  assert(Math.sign(ltip[0]) !== Math.sign(htip[0]) || Math.abs(ltip[0] - htip[0]) > 30,
+    `left tip ${ltip[0].toFixed(0)} should mirror right tip ${htip[0].toFixed(0)}`)
   return '6 archetypes interactive: ' + Object.entries(got).map(([k, v]) => `${k}:${v}`).join(' ')
 })
 

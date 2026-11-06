@@ -118,9 +118,9 @@ function armChainFor(design, side) {
 }
 
 /** The arm a machine would IK: unambiguous whole-design scan first, then the
- *  right-arm fallback for multi-limb machines (humanoid). */
-function primaryArmTip(design) {
-  return armTipChain(design) || armChainFor(design, 'r')
+ *  right-arm (or requested side) fallback for multi-limb machines. */
+function primaryArmTip(design, side) {
+  return (side ? null : armTipChain(design)) || armChainFor(design, side || 'r')
 }
 
 /** Workspace outer bound: link lengths along the chain + tool offset — the
