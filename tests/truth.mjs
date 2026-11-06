@@ -1223,7 +1223,7 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   assert(A.applyPosePreset(h, 'NOPE') === null, 'unknown preset must return null')
   const { design: q } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'quadruped').brief })
   assert(A.applyPosePreset(q, 'WAVE') === null, 'quadruped has no presets — must return null')
-  return `4 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · unknown→null`
+  return `5 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · unknown→null`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────
