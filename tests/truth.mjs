@@ -1164,6 +1164,24 @@ check('fix suggestions: unreachable desk props prescribe a longer arm', () => {
   return `humanoid: ${hum.msg.slice(0, 70)} → reachMm ${hum.apply.reachMm}`
 })
 
+check('fix suggestions: cert lift failures prescribe sized payloads honestly', () => {
+  const fail = { pass: false, detail: 'best carry Shoulder pitch at 0.64× stall holding 1200g' }
+  // arm archetype: payloadKg really does upsize servos — the patch is honest
+  const armFix = A.fixSuggestions({ brief: { archetype: 'arm', payloadKg: 1 }, autotest: [fail] })
+    .find((f) => /Fix lift/.test(f.msg))
+  assert(armFix && armFix.apply && armFix.apply.payloadKg === 1.2,
+    `arm lift fail should propose payloadKg 1.2, got ${JSON.stringify(armFix && armFix.apply)}`)
+  // humanoid: arm servos ignore payloadKg — the fix must stay verbal, no fake patch
+  const humFix = A.fixSuggestions({ brief: { archetype: 'humanoid', payloadKg: 0.5 }, autotest: [fail] })
+    .find((f) => /Fix lift/.test(f.msg))
+  assert(humFix && !humFix.apply, `humanoid lift fix must not pretend payloadKg upsizes servos — ${JSON.stringify(humFix)}`)
+  // already-sized payload: no patch, honest wording
+  const sized = A.fixSuggestions({ brief: { archetype: 'arm', payloadKg: 2 }, autotest: [{ pass: false, detail: 'best carry Wrist pitch at 0.64× stall holding 350g' }] })
+    .find((f) => /Fix lift/.test(f.msg))
+  assert(sized && !sized.apply, '350g under a 2kg rating needs no payload patch')
+  return `arm→payloadKg 1.2 · humanoid→verbal · sized→verbal`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
