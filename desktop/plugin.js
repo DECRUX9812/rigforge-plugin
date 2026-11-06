@@ -5410,7 +5410,11 @@ function toMJCF(design, analysis) {
   for (const { node, g } of masses) {
     const key = node.joint || null
     if (!key) continue
-    byJoint.set(key, (byJoint.get(key) || 0) + g)
+    if (!byJoint.has(key)) byJoint.set(key, { g: 0, dims: [0, 0, 0] })
+    const acc = byJoint.get(key)
+    acc.g += g
+    const d = nodeDims(node)
+    acc.dims = [Math.max(acc.dims[0], d[0]), Math.max(acc.dims[1], d[1]), Math.max(acc.dims[2], d[2])]
   }
   const childOf = new Map()
   for (const j of joints) {
@@ -5442,19 +5446,17 @@ function toMJCF(design, analysis) {
     const kids = childOf.get(parentId) || []
     for (const j of kids) {
       const pad = '  '.repeat(depth + 3)
-      const g = Math.max(0.001, (byJoint.get(j.id) || 0) / 1000)
+      const g = Math.max(0.001, (byJoint.get(j.id) || { g: 0, dims: [24, 24, 24] }).g / 1000)
+      const jd = (byJoint.get(j.id) || { dims: [24, 24, 24] }).dims
+      const ji = boxInertia(g * 1000, jd)
       const pivot = (j.pivot || [0, 0, 0]).map((v) => r4(v / 1000)).join(' ')
       const axis = axisVec(j.axis).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
       const kind = j.slide ? 'slide' : 'hinge'
       L.push(`${pad}<body name="b_${j.id}" pos="${pivot}">`)
-      L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="0.0005 0.0005 0.0005"/>`)
+      L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="${r4(ji.ixx)} ${r4(ji.iyy)} ${r4(ji.izz)}"/>`)
       L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axis}" range="${range}" damping="0.4"/>`)
       L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.split(' ').map((v) => r4(Number(v) * 0.06)).join(' ')}" size="0.012"/>`)
-      const drive2 = servoFor(design, j)
-      if (drive2) {
-        L.push(`${pad}  <position joint="${j.id}" kp="40" kv="1" forcerange="${r4(-drive2.torque)} ${r4(drive2.torque)}"/>`)
-      }
       emit(j.id, depth + 1)
       L.push(`${pad}</body>`)
     }
@@ -5466,7 +5468,10 @@ function toMJCF(design, analysis) {
   for (const j of joints) {
     const drive3 = servoFor(design, j)
     if (!drive3) continue
-    L.push(`    <motor joint="${j.id}" name="m_${j.id}" gear="1" ctrlrange="${r4(-drive3.torque)} ${r4(drive3.torque)}"/>`)
+    // one position actuator per joint — a servo is a position loop with a
+    // torque ceiling, not raw torque. ctrlrange = travel, forcerange = stall.
+    const cr = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
+    L.push(`    <position joint="${j.id}" name="a_${j.id}" kp="40" kv="1" ctrlrange="${cr}" forcerange="${r4(-drive3.torque)} ${r4(drive3.torque)}"/>`)
   }
   L.push('  </actuator>')
   L.push('</mujoco>')

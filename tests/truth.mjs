@@ -399,8 +399,22 @@ check('URDF/MJCF: one link per joint, real limits, an actuator per driven joint'
     for (const m of urdf.matchAll(/<limit[^>]*effort="([\d.]+)"/g)) {
       assert(Number(m[1]) > 0, `${p.id}: a joint has zero effort and cannot move`)
     }
-    const motors = (mjcf.match(/<motor /g) || []).length
-    assert(motors === design.joints.length || motors === 0, `${p.id}: ${motors} motors for ${design.joints.length} joints`)
+    // one actuator per driven joint — position actuators with a torque
+    // ceiling, and never BOTH a position and a motor on the same joint
+    const acts = (mjcf.match(/<position joint=/g) || []).length + (mjcf.match(/<motor /g) || []).length
+    assert(acts === design.joints.length || acts === 0, `${p.id}: ${acts} actuators for ${design.joints.length} joints`)
+    const posInBody = (mjcf.match(/<position joint=/g) || []).length
+    const motor = (mjcf.match(/<motor /g) || []).length
+    assert(!(posInBody && motor), `${p.id}: position AND motor actuators would double-drive every joint`)
+    // inertias must be computed per link, not the old flat placeholder —
+    // the placeholder's signature is every link sharing one value
+    const diags = [...mjcf.matchAll(/diaginertia="([\d.eE+-]+) /g)].map((m) => Number(m[1]))
+    assert(diags.length >= design.joints.length, `${p.id}: expected per-link diaginertia`)
+    assert(diags.every((d) => d > 0), `${p.id}: a link has zero inertia`)
+    if (design.joints.length > 1) {
+      assert(new Set(diags.map((d) => d.toPrecision(4))).size > 1,
+        `${p.id}: every link shares one inertia — that is the placeholder, not physics`)
+    }
     checked += 1
   })
   return `${checked} machines exported with matching topology`
