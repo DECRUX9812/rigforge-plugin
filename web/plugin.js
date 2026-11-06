@@ -12091,6 +12091,8 @@ function Studio() {
   const sweepRef = useRef({ active: false, t: 0 })
   // joint telemetry ring: actual (not commanded) angles at ~10Hz for the scope
   const telemetryRef = useRef({ samples: [], n: 0 })
+  // POSES▸ cycles presets per archetype without a chip row the layout gate hates
+  const presetCycleRef = useRef({ arch: null, i: 0 })
   const spaceEdgeRef = useRef(false)
   const rumbleRef = useRef({})
   const benchStatsRef = useRef(null)
@@ -13533,18 +13535,24 @@ function Studio() {
                   })),
                 }, 'MIRROR')
                 : null,
-              // named presets share the row — zero added height, the bar
-              // scrolls sideways if a phone squeezes them
-              ...(POSE_PRESETS[design.archetype] || []).map((p) => h('button', {
-                key: `preset-${p.name}`,
-                style: S.poseTab,
-                title: `pose preset: ${p.name}`,
-                onClick: () => {
-                  const live = simRef.current && simRef.current.state ? simRef.current.state.angles : null
-                  const a = applyPosePreset(design, p.name, live)
-                  if (a) setPose(a)
-                },
-              }, p.name)))),
+              // one cycling button, not a chip per preset — poseHead width
+              // is what the layout gate measures, and chips straddled a row
+              (POSE_PRESETS[design.archetype] || []).length
+                ? h('button', {
+                  style: S.poseTab,
+                  title: `cycle pose presets: ${(POSE_PRESETS[design.archetype] || []).map((p) => p.name).join(' → ')}`,
+                  onClick: () => {
+                    const list = POSE_PRESETS[design.archetype] || []
+                    if (!list.length) return
+                    const cyc = presetCycleRef.current
+                    const i = cyc.arch === design.archetype ? (cyc.i + 1) % list.length : 0
+                    presetCycleRef.current = { arch: design.archetype, i }
+                    const live = simRef.current && simRef.current.state ? simRef.current.state.angles : null
+                    const a = applyPosePreset(design, list[i].name, live)
+                    if (a) setPose(a)
+                  },
+                }, 'POSES▸')
+                : null)),
             bookmarks.some((b) => b.n === design.joints.length)
               ? h('div', { style: { display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' } },
                 bookmarks.map((b, i) => (b.n === design.joints.length
