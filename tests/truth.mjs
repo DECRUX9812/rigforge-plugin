@@ -225,6 +225,16 @@ check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () =>
     }
     near(accVerts, tris.length * 3, 0, `${p.id} vertex count vs tris`)
     assert(json.meshes.length === json.nodes.length && json.meshes.length > 0, `${p.id} mesh/node mismatch`)
+    // every primitive points at a real material with a base colour
+    const mats = json.materials || []
+    assert(mats.length > 0, `${p.id} GLB has no materials`)
+    for (const m of json.meshes) {
+      for (const pr of m.primitives) {
+        assert(pr.material != null && pr.material < mats.length, `${p.id} primitive material index bad`)
+        const f = mats[pr.material].pbrMetallicRoughness.baseColorFactor
+        assert(f.length === 4 && f.every((v) => v >= 0 && v <= 1), `${p.id} bad baseColorFactor`)
+      }
+    }
     // Y-up metres: the tallest extent must be ≤ the machine's height in metres
     const ymax = Math.max(...json.accessors.map((a) => a.max[1]))
     assert(ymax > 0.005 && ymax < 5, `${p.id} implausible height ${ymax}m`)
