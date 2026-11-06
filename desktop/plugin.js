@@ -4636,6 +4636,78 @@ function boardPack(design, analysis, base) {
   ]
 }
 
+/**
+ * glTF binary (.glb) — the format every 3D viewer, game engine and AR tool
+ * opens natively. One named mesh node per machine part, positions only
+ * (viewers flat-shade, which matches the faceted parts anyway). Units are
+ * metres with +Y up per the glTF spec; source tris are mm Z-up, so each
+ * vertex maps (x, y, z) → (x·0.001, z·0.001, −y·0.001).
+ */
+function toGLB(tris) {
+  const groups = new Map()
+  for (const t of tris) {
+    const k = t.node || '_'
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k).push(t)
+  }
+  const keys = [...groups.keys()]
+  const f32 = []
+  const parts = keys.map((k) => {
+    const mn = [Infinity, Infinity, Infinity]
+    const mx = [-Infinity, -Infinity, -Infinity]
+    const start = f32.length / 3
+    for (const t of groups.get(k)) {
+      for (const p of t.pts) {
+        const v = [p[0] * 0.001, p[2] * 0.001, -p[1] * 0.001]
+        for (let i = 0; i < 3; i += 1) {
+          f32.push(v[i])
+          if (v[i] < mn[i]) mn[i] = v[i]
+          if (v[i] > mx[i]) mx[i] = v[i]
+        }
+      }
+    }
+    return { name: k, start, count: f32.length / 3 - start, min: mn, max: mx }
+  }).filter((p) => p.count > 0)
+  const binLen = f32.length * 4
+  const bufferViews = []
+  const accessors = []
+  const meshes = []
+  const nodes = []
+  parts.forEach((p, i) => {
+    bufferViews.push({ buffer: 0, byteOffset: p.start * 12, byteLength: p.count * 12 })
+    accessors.push({ bufferView: i, componentType: 5126, count: p.count, type: 'VEC3', min: p.min, max: p.max })
+    meshes.push({ name: p.name, primitives: [{ attributes: { POSITION: i }, mode: 4 }] })
+    nodes.push({ name: p.name, mesh: i })
+  })
+  const json = {
+    asset: { version: '2.0', generator: 'RigForge', extras: { sourceUnits: 'millimeter', upAxis: 'Y' } },
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, i) => i) }],
+    nodes, meshes, accessors, bufferViews,
+    buffers: [{ byteLength: binLen }],
+  }
+  let jsonStr = JSON.stringify(json)
+  while (jsonStr.length % 4) jsonStr += ' '
+  const jsonBytes = new TextEncoder().encode(jsonStr)
+  const binPad = (4 - (binLen % 4)) % 4
+  const chunkLen = binLen + binPad
+  const total = 12 + 8 + jsonBytes.length + 8 + chunkLen
+  const buf = new ArrayBuffer(total)
+  const dv = new DataView(buf)
+  dv.setUint32(0, 0x46546c67, true)  // 'glTF'
+  dv.setUint32(4, 2, true)
+  dv.setUint32(8, total, true)
+  dv.setUint32(12, jsonBytes.length, true)
+  dv.setUint32(16, 0x4e4f534a, true) // 'JSON'
+  new Uint8Array(buf, 20, jsonBytes.length).set(jsonBytes)
+  let o = 20 + jsonBytes.length
+  dv.setUint32(o, chunkLen, true); o += 4
+  dv.setUint32(o, 0x004e4942, true); o += 4 // 'BIN\0'
+  const out = new Float32Array(buf, o, f32.length)
+  for (let i = 0; i < f32.length; i += 1) out[i] = f32[i]
+  return buf
+}
+
 // Minimal ZIP (store-only): what a slicer folder wants, no compression library.
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
@@ -12360,6 +12432,7 @@ function Studio() {
   const exports = [
     ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
+    ['glTF mesh (.glb · viewers/engines)', () => download(`${fileBase}.glb`, toGLB(buildMesh(posedDesign)), 'model/gltf-binary')],
     // What leaves the app has to match what the machine actually needs: a
     // printed machine wants STLs, a board wants the fab/assembly three files.
     design.pcb
