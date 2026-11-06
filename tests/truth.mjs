@@ -899,7 +899,7 @@ check('electronics: BOM parts stay clear of the mechanism at every pose', () => 
     rover: ['esp32', 'imu', 'tof-drop', 'bts7960-a', 'bts7960-b', 'buck5a'],
     quadruped: ['imu', 'esp32', 'pca9685-a', 'pca9685-b', 'buck5a-a', 'buck5a-b'],
     arm: ['pca9685', 'esp32', 'buck5a'],
-    gripper: ['esp32', 'bus-adapter', 'buck5a', 'elec-plate'],
+    gripper: ['esp32', 'bus-adapter', 'buck5a', 'elec-plate', 'enc-pcb', 'enc-bracket'],
     humanoid: ['tof', 'imu', 'esp32', 'bus-adapter-a', 'bus-adapter-b', 'buck5a-a', 'buck5a-b', 'buck5a-c'],
     robot: ['imu', 'pca9685', 'esp32', 'bts7960', 'buck5a-a', 'buck5a-b'],
     gantry: ['ctrl-base', 'ctrl-wall-y-1', 'ctrl-wall-y1', 'ctrl-wall-x-1', 'ctrl-wall-x1', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'esp32', 'buck5a'],
