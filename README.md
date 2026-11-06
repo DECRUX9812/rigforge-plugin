@@ -184,7 +184,7 @@ src/20..29-*.js       archetype generators (arm, rover, quadruped, gripper/gadge
                       spec-driven custom machines)
 src/30-analysis.js    pin map, power budget, mass/cost/print, readiness checks
 src/35-firmware.js    Arduino generation + assembly steps
-src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness
+src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness + rest-pose interference
 src/41-bench.js       statics: CoM, support polygon, slope tip-over, torque vs stall, CCD IK
 src/41-sim-export.js  URDF + MJCF export for ROS / MuJoCo / PyBullet
 src/42-physics.js     joint dynamics: servo-speed slew, stall sag, thermal, bus current
