@@ -57,6 +57,9 @@ function buildGantry(brief) {
   for (let i = -2; i <= 2; i += 1) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
+  // control enclosure in the rail/bed channel — the BOM's controller lives
+  // here; out of the quill's X/Y envelope and clear of the bed slab
+  rbox(d, 'ctrl-box', [30, 150, 90], [-(spanX / 2 + 15), 0, 75], 2, 'shell')
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
   // spanning frame X with the ends bedded onto the side rails. The carriage

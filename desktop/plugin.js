@@ -1324,6 +1324,9 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
+  // driver boards on the exposed plate annulus, clear of tower wall and bolts
+  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
+  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
@@ -1518,6 +1521,14 @@ function buildRover(brief) {
   cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
   cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
 
+  // the BOM's electronics are real parts, not implied: controller + IMU on
+  // the deck, and the second VL53L0X faces down under the rear bumper as the
+  // drop-off ranger the BOM line names
+  const deckTop = z0 + chassisH + 0.5
+  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
+  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
+
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const printedCm3 = printedVolume(d.nodes) / 1000
@@ -1613,6 +1624,11 @@ function buildQuadruped(brief) {
   splitBox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', bed, { print: true })
   splitBox(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 1, 'accent', bed, { print: true })
   rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
+  // the BOM's brains are real parts: IMU centered on the spine shelf for
+  // body attitude, controller board on the body top outboard of the spine
+  const bodyTop = z0 + bodyH / 2
+  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
+  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
@@ -1787,6 +1803,9 @@ function buildGripper(brief) {
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
   box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
   box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
+  // controller boards on the open deck strip behind the keeper rails
+  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
+  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
@@ -1963,6 +1982,7 @@ function buildFullRobot(brief) {
   }
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
@@ -2296,6 +2316,12 @@ function buildHumanoid(brief) {
   rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
   rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
   box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  // the BOM's sensors are real parts: ToF on the chest face for stair
+  // detection, IMU beside it for balance
+  const chestZ = pelvisTop + torsoH * 0.62
+  const chestFace = limbD / 2 + 19 // chest-plate front face
+  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
+  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
   box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
@@ -2983,6 +3009,9 @@ function buildGantry(brief) {
   for (let i = -2; i <= 2; i += 1) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
+  // control enclosure in the rail/bed channel — the BOM's controller lives
+  // here; out of the quill's X/Y envelope and clear of the bed slab
+  rbox(d, 'ctrl-box', [30, 150, 90], [-(spanX / 2 + 15), 0, 75], 2, 'shell')
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
   // spanning frame X with the ends bedded onto the side rails. The carriage

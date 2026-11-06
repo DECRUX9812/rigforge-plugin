@@ -57,6 +57,14 @@ function buildRover(brief) {
   cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
   cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
 
+  // the BOM's electronics are real parts, not implied: controller + IMU on
+  // the deck, and the second VL53L0X faces down under the rear bumper as the
+  // drop-off ranger the BOM line names
+  const deckTop = z0 + chassisH + 0.5
+  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
+  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
+
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
   const printedCm3 = printedVolume(d.nodes) / 1000
