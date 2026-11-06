@@ -932,21 +932,28 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
-      } else if (!pwrDead && gantry) {
-        // gantry has no certification suite — WASD plane, F feeds / R raises
+      } else if (!pwrDead && gantry && (!atKind || atKind === 'gantry')) {
+        // gantry: WASD plane, F feeds / R raises — or the cert script's cmd
+        const at = autotestRef.current
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.f ? 1 : 0) - (k.r ? 1 : 0)
-        if (gp) {
-          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
-          const gx = dz(gp.axes[0] || 0)
-          const gy = dz(gp.axes[1] || 0)
-          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
-          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
-            cx = -gy; cy = gx; cz = gz
+        if (!(at && at.running)) {
+          if (gp) {
+            const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+            const gx = dz(gp.axes[0] || 0)
+            const gy = dz(gp.axes[1] || 0)
+            const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+            if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+              cx = -gy; cy = gx; cz = gz
+            }
           }
+          if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
         }
-        if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
+        if (at && at.running) {
+          const c = at.tick(dt, simRef.current ? simRef.current.state.angles : null)
+          if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
         const desired = gantry.step({ x: cx, y: cy, z: cz }, dt)
         if (desired) setPose(desired)
       }
