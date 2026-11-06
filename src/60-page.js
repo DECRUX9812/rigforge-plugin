@@ -1125,8 +1125,8 @@ function Studio() {
   const certBest = certHistory.filter((x) => x.arch === certArch)
     .reduce((m, x) => (!m || x.passes > m.passes ? x : m), null)
 
-  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, brief }),
-    [benchLive, driveHud, propHud, gripHud, powerHud, brief])
+  const fixes = useMemo(() => fixSuggestions({ bench: benchLive, drive: driveHud, prop: propHud, grip: gripHud, sense: driveHud, power: powerHud, reach: analysis.reach, brief }),
+    [benchLive, driveHud, propHud, gripHud, powerHud, analysis.reach, brief])
 
   // Field-test report: everything the bench logged, as a markdown file the
   // builder can attach to the print pack or paste into a build log.
