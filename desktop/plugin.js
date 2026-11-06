@@ -13303,9 +13303,16 @@ function Studio() {
           // joints themselves in a wrapped grid so 23 of them occupy two rows
           // instead of one endless strip.
           h('div', { style: S.poseHead },
-            h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.12em', color: C.faint } },
-              design.joints.length ? `${shownJoints.length} JOINTS` : 'NO JOINTS',
-              poseOverflows ? h('span', { style: { color: C.accent } }, ' · scroll') : null),
+            h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.12em', color: C.faint, display: 'flex', alignItems: 'center', gap: '6px' } },
+              `${design.joints.length ? `${shownJoints.length} JOINTS` : 'NO JOINTS'}`,
+              poseOverflows ? h('span', { style: { color: C.accent } }, ' · scroll') : null,
+              design.joints.length
+                ? h('button', {
+                  style: { ...S.poseTab, marginLeft: 'auto', padding: '1px 7px', fontSize: '9px' },
+                  title: 'bookmark this pose — saved across sessions, click a chip to re-apply',
+                  onClick: saveBookmark,
+                }, '＋POSE')
+                : null),
             design.joints.length > 6
               ? h('div', { style: { display: 'flex', gap: '3px', marginTop: '5px' } },
                 [['all', 'ALL'], ['body', 'TORSO'], ['l', 'LEFT'], ['r', 'RIGHT']].map(([id, label]) => h('button', {
@@ -13339,13 +13346,6 @@ function Studio() {
                     return li >= 0 ? p[li] : v
                   })),
                 }, 'MIRROR')
-                : null,
-              design.joints.length
-                ? h('button', {
-                  style: S.poseTab,
-                  title: 'bookmark this pose — saved across sessions, click to re-apply',
-                  onClick: saveBookmark,
-                }, '＋POSE')
                 : null)),
             bookmarks.some((b) => b.n === design.joints.length)
               ? h('div', { style: { display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' } },
