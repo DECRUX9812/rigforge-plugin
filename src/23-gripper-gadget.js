@@ -96,8 +96,12 @@ function buildGripper(brief) {
   // ── homing switch + jaw-position encoder ─────────────────────────────────
   box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
-  box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
-  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, rackY, deckZ + 14])
+  // jaw encoder relocated to the keeper lane: the magnet rides the moving
+  // carriage at y≈27 (inside the keeper channel), the AS5600 sits on the
+  // keeper top reading down through a ~2mm air gap — clear of the finger
+  // sweep that made the old deck-level placement impossible
+  rbox(d, 'enc-bracket', [6, 20, 26], [deckL / 2 - 8, 27, deckZ + 24], 1, 'shell', { print: true })
+  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, 27, deckZ + 13])
   // controller stack on a printed backplate behind the deck — the deck top
   // is all mechanism (rail, keepers, carriages), so the boards stand on the
   // plate's rear face like a real gadget's rear cover
@@ -105,7 +109,7 @@ function buildGripper(brief) {
   elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
   elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
   elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
-  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
+  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
   addPart(d, servo, 1, 'rack & pinion actuator')
