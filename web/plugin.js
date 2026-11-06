@@ -761,6 +761,11 @@ const POSE_PRESETS = {
     { name: 'OPEN', pose: { jaw: 'max' } },
     { name: 'CLOSE', pose: { jaw: 'min' } },
   ],
+  rover: [
+    { name: 'SCAN-L', pose: { 'head-pan': -60 } },
+    { name: 'CENTER', pose: { 'head-pan': 0 } },
+    { name: 'SCAN-R', pose: { 'head-pan': 60 } },
+  ],
 }
 
 /** Resolve a named preset to a full angle array in design.joints order.
