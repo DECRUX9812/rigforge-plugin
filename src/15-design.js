@@ -5,7 +5,7 @@
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
 //              cone (pointed taper), lathe (revolved [r,z] profile),
-//              prism (extruded convex [u,v] profile), ring (hollow cyl),
+//              prism (extruded simple [u,v] profile), ring (hollow cyl),
 //              torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
@@ -289,9 +289,9 @@ function lathe(d, id, profile, pos, axis, mat, extra) {
   })
 }
 
-/** Prism — extrude a closed convex [u,v] polygon `depth` mm along the axis,
+/** Prism — extrude a closed simple [u,v] polygon `depth` mm along the axis,
  *  centred on pos (the polygon's bbox centre lands on the node). Depth is
- *  symmetric ±depth/2. Convex only — cap fans need an interior centroid. */
+ *  symmetric ±depth/2. Simple polygons — caps ear-clip, concave OK. */
 function prism(d, id, profile, depth, pos, axis, mat, extra) {
   const us = profile.map((p) => p[0]); const vs = profile.map((p) => p[1])
   const cu = (Math.min(...us) + Math.max(...us)) / 2
