@@ -471,6 +471,19 @@ function Studio() {
   const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
   const [jointGroup, setJointGroup] = useState('all')
+  // pose bookmarks: named joint configurations kept across sessions — the
+  // "wave" from the demo video, the carry pose from the build log
+  const [bookmarks, setBookmarks] = useState(() => (CTX && CTX.storage.get('poseBookmarks', [])) || [])
+  const saveBookmark = () => {
+    const next = [...bookmarks, { id: `${Date.now()}-${bookmarks.length}`, name: `Pose ${bookmarks.length + 1}`, pose: pose.slice(), n: design.joints.length }].slice(-12)
+    setBookmarks(next)
+    if (CTX) CTX.storage.set('poseBookmarks', next)
+  }
+  const delBookmark = (i) => {
+    const next = bookmarks.filter((_, k) => k !== i)
+    setBookmarks(next)
+    if (CTX) CTX.storage.set('poseBookmarks', next)
+  }
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
@@ -2103,9 +2116,16 @@ function Studio() {
           // joints themselves in a wrapped grid so 23 of them occupy two rows
           // instead of one endless strip.
           h('div', { style: S.poseHead },
-            h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.12em', color: C.faint } },
-              design.joints.length ? `${shownJoints.length} JOINTS` : 'NO JOINTS',
-              poseOverflows ? h('span', { style: { color: C.accent } }, ' · scroll') : null),
+            h('div', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.12em', color: C.faint, display: 'flex', alignItems: 'center', gap: '6px' } },
+              `${design.joints.length ? `${shownJoints.length} JOINTS` : 'NO JOINTS'}`,
+              poseOverflows ? h('span', { style: { color: C.accent } }, ' · scroll') : null,
+              design.joints.length
+                ? h('button', {
+                  style: { ...S.poseTab, marginLeft: 'auto', padding: '1px 7px', fontSize: '9px' },
+                  title: 'bookmark this pose — saved across sessions, click a chip to re-apply',
+                  onClick: saveBookmark,
+                }, '＋POSE')
+                : null),
             design.joints.length > 6
               ? h('div', { style: { display: 'flex', gap: '3px', marginTop: '5px' } },
                 [['all', 'ALL'], ['body', 'TORSO'], ['l', 'LEFT'], ['r', 'RIGHT']].map(([id, label]) => h('button', {
@@ -2140,6 +2160,22 @@ function Studio() {
                   })),
                 }, 'MIRROR')
                 : null)),
+            bookmarks.some((b) => b.n === design.joints.length)
+              ? h('div', { style: { display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' } },
+                bookmarks.map((b, i) => (b.n === design.joints.length
+                  ? h('span', {
+                    key: b.id || i,
+                    style: { ...S.poseTab, cursor: 'pointer', display: 'inline-flex', gap: '4px', alignItems: 'center' },
+                    title: 'apply this pose',
+                    onClick: () => setPose(b.pose.slice()),
+                  }, b.name,
+                    h('span', {
+                      style: { color: C.faint },
+                      onClick: (e) => { e.stopPropagation(); delBookmark(i) },
+                      title: 'delete bookmark',
+                    }, '×'))
+                  : null)))
+              : null,
 
           design.joints.length
             ? h('div', { style: { position: 'relative', flex: '1 1 auto', minWidth: 0 } },
