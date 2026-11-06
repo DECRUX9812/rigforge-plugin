@@ -108,6 +108,9 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
+  // driver boards on the exposed plate annulus, clear of tower wall and bolts
+  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
+  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })

@@ -57,6 +57,12 @@ function buildHumanoid(brief) {
   rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
   rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
   box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  // the BOM's sensors are real parts: ToF on the chest face for stair
+  // detection, IMU beside it for balance
+  const chestZ = pelvisTop + torsoH * 0.62
+  const chestFace = limbD / 2 + 19 // chest-plate front face
+  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
+  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
   box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')

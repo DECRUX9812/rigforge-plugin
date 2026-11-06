@@ -98,6 +98,9 @@ function buildGripper(brief) {
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
   box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
   box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
+  // controller boards on the open deck strip behind the keeper rails
+  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
+  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────

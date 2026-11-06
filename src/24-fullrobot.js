@@ -47,6 +47,7 @@ function buildFullRobot(brief) {
   }
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [

@@ -18,6 +18,11 @@ function buildQuadruped(brief) {
   splitBox(d, 'body', [bodyLen, hipW, bodyH], [0, 0, z0], 3, 'shell', bed, { print: true })
   splitBox(d, 'spine', [bodyLen * 0.9, 30, 12], [0, 0, z0 + bodyH / 2 + 6], 1, 'accent', bed, { print: true })
   rbox(d, 'pack', [bodyLen * 0.42, hipW * 0.52, 24], [0, 0, z0 + bodyH / 2 + 18], 2, 'pcb')
+  // the BOM's brains are real parts: IMU centered on the spine shelf for
+  // body attitude, controller board on the body top outboard of the spine
+  const bodyTop = z0 + bodyH / 2
+  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
+  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
