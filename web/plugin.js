@@ -5255,6 +5255,22 @@ function toSpecMarkdown(design, a, extras) {
       (ext ? `; ${ext} extension lead${ext > 1 ? 's' : ''} in the BOM` : '') + '.', '')
   }
 
+  // the print pack section: which bed, how many plates, what the slicer files
+  // are — the numbers the checks warn about, stated as a build instruction
+  const pk = a.print && a.print.pack
+  if (pk && pk.items.length) {
+    L.push('## Print pack', '')
+    L.push(`- Bed ${pk.bed}mm · ${pk.items.length} parts packed on ${pk.plates === 1 ? 'one plate' : `~${pk.plates} plates`} — the print-pack ZIP ships one ready-to-slice 3MF per plate plus per-part STLs.`)
+    if (pk.offBed) L.push(`- **${pk.offBed} part(s) can't fit any ${pk.bed}mm plate** — split them or pick a bigger bed before printing.`)
+    const wl = a.print.wall
+    if (wl && wl.thinnest != null) {
+      L.push(`- Thinnest measured wall ~${wl.thinnest}mm${wl.thin.length ? ` — ${wl.thin.length} part(s) under the ${wl.minWall}mm printable floor` : ' — every wall clears the printable floor'}.`)
+    }
+    const oh = a.print.overhang
+    if (oh && oh.unsupportedMm2 > 0) L.push(`- Overhang: ~${oh.unsupportedMm2}mm² of surface needs support material.`)
+    L.push('')
+  }
+
   L.push('## Firmware', '', '```cpp', design.firmware.trim(), '```', '')
   L.push('## Assembly', '')
   for (const s of design.steps) L.push(`${s.n}. **${s.title}** (${fmtMinutes(s.min)}) — ${s.detail}${s.tools.length ? ` _Tools: ${s.tools.join(', ')}._` : ''}`)

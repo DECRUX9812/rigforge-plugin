@@ -464,8 +464,15 @@ check('spec markdown quotes the same cost, mass and print time', () => {
     assert(md.includes(money), `${p.id}: spec cost ${money} missing`)
     assert(md.includes(`${Math.round(analysis.mass.totalG)}g`), `${p.id}: spec mass missing`)
     assert(md.includes(`${analysis.print.hours.toFixed(1)}h`) || md.includes(`${Math.round(analysis.print.hours)}h`), `${p.id}: spec print hours missing`)
+    // the print-pack section states the same plate count the layout computed
+    const pk = analysis.print.pack
+    if (pk && pk.items.length) {
+      assert(md.includes('## Print pack'), `${p.id}: spec missing print-pack section`)
+      assert(md.includes(`${pk.items.length} parts`), `${p.id}: spec part count disagrees with pack`)
+      if (pk.plates > 1) assert(md.includes(`${pk.plates} plates`), `${p.id}: spec plate count disagrees`)
+    }
   })
-  return 'cost, mass and print time agree'
+  return 'cost, mass, print time and plate count agree'
 })
 
 // ── 19. the build order is complete enough to follow ────────────────────────
