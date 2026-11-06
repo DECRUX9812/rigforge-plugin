@@ -1260,7 +1260,15 @@ function Studio() {
       if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
     }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
-    ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
+    ['Build spec .md', () => {
+      // workspace maps are memoized when REACH was on; otherwise compute now —
+      // a one-time ~1s IK sweep is the honest price of real numbers in the spec
+      const extras = {
+        ws: wsMap || workspaceMap(design, analysis),
+        legWs: legWsMap || legWorkspaceMap(design),
+      }
+      download(`${fileBase}.md`, toSpecMarkdown(design, analysis, extras), 'text/markdown')
+    }],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
     ...(design.pcb && design.pcb.placed.length
       ? [['Centroid / CPL .csv (for assembly)', () => download(`${fileBase}-cpl.csv`, toCentroidCsv(design), 'text/csv')]]

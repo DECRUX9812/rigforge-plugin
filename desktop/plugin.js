@@ -4779,7 +4779,7 @@ function toBOMCsv(design, analysis) {
 }
 
 /** The build pack: everything a person needs, in one document. */
-function toSpecMarkdown(design, a) {
+function toSpecMarkdown(design, a, extras) {
   const L = []
   const m = design.metrics || {}
   L.push(`# ${design.title}`, '', `_${design.subtitle}_`, '')
@@ -4793,8 +4793,20 @@ function toSpecMarkdown(design, a) {
   L.push(`| Controller | ${a.mcu.name} |`)
   if (m.joints) L.push(`| Actuated joints | ${m.joints} |`)
   if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended) |`)
+  if (extras && extras.ws && extras.ws.stats && extras.ws.stats.reach) {
+    const s = extras.ws.stats
+    L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} also lift ${s.payloadG}g |`)
+  }
   if (m.runtimeMin) L.push(`| Runtime | ~${Math.round(m.runtimeMin)} min |`)
   L.push('')
+
+  if (extras && extras.legWs && extras.legWs.legs && extras.legWs.legs.length) {
+    L.push('## Foot workspace (IK-sampled)', '',
+      'Each leg was solved against a sphere of targets around its hip; a point counts only when the joint chain reaches it within joint limits.', '',
+      '| Leg | Reachable targets |', '|---|---|')
+    for (const leg of extras.legWs.legs) L.push(`| ${leg.key.toUpperCase()} | ${leg.reach}/${leg.total} |`)
+    L.push('')
+  }
 
   L.push('## Readiness', '')
   for (const c of a.checks) L.push(`- ${c.level === 'ok' ? 'PASS' : c.level.toUpperCase()} — ${c.msg}`)
@@ -12207,7 +12219,15 @@ function Studio() {
       if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
     }]]),
     ['OpenSCAD source', () => download(`${fileBase}.scad`, toOpenSCAD(design), 'text/plain')],
-    ['Build spec .md', () => download(`${fileBase}.md`, toSpecMarkdown(design, analysis), 'text/markdown')],
+    ['Build spec .md', () => {
+      // workspace maps are memoized when REACH was on; otherwise compute now —
+      // a one-time ~1s IK sweep is the honest price of real numbers in the spec
+      const extras = {
+        ws: wsMap || workspaceMap(design, analysis),
+        legWs: legWsMap || legWorkspaceMap(design),
+      }
+      download(`${fileBase}.md`, toSpecMarkdown(design, analysis, extras), 'text/markdown')
+    }],
     ['Bill of materials .csv', () => download(`${fileBase}-bom.csv`, toBOMCsv(design, analysis), 'text/csv')],
     ...(design.pcb && design.pcb.placed.length
       ? [['Centroid / CPL .csv (for assembly)', () => download(`${fileBase}-cpl.csv`, toCentroidCsv(design), 'text/csv')]]
