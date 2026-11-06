@@ -22,7 +22,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-ARCHETYPES = ("humanoid", "robot", "arm", "rover", "quadruped", "gripper", "gadget")
+ARCHETYPES = ("humanoid", "robot", "arm", "rover", "quadruped", "gripper", "gadget",
+              "gantry", "iot", "pcb", "custom")
 
 DEFAULT_BRIEF: Dict[str, Any] = {
     "archetype": "arm",
@@ -257,9 +258,26 @@ def normalise_brief(raw: Mapping[str, Any]) -> Dict[str, Any]:
             if len(text) > MAX_TEXT:
                 adjusted.append(f"mission truncated to {MAX_TEXT} chars")
     archetype = str(raw.get("archetype") or brief["archetype"]).lower()
+
+    def _spec_list(v: Any) -> bool:
+        if isinstance(v, list):
+            return True
+        if isinstance(v, str):
+            try:
+                return isinstance(json.loads(v), list)
+            except ValueError:
+                return False
+        return False
+
+    has_spec = _spec_list(raw.get("nodes")) or _spec_list(raw.get("joints"))
     if archetype not in ARCHETYPES:
         adjusted.append(f"unknown archetype '{archetype}' → arm")
         archetype = "arm"
+    # a nodes/joints spec with no archetype named IS a custom machine — the
+    # spec is the design, so let it pick its own kind rather than morph into an arm
+    if has_spec and archetype != "custom" and not raw.get("archetype"):
+        archetype = "custom"
+        adjusted.append("nodes/joints spec → archetype 'custom'")
     brief["archetype"] = archetype
     # hardware sanity ceiling only: 500kg / 5m / 300mm wheels is already beyond
     # any hobby machine, so anything inside it is the studio's call, not ours.
@@ -280,6 +298,29 @@ def normalise_brief(raw: Mapping[str, Any]) -> Dict[str, Any]:
             adjusted.append(f"{key} '{value}' not stocked → {brief[key]}")
         else:
             brief[key] = value
+    # spec-driven machines carry their own geometry — pass it through, bounded,
+    # but only when the resolved archetype is custom (an explicit 'arm' + stray
+    # nodes list must not smuggle dead keys into the brief).
+    if brief.get("archetype") == "custom":
+        for key, cap in (("nodes", 64), ("joints", 16)):
+            raw_spec = raw.get(key)
+            if raw_spec is None:
+                continue
+            if isinstance(raw_spec, str):
+                try:
+                    raw_spec = json.loads(raw_spec)
+                except ValueError:
+                    raw_spec = None
+            if not isinstance(raw_spec, list):
+                adjusted.append(f"{key} is not a list — dropped")
+                continue
+            brief[key] = raw_spec[:cap]
+            if len(raw_spec) > cap:
+                adjusted.append(f"{key} truncated to {cap} entries")
+        if raw.get("title"):
+            brief["title"] = str(raw["title"])[:80]
+    elif has_spec:
+        adjusted.append("nodes/joints spec ignored — archetype is not 'custom'")
     if adjusted:
         brief["_adjusted"] = adjusted[:8]
     return brief
@@ -442,7 +483,11 @@ _SCHEMA_BUILD = {
         "properties": {
             "brief": {
                 "type": ["string", "object"],
-                "description": "One sentence ('4WD rover, 2kg payload, 100mm wheels') or a params object.",
+                "description": (
+                    "One sentence ('4WD rover, 2kg payload, 100mm wheels') or a params object. "
+                    "For archetype 'custom' the object carries nodes[] (kind/at/size/joint/slide/print) "
+                    "and joints[] (id/axis/pivot/min/max/parent, or slide+travel) — the spec IS the machine."
+                ),
             },
             "archetype": {"type": "string", "enum": list(ARCHETYPES), "description": "Override the archetype ('robot' is a full mobile manipulator)."},
             "payload_kg": {"type": "number", "description": "Payload mass in kg."},

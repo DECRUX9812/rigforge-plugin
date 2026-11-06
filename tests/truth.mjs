@@ -380,7 +380,11 @@ check('build code round-trips to the same machine', () => {
   eachPreset((p, { design }) => {
     const code = A.encodeBuild(p.brief)
     assert(/^RF1-/.test(code), `${p.id}: code does not start RF1-`)
-    assert(code.length < 400, `${p.id}: code is ${code.length} chars`)
+    // Parametric briefs compress to a few hundred chars; a custom machine's
+    // code IS its node/joint spec, so it is legitimately longer — still one
+    // paste-able line, still decodes to the identical machine.
+    const limit = p.brief.nodes ? 8000 : 400
+    assert(code.length < limit, `${p.id}: code is ${code.length} chars`)
     const back = A.decodeBuild(code)
     const again = A.composeDesign({ ...back })
     assert(again.design.title === design.title, `${p.id}: rebuilt title differs`)
@@ -1213,6 +1217,62 @@ check('autotest: gantry certifies traverse, drop and return', () => {
   const fails = at.results.filter((r) => !r.pass)
   assert(fails.length === 0, `gantry cert failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
   return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
+// ── custom archetype: spec-driven machines get the whole pipeline ──────────
+check('custom spec: preset composes, servos measured, spec round-trips', () => {
+  const preset = A.PRESETS.find((p) => p.brief.archetype === 'custom')
+  assert(preset, 'no custom preset card')
+  const { design, analysis } = A.composeDesign({ ...preset.brief })
+  assert(design.nodes.length === preset.brief.nodes.length, `nodes ${design.nodes.length} != spec ${preset.brief.nodes.length}`)
+  assert(design.joints.length === preset.brief.joints.length, `joints ${design.joints.length} != spec ${preset.brief.joints.length}`)
+  const acts = design.actuators || []
+  assert(acts.length === 2, `expected 2 sized actuators, got ${acts.length}`)
+  for (const a of acts) assert(A.PARTS[a.servo] && A.PARTS[a.servo].cat === 'servo', `bad servo ${a.servo}`)
+  assert(design.parts.some((p) => p.key === 'esp32s3'), 'controller missing from BOM')
+  assert(A.toSTL(A.buildMesh(design)).byteLength > 1000, 'custom machine produced no STL')
+  const code = A.decodeBuild(A.encodeBuild(preset.brief))
+  assert((code.nodes || []).length === preset.brief.nodes.length && (code.joints || []).length === preset.brief.joints.length,
+    'build code dropped the spec')
+  return `${design.nodes.length} nodes · ${design.joints.length} joints · servos ${acts.map((a) => a.servo).join('/')} · STL ok`
+})
+
+check('custom machines self-select teleop: IK chain + gantry slides', () => {
+  const arm = A.composeDesign({
+    archetype: 'custom', title: 'spec arm',
+    nodes: [
+      { kind: 'rbox', size: [120, 120, 8], at: [0, 0, 4], print: true },
+      { kind: 'rbox', size: [14, 14, 120], at: [40, 0, 100], joint: 'shoulder' },
+      { kind: 'rbox', size: [12, 12, 110], at: [90, 0, 190], joint: 'elbow' },
+      { kind: 'sphere', r: 14, at: [130, 0, 240], joint: 'wrist' },
+    ],
+    joints: [
+      { id: 'base', axis: 'z', pivot: [0, 0, 42], min: -170, max: 170 },
+      { id: 'shoulder', axis: 'y', pivot: [40, 0, 60], min: -120, max: 120, parent: 'base' },
+      { id: 'elbow', axis: 'y', pivot: [90, 0, 160], min: -140, max: 0, parent: 'shoulder' },
+      { id: 'wrist', axis: 'y', pivot: [130, 0, 245], min: -90, max: 90, parent: 'elbow' },
+    ],
+  })
+  assert(A.armTipChain(arm.design), 'spec arm got no IK chain')
+  assert(A.createArmTeleop(arm.design), 'spec arm got no IK teleop')
+  const gx = A.composeDesign({
+    archetype: 'custom', title: 'spec stage',
+    nodes: [
+      { kind: 'box', size: [50, 50, 10], at: [0, 0, 5] },
+      { kind: 'box', size: [10, 10, 80], at: [100, 0, 50], slide: 'gx' },
+      { kind: 'box', size: [10, 10, 80], at: [200, 0, 50], slide: 'gy' },
+      { kind: 'box', size: [10, 10, 30], at: [300, 0, 95], slide: 'gz' },
+    ],
+    joints: [
+      { id: 'gx', slide: true, axis: 'x', travel: 300 },
+      { id: 'gy', slide: true, axis: 'y', travel: 200 },
+      { id: 'gz', slide: true, axis: 'z', travel: 100 },
+    ],
+  })
+  assert(A.createGantryTeleop(gx.design), 'spec stage got no gantry teleop')
+  const bad = A.composeDesign({ archetype: 'custom', nodes: [{ kind: 'bogus' }], joints: 'junk' })
+  assert(bad.design.checks.some((c) => c.level === 'fail'), 'malformed spec did not fail honestly')
+  return 'arm→IK teleop · 3-slide stage→gantry teleop · malformed→fail check'
 })
 
 // ── 32. stairs course: risers taller than wheel bite block honestly ─────────

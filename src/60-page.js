@@ -434,6 +434,7 @@ const PRESET_BLURBS = {
   humanoid: 'a walking robot with arms',
   robot: 'rover + arm in one machine',
   desk: 'a little electronic desk gadget',
+  custom: 'your own node spec — any shape, any joints',
 }
 
 /** One honest sentence anybody can read — the tables below carry the detail. */
@@ -1295,7 +1296,11 @@ function Studio() {
   const onBuild = () => {
     // An empty brief is not an error — it is an invitation. Surprise them.
     const parsed = mission.trim() ? parseBrief(mission) : { ...PRESETS[Math.floor(Math.random() * PRESETS.length)].brief }
-    applyBrief({ ...parsed, material: brief.material, mcu: brief.mcu, battery: brief.battery })
+    // A custom machine's design IS its nodes/joints spec — re-parsing the
+    // mission text would silently swap it for an archetype guess.
+    const keep = brief.archetype === 'custom' && parsed.archetype !== 'custom'
+      ? { archetype: 'custom', nodes: brief.nodes, joints: brief.joints, title: brief.title } : {}
+    applyBrief({ ...parsed, ...keep, material: brief.material, mcu: brief.mcu, battery: brief.battery })
   }
 
   const loadWorkedExample = (ex) => {
