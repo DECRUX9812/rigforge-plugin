@@ -3702,18 +3702,94 @@ function armReachBound(tip) {
   return { c: [c[0], c[1], c[2]], r: Math.round(r) }
 }
 
+/** Joint axis as a unit vector — 'x'/'y'/'z' or an explicit [x,y,z]. */
+function axisVec3(axis) {
+  if (Array.isArray(axis)) {
+    const l = Math.hypot(axis[0], axis[1], axis[2]) || 1
+    return [axis[0] / l, axis[1] / l, axis[2] / l]
+  }
+  return axis === 'x' ? [1, 0, 0] : axis === 'y' ? [0, 1, 0] : [0, 0, 1]
+}
+
+/** Rodrigues rotation about a unit axis, row-major 3×3. */
+function rotMatAxis(axis, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang), C = 1 - c
+  const [x, y, z] = axis
+  return [
+    c + x * x * C, x * y * C - z * s, x * z * C + y * s,
+    y * x * C + z * s, c + y * y * C, y * z * C - x * s,
+    z * x * C - y * s, z * y * C + x * s, c + z * z * C,
+  ]
+}
+
+function mulMM(a, b) {
+  return [
+    a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+    a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+    a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+  ]
+}
+
+/**
+ * Forward kinematics for one chain (root→leaf). Joint pivots and axes are
+ * stored in MODEL coordinates at the rest pose, so a descendant's pivot and
+ * axis must be carried through every ancestor's rotation — rotating about the
+ * stale rest pivot is what let a posed arm's forearm hinge drift ~100 mm off
+ * its upper arm. child→parent for joint i is  p_parent = A_i·p_child + d_i
+ * with d_i = pivot_i − pivot_parent; composing root→leaf gives each link's
+ * world rotation R and origin t, and t IS the world position of pivot_i.
+ * Slide joints stay transparent here — they displace through slideDisp.
+ */
+function chainFrames(chain) {
+  const I = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  let Rp = I, tp = [0, 0, 0], prevPivot = [0, 0, 0]
+  const out = []
+  for (const j of chain) {
+    if (j.slide || !j.pivot) continue
+    const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
+    const a = axisVec3(j.axis)
+    // Pitch joints read positive = UP (same sign convention applyChain had).
+    const sign = j.axis === 'y' ? -1 : 1
+    const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
+    const pivotW = [
+      Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
+      Rp[3] * d[0] + Rp[4] * d[1] + Rp[5] * d[2] + tp[1],
+      Rp[6] * d[0] + Rp[7] * d[1] + Rp[8] * d[2] + tp[2],
+    ]
+    const axisW = [Rp[0] * a[0] + Rp[1] * a[1] + Rp[2] * a[2], Rp[3] * a[0] + Rp[4] * a[1] + Rp[5] * a[2], Rp[6] * a[0] + Rp[7] * a[1] + Rp[8] * a[2]]
+    const R = mulMM(Rp, A)
+    out.push({ joint: j, pivotW, axisW, R, t: pivotW })
+    Rp = R
+    tp = pivotW
+    prevPivot = j.pivot
+  }
+  return out
+}
+
+/** World pivot + axis of one joint under the current pose, or null. */
+function jointFrameWorld(chains, jid) {
+  const ch = chains.get(jid)
+  if (!ch) return null
+  const frames = chainFrames(ch)
+  return frames.length ? frames[frames.length - 1] : null
+}
+
 /** Apply a joint chain's rotations (root → leaf) to a rest-pose point. */
 function applyChain(chain, point) {
-  let p = point
-  if (!chain) return p
-  for (const j of chain) {
-    if (j.slide) continue
-    // Pitch joints read positive = UP: a slider that raises the arm should not
-    // drive it into the table. (Servo direction is flipped in the firmware.)
-    const sign = j.axis === 'y' ? -1 : 1
-    p = rotAxis(p, j.pivot, j.axis, (sign * j.angle * Math.PI) / 180)
-  }
-  return p
+  if (!chain || !chain.length) return point
+  const frames = chainFrames(chain)
+  const f = frames[frames.length - 1]
+  if (!f) return point
+  // `point` is model-frame coords rigid in the deepest link: link coords are
+  // model coords minus that link's pivot, then W_last carries it to the world.
+  const P = f.joint.pivot
+  const q = [point[0] - P[0], point[1] - P[1], point[2] - P[2]]
+  const R = f.R, t = f.t
+  return [
+    R[0] * q[0] + R[1] * q[1] + R[2] * q[2] + t[0],
+    R[3] * q[0] + R[4] * q[1] + R[5] * q[2] + t[1],
+    R[6] * q[0] + R[7] * q[1] + R[8] * q[2] + t[2],
+  ]
 }
 
 /** Linear-joint displacement for a node that rides a slide. */
@@ -4068,32 +4144,16 @@ function nodeAffine(node, chain, slide, shift) {
     node.pos[2] + slide[2],
   ]
   if (chain) {
-    for (const j of chain) {
-      if (j.slide) continue
-      const sign = j.axis === 'y' ? -1 : 1
-      const a = (sign * j.angle * Math.PI) / 180
-      if (!a) continue
-      const c = Math.cos(a), s = Math.sin(a)
-      const R = j.axis === 'x'
-        ? [1, 0, 0, 0, c, -s, 0, s, c]
-        : j.axis === 'y'
-          ? [c, 0, s, 0, 1, 0, -s, 0, c]
-          : [c, -s, 0, s, c, 0, 0, 0, 1]
-      // rotate about the joint pivot: p' = R(p − pivot) + pivot
-      const pv = j.pivot || [0, 0, 0]
-      const rpv = [
-        R[0] * pv[0] + R[1] * pv[1] + R[2] * pv[2],
-        R[3] * pv[0] + R[4] * pv[1] + R[5] * pv[2],
-        R[6] * pv[0] + R[7] * pv[1] + R[8] * pv[2],
-      ]
-      // p' = R(p − pivot) + pivot applied to the whole transform, so the
-      // translation is rotated too: t' = R·t − R·pivot + pivot
-      const rt = [
-        (R[0] * t[0] + R[1] * t[1] + R[2] * t[2]) - rpv[0] + pv[0],
-        (R[3] * t[0] + R[4] * t[1] + R[5] * t[2]) - rpv[1] + pv[1],
-        (R[6] * t[0] + R[7] * t[1] + R[8] * t[2]) - rpv[2] + pv[2],
-      ]
-      t[0] = rt[0]; t[1] = rt[1]; t[2] = rt[2]
+    const frames = chainFrames(chain)
+    const f = frames[frames.length - 1]
+    if (f) {
+      // world = R_link·(pos + slide − pivot_link) + t_link, orientation R_link·R_node
+      const P = f.joint.pivot
+      const q = [t[0] - P[0], t[1] - P[1], t[2] - P[2]]
+      const R = f.R
+      t[0] = R[0] * q[0] + R[1] * q[1] + R[2] * q[2] + f.t[0]
+      t[1] = R[3] * q[0] + R[4] * q[1] + R[5] * q[2] + f.t[1]
+      t[2] = R[6] * q[0] + R[7] * q[1] + R[8] * q[2] + f.t[2]
       m = mul(R, m)
     }
   }
@@ -4984,6 +5044,11 @@ function benchTorqueMargins(design, mat, extra) {
   const chains = chainsFor(design)
   const acts = design.actuators || []
   const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const frameCache = new Map()
+  const frameOf = (jid) => {
+    if (!frameCache.has(jid)) frameCache.set(jid, jointFrameWorld(chains, jid))
+    return frameCache.get(jid)
+  }
   const out = []
   // `extra`: virtual payload masses hung on a joint — {joint, pos:[x,y,z] mm
   // world, massG}. Used by the lift test: the arm holds a real prop and we ask
@@ -5002,6 +5067,9 @@ function benchTorqueMargins(design, mat, extra) {
     const act = acts.find((a) => a.label === j.label)
     if (!act) continue
     const ids = subtree(j.id)
+    const fr = frameOf(j.id)
+    if (!fr) continue
+    const pivotW = fr.pivotW, ax = fr.axisW
     // τ about the joint axis = Σ m·g·lever. In N·m with mm units:
     //   τ = (massG/1000 kg)·9.81·(lever_mm/1000 m) = massG·lever_mm·9.81e-6
     // For a vertical-axis (yaw) joint gravity produces ~0 — the cross product
@@ -5011,20 +5079,18 @@ function benchTorqueMargins(design, mat, extra) {
       const nj = n.joint ? byId.get(n.joint) : null
       if (!nj || !ids.has(nj.id)) continue
       const w = benchNodeWorld(design, chains, n)
-      const r = [w[0] - j.pivot[0], w[1] - j.pivot[1], w[2] - j.pivot[2]]
+      const r = [w[0] - pivotW[0], w[1] - pivotW[1], w[2] - pivotW[2]]
       const mg = benchNodeMassG(design, n, mat) * 9.81e-3 // N
       // F = (0,0,-mg); τ = r×F → only x,y components survive
       const tx = -r[1] * mg, ty = r[0] * mg, tz = 0
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
       const leverNmm = Math.abs(tx * ax[0] + ty * ax[1] + tz * ax[2]) // N·mm
       tauNm += leverNmm / 1000 // N·mm → N·m
     }
     for (const pay of extra || []) {
       if (!ids.has(pay.joint)) continue
-      const r = [pay.pos[0] - j.pivot[0], pay.pos[1] - j.pivot[1], pay.pos[2] - j.pivot[2]]
+      const r = [pay.pos[0] - pivotW[0], pay.pos[1] - pivotW[1], pay.pos[2] - pivotW[2]]
       const mg = pay.massG * 9.81e-3 // N
       const tx = -r[1] * mg, ty = r[0] * mg
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
       tauNm += Math.abs(tx * ax[0] + ty * ax[1]) / 1000
     }
     const need = tauNm // N·m
@@ -5073,7 +5139,9 @@ function benchReport(design, analysis, opts = {}) {
  */
 function solveChainIK(design, chain, target, tipWorld, iters = 6) {
   if (!chain || !chain.length) return { err: 1e9, iters: 0 }
-  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const chains = chainsFor(design)
+  // Frames are pose-dependent: every angle write moves descendant pivots, so
+  // they are recomputed per joint — never cached across a solve.
   let err = 1e9
   for (let it = 0; it < iters; it++) {
     const tip = tipWorld(design)
@@ -5082,23 +5150,24 @@ function solveChainIK(design, chain, target, tipWorld, iters = 6) {
     for (let k = chain.length - 1; k >= 0; k--) {
       const j = chain[k]
       if (j.slide || j.axis === 'z') continue
-      const chains = chainsFor(design)
-      const sub = chain.slice(0, k + 1)
-      const pivot = j.pivot
+      const fr = jointFrameWorld(chains, j.id)
+      if (!fr) continue
+      const pivot = fr.pivotW
       const tipP = tipWorld(design)
       const toTip = [tipP[0] - pivot[0], tipP[1] - pivot[1], tipP[2] - pivot[2]]
       const toTgt = [target[0] - pivot[0], target[1] - pivot[1], target[2] - pivot[2]]
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+      const ax = fr.axisW
       // project both vectors onto the plane ⊥ axis, angle between them
       const proj = (v) => {
         const d = v[0] * ax[0] + v[1] * ax[1] + v[2] * ax[2]
         return [v[0] - d * ax[0], v[1] - d * ax[1], v[2] - d * ax[2]]
       }
       const a = proj(toTip), b = proj(toTgt)
-      const ang = Math.atan2(
-        a[0] * b[1] - a[1] * b[0] + a[1] * b[2] - a[2] * b[1] + a[2] * b[0] - a[0] * b[2],
-        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-      )
+      // signed angle about the (now arbitrary world) axis: atan2((a×b)·axis, a·b)
+      const cx = a[1] * b[2] - a[2] * b[1]
+      const cy = a[2] * b[0] - a[0] * b[2]
+      const cz = a[0] * b[1] - a[1] * b[0]
+      const ang = Math.atan2(cx * ax[0] + cy * ax[1] + cz * ax[2], a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
       // yaw joints read positive CCW about +axis; pitch 'y' is inverted like applyChain
       const sign = j.axis === 'y' ? -1 : 1
       let next = j.angle + (sign * ang * 180) / Math.PI
@@ -5344,6 +5413,15 @@ function toURDF(design, analysis) {
 
   const linkOf = (jid) => (jid ? `link_${jid}` : 'base_link')
   const r6 = (v) => Number(v).toFixed(6)
+  const byId = new Map(joints.map((j) => [j.id, j]))
+  // Joint origins are PARENT-relative: the parent link's frame sits at its own
+  // pivot, so origin = pivot_child − pivot_parent (root joints measure from the
+  // base link at the model origin). Emitting raw model pivots would stack every
+  // hinge at its absolute position and the tree would assemble wrong.
+  const parentPivot = (j) => {
+    const p = j.parent ? byId.get(j.parent) : null
+    return p && p.pivot ? p.pivot : [0, 0, 0]
+  }
 
   const L = []
   L.push('<?xml version="1.0"?>')
@@ -5366,7 +5444,6 @@ function toURDF(design, analysis) {
     const bi2 = boxInertia(acc.g, acc.dims)
     const parent = linkOf(j.parent)
     const child = linkOf(j.id)
-    const axis = axisVec(j.axis)
     const type = j.slide ? 'prismatic' : (j.max - j.min >= 359 ? 'continuous' : 'revolute')
     L.push(`  <link name="${child}">`)
     L.push(`    <inertial>`)
@@ -5378,13 +5455,22 @@ function toURDF(design, analysis) {
     L.push(`    <parent link="${parent}"/>`)
     L.push(`    <child link="${child}"/>`)
     const pivot = j.pivot || [0, 0, 0]
-    L.push(`    <origin xyz="${pivot.map((v) => r6(v / 1000)).join(' ')}" rpy="0 0 0"/>`)
-    L.push(`    <axis xyz="${axis.join(' ')}"/>`)
+    const pp = parentPivot(j)
+    const rel = [pivot[0] - pp[0], pivot[1] - pp[1], pivot[2] - pp[2]]
+    L.push(`    <origin xyz="${rel.map((v) => r6(v / 1000)).join(' ')}" rpy="0 0 0"/>`)
+    // studio pitch joints read positive = UP, i.e. they rotate by −angle about
+    // +y; URDF has no sign convention, so the axis itself carries the flip.
+    // Slides keep their raw axis — linear displacement has no pitch inversion.
+    const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+    const axU = axisVec(j.axis).map((v) => v * sgn)
+    L.push(`    <axis xyz="${axU.map((v) => r6(v)).join(' ')}"/>`)
     // effort and velocity must be real: a zero effort limit means the joint
     // cannot move in Gazebo, RViz's fake controllers or Isaac
     const drive = servoFor(design, j)
     const effort = drive ? drive.torque : 1
-    const velocity = j.slide ? 0.2 : 6.0
+    // real slew speed when the servo is known: speed is s/60°, so ω = (π/3)/s
+    const spd = drive && PARTS[drive.servo] ? PARTS[drive.servo].speed : 0
+    const velocity = j.slide ? 0.2 : (spd > 0 && spd < 10 ? Math.min(30, (Math.PI / 3) / spd) : 6.0)
     if (type !== 'continuous') {
       const lo = j.slide ? j.min / 1000 : j.min * SIM_D2R
       const hi = j.slide ? j.max / 1000 : j.max * SIM_D2R
@@ -5417,7 +5503,9 @@ function toMJCF(design, analysis) {
     acc.dims = [Math.max(acc.dims[0], d[0]), Math.max(acc.dims[1], d[1]), Math.max(acc.dims[2], d[2])]
   }
   const childOf = new Map()
+  const jById = new Map()
   for (const j of joints) {
+    jById.set(j.id, j)
     const p = j.parent || '_base'
     if (!childOf.has(p)) childOf.set(p, [])
     childOf.get(p).push(j)
@@ -5453,14 +5541,22 @@ function toMJCF(design, analysis) {
       const g = Math.max(0.001, (byJoint.get(j.id) || { g: 0, dims: [24, 24, 24] }).g / 1000)
       const jd = (byJoint.get(j.id) || { dims: [24, 24, 24] }).dims
       const ji = boxInertia(g * 1000, jd)
-      const pivot = (j.pivot || [0, 0, 0]).map((v) => r4(v / 1000)).join(' ')
-      const axis = axisVec(j.axis).join(' ')
+      // body pos is relative to the PARENT body frame, whose origin sits at the
+      // parent joint's pivot — root joints measure from the base body at z=50mm
+      const pv = j.pivot || [0, 0, 0]
+      const pj = j.parent ? jById.get(j.parent) : null
+      const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
+      const pos = [pv[0] - pp[0], pv[1] - pp[1], pv[2] - pp[2]].map((v) => r4(v / 1000)).join(' ')
+      // same pitch inversion as URDF: studio +angle is −rotation about +y
+      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+      const axis = axisVec(j.axis).map((v) => v * sgn)
+      const axisStr = axis.map((v) => r4(v)).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
       const kind = j.slide ? 'slide' : 'hinge'
-      L.push(`${pad}<body name="b_${j.id}" pos="${pivot}">`)
+      L.push(`${pad}<body name="b_${j.id}" pos="${pos}">`)
       L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="${ri(ji.ixx)} ${ri(ji.iyy)} ${ri(ji.izz)}"/>`)
-      L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axis}" range="${range}" damping="0.4"/>`)
-      L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.split(' ').map((v) => r4(Number(v) * 0.06)).join(' ')}" size="0.012"/>`)
+      L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axisStr}" range="${range}" damping="0.4"/>`)
+      L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.map((v) => r4(v * 0.06)).join(' ')}" size="0.012"/>`)
       emit(j.id, depth + 1)
       L.push(`${pad}</body>`)
     }
@@ -5516,6 +5612,11 @@ function jointLoadNm(design, mat, poseAngles) {
       return out
     }
     const load = {}
+    const frameCache = new Map()
+    const frameOf = (jid) => {
+      if (!frameCache.has(jid)) frameCache.set(jid, jointFrameWorld(chains, jid))
+      return frameCache.get(jid)
+    }
     for (const n of design.nodes) {
       const nj = n.joint ? byId.get(n.joint) : null
       if (!nj) continue
@@ -5524,11 +5625,11 @@ function jointLoadNm(design, mat, poseAngles) {
       if (g <= 0) continue
       for (const j of ancestorsOf(nj.id)) {
         if (j.slide || j.axis === 'z') continue
-        const ax = j.axis === 'x' ? 1 : 0
-        const ay = j.axis === 'y' ? 1 : 0
-        const r = [w[0] - j.pivot[0], w[1] - j.pivot[1], w[2] - j.pivot[2]]
+        const fr = frameOf(j.id)
+        if (!fr) continue
+        const r = [w[0] - fr.pivotW[0], w[1] - fr.pivotW[1], w[2] - fr.pivotW[2]]
         // τ = r × F with F = (0,0,-g): τx = -ry·g, τy = rx·g → along axis, N·mm → N·m
-        const tau = (-r[1] * g * ax + r[0] * g * ay) / 1000
+        const tau = (-r[1] * g * fr.axisW[0] + r[0] * g * fr.axisW[1]) / 1000
         load[j.id] = (load[j.id] || 0) + tau
       }
     }
@@ -7208,18 +7309,35 @@ function reachAutotest(ik) {
       return tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity, label: '?' })
     }
     // certification asks "can it lift this at all" — so give the arm its best
-    // honest shot: probe tucked carry poses and keep the most headroom found.
+    // honest shot: probe tucked carry poses from several seed configs and keep
+    // the most headroom found. CCD has local minima — a single seed can miss a
+    // reachable basin, so the probes span rest/mid/low/high joint configs.
     // If even the probes can't get there, the honest answer is "unreachable".
+    const jd = (ik.design && ik.design.joints) || []
+    const frac = (f) => jd.map((j) => j.min + (j.max - j.min) * f)
+    // deterministic multi-start: an LCG seeded off the prop id gives the same
+    // probe configs every run — no Math.random, certification stays replayable
+    const propSeed = [...leg.prop.id].reduce((s, c) => (s * 31 + c.charCodeAt(0)) >>> 0, 7)
+    let rng = propSeed
+    const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296 }
+    const seeds = [
+      (leg.pose || []).slice(),       // the pose that reached this prop — nearest basin
+      (st.seedAngles || []).slice(),
+      frac(0.5), frac(0.15), frac(0.85),
+      ...Array.from({ length: 6 }, () => jd.map((j) => j.min + (j.max - j.min) * rand())),
+    ]
     let reached = leg.err != null && leg.err <= 45
     let best = reached ? evalPose(leg.pose) : null
     for (const tuck of [20, 40, 60, 80, 100, 120]) {
       for (const dz of [50, 80]) {
         const wp = [leg.prop.pos[0] - tuck, leg.prop.pos[1], leg.prop.pos[2] + leg.prop.size[2] / 2 + dz]
-        const pose = ik.seek(wp[0], wp[1], wp[2], (st.seedAngles || leg.pose || []).slice(), 30)
-        if (ik.state.err > 45) continue
-        reached = true
-        const w = evalPose(pose)
-        if (!best || w.margin > best.margin) best = w
+        for (const seed of seeds) {
+          const pose = ik.seek(wp[0], wp[1], wp[2], seed.slice(), 30)
+          if (ik.state.err > 45) continue
+          reached = true
+          const w = evalPose(pose)
+          if (!best || w.margin > best.margin) best = w
+        }
       }
     }
     if (!reached) return { pass: false, detail: `no carry pose inside reach — closest err ${(leg.err == null ? 999 : leg.err).toFixed(0)}mm` }

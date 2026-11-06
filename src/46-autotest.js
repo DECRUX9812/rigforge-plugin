@@ -206,18 +206,35 @@ function reachAutotest(ik) {
       return tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity, label: '?' })
     }
     // certification asks "can it lift this at all" — so give the arm its best
-    // honest shot: probe tucked carry poses and keep the most headroom found.
+    // honest shot: probe tucked carry poses from several seed configs and keep
+    // the most headroom found. CCD has local minima — a single seed can miss a
+    // reachable basin, so the probes span rest/mid/low/high joint configs.
     // If even the probes can't get there, the honest answer is "unreachable".
+    const jd = (ik.design && ik.design.joints) || []
+    const frac = (f) => jd.map((j) => j.min + (j.max - j.min) * f)
+    // deterministic multi-start: an LCG seeded off the prop id gives the same
+    // probe configs every run — no Math.random, certification stays replayable
+    const propSeed = [...leg.prop.id].reduce((s, c) => (s * 31 + c.charCodeAt(0)) >>> 0, 7)
+    let rng = propSeed
+    const rand = () => { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296 }
+    const seeds = [
+      (leg.pose || []).slice(),       // the pose that reached this prop — nearest basin
+      (st.seedAngles || []).slice(),
+      frac(0.5), frac(0.15), frac(0.85),
+      ...Array.from({ length: 6 }, () => jd.map((j) => j.min + (j.max - j.min) * rand())),
+    ]
     let reached = leg.err != null && leg.err <= 45
     let best = reached ? evalPose(leg.pose) : null
     for (const tuck of [20, 40, 60, 80, 100, 120]) {
       for (const dz of [50, 80]) {
         const wp = [leg.prop.pos[0] - tuck, leg.prop.pos[1], leg.prop.pos[2] + leg.prop.size[2] / 2 + dz]
-        const pose = ik.seek(wp[0], wp[1], wp[2], (st.seedAngles || leg.pose || []).slice(), 30)
-        if (ik.state.err > 45) continue
-        reached = true
-        const w = evalPose(pose)
-        if (!best || w.margin > best.margin) best = w
+        for (const seed of seeds) {
+          const pose = ik.seek(wp[0], wp[1], wp[2], seed.slice(), 30)
+          if (ik.state.err > 45) continue
+          reached = true
+          const w = evalPose(pose)
+          if (!best || w.margin > best.margin) best = w
+        }
       }
     }
     if (!reached) return { pass: false, detail: `no carry pose inside reach — closest err ${(leg.err == null ? 999 : leg.err).toFixed(0)}mm` }

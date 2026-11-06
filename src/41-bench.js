@@ -152,6 +152,11 @@ function benchTorqueMargins(design, mat, extra) {
   const chains = chainsFor(design)
   const acts = design.actuators || []
   const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const frameCache = new Map()
+  const frameOf = (jid) => {
+    if (!frameCache.has(jid)) frameCache.set(jid, jointFrameWorld(chains, jid))
+    return frameCache.get(jid)
+  }
   const out = []
   // `extra`: virtual payload masses hung on a joint — {joint, pos:[x,y,z] mm
   // world, massG}. Used by the lift test: the arm holds a real prop and we ask
@@ -170,6 +175,9 @@ function benchTorqueMargins(design, mat, extra) {
     const act = acts.find((a) => a.label === j.label)
     if (!act) continue
     const ids = subtree(j.id)
+    const fr = frameOf(j.id)
+    if (!fr) continue
+    const pivotW = fr.pivotW, ax = fr.axisW
     // τ about the joint axis = Σ m·g·lever. In N·m with mm units:
     //   τ = (massG/1000 kg)·9.81·(lever_mm/1000 m) = massG·lever_mm·9.81e-6
     // For a vertical-axis (yaw) joint gravity produces ~0 — the cross product
@@ -179,20 +187,18 @@ function benchTorqueMargins(design, mat, extra) {
       const nj = n.joint ? byId.get(n.joint) : null
       if (!nj || !ids.has(nj.id)) continue
       const w = benchNodeWorld(design, chains, n)
-      const r = [w[0] - j.pivot[0], w[1] - j.pivot[1], w[2] - j.pivot[2]]
+      const r = [w[0] - pivotW[0], w[1] - pivotW[1], w[2] - pivotW[2]]
       const mg = benchNodeMassG(design, n, mat) * 9.81e-3 // N
       // F = (0,0,-mg); τ = r×F → only x,y components survive
       const tx = -r[1] * mg, ty = r[0] * mg, tz = 0
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
       const leverNmm = Math.abs(tx * ax[0] + ty * ax[1] + tz * ax[2]) // N·mm
       tauNm += leverNmm / 1000 // N·mm → N·m
     }
     for (const pay of extra || []) {
       if (!ids.has(pay.joint)) continue
-      const r = [pay.pos[0] - j.pivot[0], pay.pos[1] - j.pivot[1], pay.pos[2] - j.pivot[2]]
+      const r = [pay.pos[0] - pivotW[0], pay.pos[1] - pivotW[1], pay.pos[2] - pivotW[2]]
       const mg = pay.massG * 9.81e-3 // N
       const tx = -r[1] * mg, ty = r[0] * mg
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
       tauNm += Math.abs(tx * ax[0] + ty * ax[1]) / 1000
     }
     const need = tauNm // N·m
@@ -241,7 +247,9 @@ function benchReport(design, analysis, opts = {}) {
  */
 function solveChainIK(design, chain, target, tipWorld, iters = 6) {
   if (!chain || !chain.length) return { err: 1e9, iters: 0 }
-  const byId = new Map(design.joints.map((j) => [j.id, j]))
+  const chains = chainsFor(design)
+  // Frames are pose-dependent: every angle write moves descendant pivots, so
+  // they are recomputed per joint — never cached across a solve.
   let err = 1e9
   for (let it = 0; it < iters; it++) {
     const tip = tipWorld(design)
@@ -250,23 +258,24 @@ function solveChainIK(design, chain, target, tipWorld, iters = 6) {
     for (let k = chain.length - 1; k >= 0; k--) {
       const j = chain[k]
       if (j.slide || j.axis === 'z') continue
-      const chains = chainsFor(design)
-      const sub = chain.slice(0, k + 1)
-      const pivot = j.pivot
+      const fr = jointFrameWorld(chains, j.id)
+      if (!fr) continue
+      const pivot = fr.pivotW
       const tipP = tipWorld(design)
       const toTip = [tipP[0] - pivot[0], tipP[1] - pivot[1], tipP[2] - pivot[2]]
       const toTgt = [target[0] - pivot[0], target[1] - pivot[1], target[2] - pivot[2]]
-      const ax = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+      const ax = fr.axisW
       // project both vectors onto the plane ⊥ axis, angle between them
       const proj = (v) => {
         const d = v[0] * ax[0] + v[1] * ax[1] + v[2] * ax[2]
         return [v[0] - d * ax[0], v[1] - d * ax[1], v[2] - d * ax[2]]
       }
       const a = proj(toTip), b = proj(toTgt)
-      const ang = Math.atan2(
-        a[0] * b[1] - a[1] * b[0] + a[1] * b[2] - a[2] * b[1] + a[2] * b[0] - a[0] * b[2],
-        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-      )
+      // signed angle about the (now arbitrary world) axis: atan2((a×b)·axis, a·b)
+      const cx = a[1] * b[2] - a[2] * b[1]
+      const cy = a[2] * b[0] - a[0] * b[2]
+      const cz = a[0] * b[1] - a[1] * b[0]
+      const ang = Math.atan2(cx * ax[0] + cy * ax[1] + cz * ax[2], a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
       // yaw joints read positive CCW about +axis; pitch 'y' is inverted like applyChain
       const sign = j.axis === 'y' ? -1 : 1
       let next = j.angle + (sign * ang * 180) / Math.PI

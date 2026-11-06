@@ -108,18 +108,94 @@ function armReachBound(tip) {
   return { c: [c[0], c[1], c[2]], r: Math.round(r) }
 }
 
+/** Joint axis as a unit vector — 'x'/'y'/'z' or an explicit [x,y,z]. */
+function axisVec3(axis) {
+  if (Array.isArray(axis)) {
+    const l = Math.hypot(axis[0], axis[1], axis[2]) || 1
+    return [axis[0] / l, axis[1] / l, axis[2] / l]
+  }
+  return axis === 'x' ? [1, 0, 0] : axis === 'y' ? [0, 1, 0] : [0, 0, 1]
+}
+
+/** Rodrigues rotation about a unit axis, row-major 3×3. */
+function rotMatAxis(axis, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang), C = 1 - c
+  const [x, y, z] = axis
+  return [
+    c + x * x * C, x * y * C - z * s, x * z * C + y * s,
+    y * x * C + z * s, c + y * y * C, y * z * C - x * s,
+    z * x * C - y * s, z * y * C + x * s, c + z * z * C,
+  ]
+}
+
+function mulMM(a, b) {
+  return [
+    a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+    a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+    a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+  ]
+}
+
+/**
+ * Forward kinematics for one chain (root→leaf). Joint pivots and axes are
+ * stored in MODEL coordinates at the rest pose, so a descendant's pivot and
+ * axis must be carried through every ancestor's rotation — rotating about the
+ * stale rest pivot is what let a posed arm's forearm hinge drift ~100 mm off
+ * its upper arm. child→parent for joint i is  p_parent = A_i·p_child + d_i
+ * with d_i = pivot_i − pivot_parent; composing root→leaf gives each link's
+ * world rotation R and origin t, and t IS the world position of pivot_i.
+ * Slide joints stay transparent here — they displace through slideDisp.
+ */
+function chainFrames(chain) {
+  const I = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  let Rp = I, tp = [0, 0, 0], prevPivot = [0, 0, 0]
+  const out = []
+  for (const j of chain) {
+    if (j.slide || !j.pivot) continue
+    const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
+    const a = axisVec3(j.axis)
+    // Pitch joints read positive = UP (same sign convention applyChain had).
+    const sign = j.axis === 'y' ? -1 : 1
+    const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
+    const pivotW = [
+      Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
+      Rp[3] * d[0] + Rp[4] * d[1] + Rp[5] * d[2] + tp[1],
+      Rp[6] * d[0] + Rp[7] * d[1] + Rp[8] * d[2] + tp[2],
+    ]
+    const axisW = [Rp[0] * a[0] + Rp[1] * a[1] + Rp[2] * a[2], Rp[3] * a[0] + Rp[4] * a[1] + Rp[5] * a[2], Rp[6] * a[0] + Rp[7] * a[1] + Rp[8] * a[2]]
+    const R = mulMM(Rp, A)
+    out.push({ joint: j, pivotW, axisW, R, t: pivotW })
+    Rp = R
+    tp = pivotW
+    prevPivot = j.pivot
+  }
+  return out
+}
+
+/** World pivot + axis of one joint under the current pose, or null. */
+function jointFrameWorld(chains, jid) {
+  const ch = chains.get(jid)
+  if (!ch) return null
+  const frames = chainFrames(ch)
+  return frames.length ? frames[frames.length - 1] : null
+}
+
 /** Apply a joint chain's rotations (root → leaf) to a rest-pose point. */
 function applyChain(chain, point) {
-  let p = point
-  if (!chain) return p
-  for (const j of chain) {
-    if (j.slide) continue
-    // Pitch joints read positive = UP: a slider that raises the arm should not
-    // drive it into the table. (Servo direction is flipped in the firmware.)
-    const sign = j.axis === 'y' ? -1 : 1
-    p = rotAxis(p, j.pivot, j.axis, (sign * j.angle * Math.PI) / 180)
-  }
-  return p
+  if (!chain || !chain.length) return point
+  const frames = chainFrames(chain)
+  const f = frames[frames.length - 1]
+  if (!f) return point
+  // `point` is model-frame coords rigid in the deepest link: link coords are
+  // model coords minus that link's pivot, then W_last carries it to the world.
+  const P = f.joint.pivot
+  const q = [point[0] - P[0], point[1] - P[1], point[2] - P[2]]
+  const R = f.R, t = f.t
+  return [
+    R[0] * q[0] + R[1] * q[1] + R[2] * q[2] + t[0],
+    R[3] * q[0] + R[4] * q[1] + R[5] * q[2] + t[1],
+    R[6] * q[0] + R[7] * q[1] + R[8] * q[2] + t[2],
+  ]
 }
 
 /** Linear-joint displacement for a node that rides a slide. */
@@ -474,32 +550,16 @@ function nodeAffine(node, chain, slide, shift) {
     node.pos[2] + slide[2],
   ]
   if (chain) {
-    for (const j of chain) {
-      if (j.slide) continue
-      const sign = j.axis === 'y' ? -1 : 1
-      const a = (sign * j.angle * Math.PI) / 180
-      if (!a) continue
-      const c = Math.cos(a), s = Math.sin(a)
-      const R = j.axis === 'x'
-        ? [1, 0, 0, 0, c, -s, 0, s, c]
-        : j.axis === 'y'
-          ? [c, 0, s, 0, 1, 0, -s, 0, c]
-          : [c, -s, 0, s, c, 0, 0, 0, 1]
-      // rotate about the joint pivot: p' = R(p − pivot) + pivot
-      const pv = j.pivot || [0, 0, 0]
-      const rpv = [
-        R[0] * pv[0] + R[1] * pv[1] + R[2] * pv[2],
-        R[3] * pv[0] + R[4] * pv[1] + R[5] * pv[2],
-        R[6] * pv[0] + R[7] * pv[1] + R[8] * pv[2],
-      ]
-      // p' = R(p − pivot) + pivot applied to the whole transform, so the
-      // translation is rotated too: t' = R·t − R·pivot + pivot
-      const rt = [
-        (R[0] * t[0] + R[1] * t[1] + R[2] * t[2]) - rpv[0] + pv[0],
-        (R[3] * t[0] + R[4] * t[1] + R[5] * t[2]) - rpv[1] + pv[1],
-        (R[6] * t[0] + R[7] * t[1] + R[8] * t[2]) - rpv[2] + pv[2],
-      ]
-      t[0] = rt[0]; t[1] = rt[1]; t[2] = rt[2]
+    const frames = chainFrames(chain)
+    const f = frames[frames.length - 1]
+    if (f) {
+      // world = R_link·(pos + slide − pivot_link) + t_link, orientation R_link·R_node
+      const P = f.joint.pivot
+      const q = [t[0] - P[0], t[1] - P[1], t[2] - P[2]]
+      const R = f.R
+      t[0] = R[0] * q[0] + R[1] * q[1] + R[2] * q[2] + f.t[0]
+      t[1] = R[3] * q[0] + R[4] * q[1] + R[5] * q[2] + f.t[1]
+      t[2] = R[6] * q[0] + R[7] * q[1] + R[8] * q[2] + f.t[2]
       m = mul(R, m)
     }
   }
