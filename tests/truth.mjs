@@ -713,7 +713,16 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
   assert(h.tempMax >= 80, `peak joint temp ${h.tempMax.toFixed(0)}°C — cutoff should engage`)
   assert(h.soc < soc0, `SoC did not drain: ${soc0} → ${h.soc}`)
   assert(h.vbus < 12, `bus voltage did not sag: ${h.vbus.toFixed(1)}V`)
-  return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V`
+  // session evidence the report exports: peaks ≥ live values, cutout counts ≥ live cuts
+  const ps = pwr.state
+  assert(ps.peak.every((p, i) => p >= ps.temps[i] - 1e-6), 'peak temps must dominate live temps')
+  assert(Math.abs(ps.socMin - ps.soc) < 1e-6, 'SoC only drains — socMin should equal final SoC')
+  assert(ps.peakA >= ps.busA - 1e-6 && ps.peakA > 0, 'peak bus amps must cover the last reading')
+  assert(ps.cutN.reduce((a, b) => a + b, 0) >= h.cuts, 'total cutouts must cover currently-cut joints')
+  pwr.reset()
+  assert(ps.soc === 100 && ps.socMin === 100 && ps.cutN.every((c) => c === 0) && ps.peak.every((p) => p === 25),
+    'battery swap must clear all session peaks')
+  return `peak ${h.tempMax.toFixed(0)}°C, ${h.cuts} cutout(s), SoC ${soc0.toFixed(0)}→${h.soc.toFixed(1)}%, bus ${h.vbus.toFixed(1)}V, evidence tracked`
 })
 
 // ── 27b. joint sim: servo speed follows a real torque-speed curve ───────────
