@@ -353,6 +353,16 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
+  moveChip: {
+    position: 'absolute', left: '12px', bottom: '96px', display: 'flex', alignItems: 'center',
+    gap: '8px', padding: '5px 8px 5px 10px', borderRadius: '6px',
+    border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.10)',
+    fontFamily: C.mono, fontSize: '9.5px', color: C.accent, letterSpacing: '0.04em', zIndex: 6,
+  },
+  moveChipBtn: {
+    padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'rgba(255,106,26,0.22)',
+    color: C.accent, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', cursor: 'pointer',
+  },
   viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
   // ── joint bar ───────────────────────────────────────────────────────────
