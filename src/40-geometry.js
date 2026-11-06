@@ -651,8 +651,8 @@ function buildMesh(design, explode) {
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
     const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
-    // `node` is the filament-colour key for the viewport; STL/SCAD ignore it.
-    for (const t of add) { t.node = node.id; tris.push(t) }
+    // `node`/`mat` key the viewport colours and the GLB materials; STL/SCAD ignore them.
+    for (const t of add) { t.node = node.id; t.mat = node.mat; tris.push(t) }
   }
   return tris
 }
@@ -1034,6 +1034,106 @@ function boardPack(design, analysis, base) {
     { name: `${base}.md`, buf: toSpecMarkdown(design, analysis) },
     { name: 'README.txt', buf: readme },
   ]
+}
+
+/**
+ * glTF binary (.glb) — the format every 3D viewer, game engine and AR tool
+ * opens natively. One named mesh node per machine part, positions only
+ * (viewers flat-shade, which matches the faceted parts anyway). Units are
+ * metres with +Y up per the glTF spec; source tris are mm Z-up, so each
+ * vertex maps (x, y, z) → (x·0.001, z·0.001, −y·0.001).
+ */
+function toGLB(tris) {
+  const groups = new Map()
+  for (const t of tris) {
+    const k = t.node || '_'
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k).push(t)
+  }
+  const keys = [...groups.keys()]
+  const f32 = []
+  // PBR-ish stand-ins from the same palette the viewport uses — enough for a
+  // viewer to show plastic shell vs steel vs brass vs rubber correctly.
+  const MAT_DEFS = {
+    shell: { c: [0.776, 0.808, 0.839], m: 0.05, r: 0.6 },
+    accent: { c: [1.0, 0.42, 0.1], m: 0.0, r: 0.5 },
+    metal: { c: [0.549, 0.588, 0.635], m: 0.7, r: 0.45 },
+    steel: { c: [0.376, 0.424, 0.478], m: 0.85, r: 0.4 },
+    brass: { c: [0.737, 0.596, 0.29], m: 0.8, r: 0.4 },
+    pcb: { c: [0.125, 0.376, 0.275], m: 0.0, r: 0.7 },
+    rubber: { c: [0.149, 0.165, 0.188], m: 0.0, r: 0.95 },
+    glass: { c: [0.439, 0.839, 0.91], m: 0.0, r: 0.15 },
+    servo: { c: [0.118, 0.133, 0.165], m: 0.3, r: 0.6 },
+    belt: { c: [0.133, 0.141, 0.157], m: 0.0, r: 0.9 },
+  }
+  const matIndex = new Map()
+  const materials = []
+  const matFor = (name) => {
+    const key = name || 'shell'
+    if (!matIndex.has(key)) {
+      const d = MAT_DEFS[key] || MAT_DEFS.shell
+      matIndex.set(key, materials.length)
+      materials.push({ name: key, pbrMetallicRoughness: { baseColorFactor: [...d.c, 1], metallicFactor: d.m, roughnessFactor: d.r } })
+    }
+    return matIndex.get(key)
+  }
+  const parts = keys.map((k) => {
+    const trisK = groups.get(k)
+    const mat = trisK.length && trisK[0].mat ? trisK[0].mat : 'shell'
+    const mn = [Infinity, Infinity, Infinity]
+    const mx = [-Infinity, -Infinity, -Infinity]
+    const start = f32.length / 3
+    for (const t of groups.get(k)) {
+      for (const p of t.pts) {
+        const v = [p[0] * 0.001, p[2] * 0.001, -p[1] * 0.001]
+        for (let i = 0; i < 3; i += 1) {
+          f32.push(v[i])
+          if (v[i] < mn[i]) mn[i] = v[i]
+          if (v[i] > mx[i]) mx[i] = v[i]
+        }
+      }
+    }
+    return { name: k, mat, start, count: f32.length / 3 - start, min: mn, max: mx }
+  }).filter((p) => p.count > 0)
+  const binLen = f32.length * 4
+  const bufferViews = []
+  const accessors = []
+  const meshes = []
+  const nodes = []
+  parts.forEach((p, i) => {
+    bufferViews.push({ buffer: 0, byteOffset: p.start * 12, byteLength: p.count * 12 })
+    accessors.push({ bufferView: i, componentType: 5126, count: p.count, type: 'VEC3', min: p.min, max: p.max })
+    meshes.push({ name: p.name, primitives: [{ attributes: { POSITION: i }, material: matFor(p.mat), mode: 4 }] })
+    nodes.push({ name: p.name, mesh: i })
+  })
+  const json = {
+    asset: { version: '2.0', generator: 'RigForge', extras: { sourceUnits: 'millimeter', upAxis: 'Y' } },
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, i) => i) }],
+    nodes, meshes, accessors, bufferViews,
+    materials,
+    buffers: [{ byteLength: binLen }],
+  }
+  let jsonStr = JSON.stringify(json)
+  while (jsonStr.length % 4) jsonStr += ' '
+  const jsonBytes = new TextEncoder().encode(jsonStr)
+  const binPad = (4 - (binLen % 4)) % 4
+  const chunkLen = binLen + binPad
+  const total = 12 + 8 + jsonBytes.length + 8 + chunkLen
+  const buf = new ArrayBuffer(total)
+  const dv = new DataView(buf)
+  dv.setUint32(0, 0x46546c67, true)  // 'glTF'
+  dv.setUint32(4, 2, true)
+  dv.setUint32(8, total, true)
+  dv.setUint32(12, jsonBytes.length, true)
+  dv.setUint32(16, 0x4e4f534a, true) // 'JSON'
+  new Uint8Array(buf, 20, jsonBytes.length).set(jsonBytes)
+  let o = 20 + jsonBytes.length
+  dv.setUint32(o, chunkLen, true); o += 4
+  dv.setUint32(o, 0x004e4942, true); o += 4 // 'BIN\0'
+  const out = new Float32Array(buf, o, f32.length)
+  for (let i = 0; i < f32.length; i += 1) out[i] = f32[i]
+  return buf
 }
 
 // Minimal ZIP (store-only): what a slicer folder wants, no compression library.

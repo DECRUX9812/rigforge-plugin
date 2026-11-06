@@ -197,6 +197,53 @@ check('3MF: zip structure, named objects match printed parts, mm units, Z=0', ()
   return `${objs} 3MF objects validated across presets`
 })
 
+// ── 9d. GLB: binary glTF container, named part meshes, Y-up metres ──────────
+check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () => {
+  let meshes = 0, verts = 0
+  eachPreset((p, { design }) => {
+    const buf = A.toGLB(A.buildMesh(design))
+    assert(buf && buf.byteLength > 100, `${p.id} produced no GLB`)
+    const dv = new DataView(buf)
+    assert(dv.getUint32(0, true) === 0x46546c67, `${p.id} bad GLB magic`)
+    assert(dv.getUint32(4, true) === 2, `${p.id} GLB version != 2`)
+    assert(dv.getUint32(8, true) === buf.byteLength, `${p.id} GLB length field wrong`)
+    const jLen = dv.getUint32(12, true)
+    assert(dv.getUint32(16, true) === 0x4e4f534a, `${p.id} first chunk not JSON`)
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jLen)))
+    assert(json.asset && json.asset.version === '2.0', `${p.id} asset version`)
+    const bOff = 20 + jLen
+    assert(dv.getUint32(bOff + 4, true) === 0x004e4942, `${p.id} second chunk not BIN`)
+    const tris = A.buildMesh(design)
+    if (!tris.length) return
+    // every accessor: POSITION, VEC3 float, count = 3× its part's tris, min/max present
+    let accVerts = 0
+    for (const a of json.accessors) {
+      assert(a.type === 'VEC3' && a.componentType === 5126, `${p.id} accessor not float VEC3`)
+      assert(Array.isArray(a.min) && Array.isArray(a.max), `${p.id} POSITION missing min/max`)
+      assert(a.count % 3 === 0, `${p.id} vertex count not a triangle multiple`)
+      accVerts += a.count
+    }
+    near(accVerts, tris.length * 3, 0, `${p.id} vertex count vs tris`)
+    assert(json.meshes.length === json.nodes.length && json.meshes.length > 0, `${p.id} mesh/node mismatch`)
+    // every primitive points at a real material with a base colour
+    const mats = json.materials || []
+    assert(mats.length > 0, `${p.id} GLB has no materials`)
+    for (const m of json.meshes) {
+      for (const pr of m.primitives) {
+        assert(pr.material != null && pr.material < mats.length, `${p.id} primitive material index bad`)
+        const f = mats[pr.material].pbrMetallicRoughness.baseColorFactor
+        assert(f.length === 4 && f.every((v) => v >= 0 && v <= 1), `${p.id} bad baseColorFactor`)
+      }
+    }
+    // Y-up metres: the tallest extent must be ≤ the machine's height in metres
+    const ymax = Math.max(...json.accessors.map((a) => a.max[1]))
+    assert(ymax > 0.005 && ymax < 5, `${p.id} implausible height ${ymax}m`)
+    meshes += json.meshes.length
+    verts += accVerts
+  })
+  return `${meshes} GLB part-meshes, ${verts} verts across presets`
+})
+
 // ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
 // The dims heuristic used to stand wedges and ring towers on edge — the
 // overhang check caught it, bestBedPerm fixed it. These presets must stay

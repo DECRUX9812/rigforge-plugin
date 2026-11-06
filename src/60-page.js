@@ -1295,6 +1295,7 @@ function Studio() {
   const exports = [
     ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
+    ['glTF mesh (.glb · viewers/engines)', () => download(`${fileBase}.glb`, toGLB(buildMesh(posedDesign)), 'model/gltf-binary')],
     // What leaves the app has to match what the machine actually needs: a
     // printed machine wants STLs, a board wants the fab/assembly three files.
     design.pcb
