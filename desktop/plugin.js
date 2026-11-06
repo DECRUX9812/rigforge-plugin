@@ -3124,7 +3124,13 @@ function analyze(design) {
     pins,
     power,
     harness,
-    reach: armReachBound(primaryArmTip(design)),
+    reach: (() => {
+      const whole = armTipChain(design)
+      const tip = whole || armChainFor(design, 'r')
+      const b = armReachBound(tip)
+      // multi-limb fallback: the bound describes ONE arm, say which
+      return b && !whole ? { ...b, side: 'r' } : b
+    })(),
     cost,
     costBuy,
     costShop: cost - costBuy,
@@ -4822,7 +4828,7 @@ function toSpecMarkdown(design, a, extras) {
   L.push(`| Print | ${fmt(a.print.hours, 0)} h |`)
   L.push(`| Controller | ${a.mcu.name} |`)
   if (m.joints) L.push(`| Actuated joints | ${m.joints} |`)
-  if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended) |`)
+  if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended${a.reach.side ? `, ${a.reach.side} arm` : ''}) |`)
   if (extras && extras.ws && extras.ws.stats && extras.ws.stats.reach) {
     const s = extras.ws.stats
     L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} also lift ${s.payloadG}g |`)
