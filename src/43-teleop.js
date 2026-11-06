@@ -271,6 +271,7 @@ function createGaitTeleop(design) {
     kind: 'gait',
     state,
     maxStepM, // tallest riser the legs can mount — the autotest predicts with it
+    legSpecs: specs, // read-only: per-leg chain/foot/rootPivot for workspace sampling
     bodyKg: (design.metrics && design.metrics.massKg) || 6, // carried-load tests scale off this
     /** cmd: {x: -1..1 walk speed}; actualAngles current pose. */
     step(cmd, dt, actualAngles) {
