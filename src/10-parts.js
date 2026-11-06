@@ -537,7 +537,7 @@ const PARTS = {
   },
   fuse: {
     name: 'Inline fuse holder + blade fuse', cat: 'mech', price: 3, mass: 10, volts: 0,
-    conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
+    dims: [32, 12, 18], conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
     note: 'A $3 part that stands between a shorted rail and a lithium fire.',
   },
   cap1000: {

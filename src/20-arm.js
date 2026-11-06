@@ -113,6 +113,10 @@ function buildArm(brief) {
   elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
   elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
   elec(d, 'buck5a', 'buck5a', [0, 64, 18])
+  // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
+  // beside it — the $3 part between a short and a lithium fire
+  elec(d, 'fuse', 'fuse', [-40, 64, 19])
+  elec(d, 'cap1000', 'cap1000', [40, 64, 20])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })

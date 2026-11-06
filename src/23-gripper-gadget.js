@@ -109,6 +109,11 @@ function buildGripper(brief) {
   elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
   elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
   elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
+  // power path on the front deck strip: ATO fuse, rail cap, power rocker —
+  // clear of keepers (y≤29.5) and the cheek (z≤46)
+  elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
+  elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
+  elec(d, 'rocker', 'rocker', [-deckL / 2 + 42, deckW / 2 - 8, deckZ + 9])
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────

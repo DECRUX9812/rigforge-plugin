@@ -73,6 +73,11 @@ function buildGantry(brief) {
     elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
     for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
       elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
+    // power path on the cage floor: ATO fuse, rail cap, power rocker —
+    // flat on the base, clear of the wall-mounted boards above
+    elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
+    elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
+    elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
