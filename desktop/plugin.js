@@ -1435,9 +1435,9 @@ function buildRover(brief) {
 
   // sensor mast + head
   rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
-  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 160], 3, 'accent', { print: true })
-  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 160], 'x', 'glass')
-  cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 166], 'x', 'glass')
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true })
+  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
+  cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
@@ -2705,8 +2705,10 @@ function buildIot(brief) {
   rbox(d, 'tray', [W, H, D - 8], [0, 0, (D - 8) / 2], 2.5, 'shell', { print: true })
   rbox(d, 'lid', [W, H, 4], [0, 0, D - 2], 2.5, 'shell', { print: true })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'shell', { print: true })
-    cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'z', 'rubber')
+    // four feet under the tray — a hole in each takes a screw or a
+    // stick-on bumper; modelled flush with the bottom face, not buried
+    box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'shell', { print: true })
+    cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'z', 'rubber')
   }
   // front window + bezel
   const frontZ = D / 2
@@ -2852,7 +2854,7 @@ function buildGantry(brief) {
     mesh(d, `corner-${sx}${sy}`, 'BRACKET', [58, 58, 26], [sx * (spanX / 2 + 26), sy * (spanY / 2 + 26), railW + 8], 'accent', { print: true })
   }
   for (const sy of [-1, 1]) {
-    rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
+    rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 32, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
   }
   rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
   rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true, ...onZ })

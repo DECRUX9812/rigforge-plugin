@@ -25,8 +25,10 @@ function buildIot(brief) {
   rbox(d, 'tray', [W, H, D - 8], [0, 0, (D - 8) / 2], 2.5, 'shell', { print: true })
   rbox(d, 'lid', [W, H, 4], [0, 0, D - 2], 2.5, 'shell', { print: true })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'shell', { print: true })
-    cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), 1.5], 'z', 'rubber')
+    // four feet under the tray — a hole in each takes a screw or a
+    // stick-on bumper; modelled flush with the bottom face, not buried
+    box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'shell', { print: true })
+    cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'z', 'rubber')
   }
   // front window + bezel
   const frontZ = D / 2
