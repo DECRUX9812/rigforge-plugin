@@ -257,7 +257,7 @@ function solveChainIK(design, chain, target, tipWorld, iters = 6) {
     if (err < 0.5) break
     for (let k = chain.length - 1; k >= 0; k--) {
       const j = chain[k]
-      if (j.slide || j.axis === 'z') continue
+      if (j.slide) continue // prismatic joints have no angular CCD update
       const fr = jointFrameWorld(chains, j.id)
       if (!fr) continue
       const pivot = fr.pivotW
@@ -499,5 +499,83 @@ function workspaceOverlay(map) {
     seg([p[0], p[1] - h, p[2]], [p[0], p[1] + h, p[2]], c)
     seg([p[0], p[1], p[2] - h], [p[0], p[1], p[2] + h], c)
   }
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
+/**
+ * Per-leg workspace map for gait machines: same IK-verified sampling as the
+ * arm map, but one cloud per leg centred on the hip. Answers "where can this
+ * foot actually plant" — the honest version of why a quad stalls at a stair
+ * nosing while a taller humanoid walks over it. Reach-only: legs don't get
+ * a lift-torque class. Returns null when the machine has no gait legs.
+ */
+function legWorkspaceMap(design, opts = {}) {
+  const gait = createGaitTeleop(design)
+  if (!gait || !gait.legSpecs || !gait.legSpecs.length) return null
+  const dirs = opts.dirs || 20
+  const radii = opts.radii || [0.55, 0.8, 1.0]
+  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
+  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
+  const chains = chainsFor(scratch)
+  const legs = []
+  const GA = Math.PI * (3 - Math.sqrt(5))
+  for (const spec of gait.legSpecs) {
+    const ikChain = spec.chain.map((j) => byId.get(j.id)).filter(Boolean)
+    if (ikChain.length < 3) continue
+    // leg reach = sum of link lengths along the chain at rest + foot offset
+    const frames = chainFrames(ikChain)
+    let r = 0, prev = null
+    for (const f of frames) {
+      if (prev) r += Math.hypot(f.pivotW[0] - prev[0], f.pivotW[1] - prev[1], f.pivotW[2] - prev[2])
+      prev = f.pivotW
+    }
+    const fw = benchNodeWorld(scratch, chains, spec.foot)
+    if (prev) r += Math.hypot(fw[0] - prev[0], fw[1] - prev[1], fw[2] - prev[2])
+    if (!(r > 20)) continue
+    const hip = spec.rootPivot
+    const tipW = (d) => benchNodeWorld(d, chains, spec.foot)
+    const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
+    const seeds = [design.joints.map((j) => j.angle || 0), frac(0.35), frac(0.7)]
+    const pts = []
+    let reach = 0, total = 0
+    for (let i = 0; i < dirs; i++) {
+      const y = 1 - (i / (dirs - 1)) * 2
+      const rr = Math.sqrt(Math.max(0, 1 - y * y))
+      const th = GA * i
+      const u = [Math.cos(th) * rr, y, Math.sin(th) * rr]
+      for (const f of radii) {
+        const target = [hip[0] + u[0] * r * f, hip[1] + u[1] * r * f, hip[2] + u[2] * r * f]
+        if (target[2] < 10) continue // foot can't plant inside the floor
+        total += 1
+        let bestErr = 1e9
+        for (const seed of seeds) {
+          seed.forEach((a, k) => { scratch.joints[k].angle = a })
+          const res = solveChainIK(scratch, ikChain, target, tipW, 12)
+          if (res.err < bestErr) bestErr = res.err
+        }
+        if (bestErr <= 12) { reach += 1; pts.push({ leg: spec.key, p: target }) }
+      }
+    }
+    legs.push({ key: spec.key, reach, total, pts })
+  }
+  if (!legs.length) return null
+  return { legs, stats: { legs: legs.length, reach: legs.reduce((s, l) => s + l.reach, 0), total: legs.reduce((s, l) => s + l.total, 0) } }
+}
+
+/** GL_LINES crosses per leg, colour-coded by leg index (FL,FR,RL,RR / L,R). */
+function legWorkspaceOverlay(map) {
+  if (!map || !map.legs) return null
+  const palette = [[0.35, 0.75, 1.0], [0.35, 0.95, 0.55], [1.0, 0.72, 0.18], [1.0, 0.45, 0.85]]
+  const arr = []
+  const seg = (a, b, c) => { arr.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2], c[0], c[1], c[2]) }
+  map.legs.forEach((leg, li) => {
+    const c = palette[li % palette.length], h = 8
+    for (const s of leg.pts) {
+      const p = s.p
+      seg([p[0] - h, p[1], p[2]], [p[0] + h, p[1], p[2]], c)
+      seg([p[0], p[1] - h, p[2]], [p[0], p[1] + h, p[2]], c)
+      seg([p[0], p[1], p[2] - h], [p[0], p[1], p[2] + h], c)
+    }
+  })
   return { data: new Float32Array(arr), verts: arr.length / 6 }
 }

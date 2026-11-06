@@ -646,8 +646,15 @@ function Studio() {
     [opts.reach, teleopKind, design, analysis],
   )
   const wsOv = useMemo(() => workspaceOverlay(wsMap), [wsMap])
+  // Legged machines get the same honest sampling per foot — where each leg
+  // can actually plant, colour-coded FL/FR/RL/RR (or L/R on the humanoid).
+  const legWsMap = useMemo(
+    () => (opts.reach && teleopKind === 'gait' ? legWorkspaceMap(design) : null),
+    [opts.reach, teleopKind, design],
+  )
+  const legWsOv = useMemo(() => legWorkspaceOverlay(legWsMap), [legWsMap])
   const rawOv = useMemo(() => {
-    const parts = [benchOv, cableOv, reachOv, wsOv].filter(Boolean)
+    const parts = [benchOv, cableOv, reachOv, wsOv, legWsOv].filter(Boolean)
     if (!parts.length) return null
     if (parts.length === 1) return parts[0]
     const total = parts.reduce((s, p) => s + p.data.length, 0)
@@ -655,7 +662,7 @@ function Studio() {
     let off = 0
     for (const p of parts) { d.set(p.data, off); off += p.data.length }
     return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
-  }, [benchOv, cableOv, reachOv, wsOv])
+  }, [benchOv, cableOv, reachOv, wsOv, legWsOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -1690,6 +1697,11 @@ function Studio() {
                 driveHud.loco ? h('span', { key: 'd', style: { color: C.faint } }, `${driveHud.loco.surface} μ${driveHud.loco.mu.toFixed(2)}`) : null,
                 driveHud.loco && driveHud.loco.slip ? h('span', { key: 'f', style: { color: C.amber } }, 'SLIP') : null,
                 driveHud.loco && driveHud.loco.stall ? h('span', { key: 'g2', style: { color: C.red } }, 'STALL') : null,
+                legWsMap ? h('span', {
+                  key: 'lws',
+                  style: { color: C.cyan },
+                  title: legWsMap.legs.map((l) => `${l.key.toUpperCase()} ${l.reach}/${l.total}`).join(' · '),
+                }, `◌ feet ${Math.round((legWsMap.stats.reach / Math.max(1, legWsMap.stats.total)) * 100)}%`) : null,
                 driveHud.loco && driveHud.loco.bumps ? h('span', { key: 'k', style: { color: C.amber } }, `bump×${driveHud.loco.bumps}`) : null,
                 h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.strides} strides`),
                 h('span', { key: 'c', style: { color: C.faint } }, 'W walk · A/D steer · release to stand'),

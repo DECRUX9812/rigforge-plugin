@@ -797,6 +797,38 @@ check('workspace map: IK-sampled cloud respects joint limits and lift torque', (
   return `workspace ${reach}/${total} reachable, ${lift} lift 100g; re-solve ${r.err.toFixed(1)}mm`
 })
 
+// ── 29e. leg workspace: per-foot IK-verified planting zones ─────────────────
+check('leg workspace: gait machines get per-leg reach clouds, yaw joints counted', () => {
+  const quadP = A.PRESETS.find((p) => p.brief.archetype === 'quadruped')
+  const { design: qd } = A.composeDesign({ ...quadP.brief })
+  const qm = A.legWorkspaceMap(qd, { dirs: 16, radii: [0.6, 0.9] })
+  assert(qm && qm.legs.length === 4, `quad should map 4 legs, got ${qm && qm.legs.length}`)
+  for (const leg of qm.legs) {
+    assert(leg.reach > 0 && leg.reach <= leg.total, `${leg.key}: reach ${leg.reach}/${leg.total} out of range`)
+    for (const s of leg.pts) assert(s.p[2] >= 10, `${leg.key} foot target under floor z=${s.p[2]}`)
+  }
+  // hip-yaw (z-axis) joints must participate — without them the cloud misses
+  // all sideways reach and under-reports by ~2×
+  const yawIds = new Set(qd.joints.filter((j) => j.axis === 'z').map((j) => j.id))
+  assert(yawIds.size >= 4, 'quad legs should have z-axis hip joints')
+  // humanoid gets its own map with 2 legs
+  const humP = A.PRESETS.find((p) => p.brief.archetype === 'humanoid')
+  const { design: hd } = A.composeDesign({ ...humP.brief })
+  const hm = A.legWorkspaceMap(hd, { dirs: 16, radii: [0.6, 0.9] })
+  assert(hm && hm.legs.length === 2, `humanoid should map 2 legs, got ${hm && hm.legs.length}`)
+  // arm-only and wheeled machines honestly get no leg map
+  const armP = A.PRESETS.find((p) => p.brief.archetype === 'arm')
+  const { design: ad } = A.composeDesign({ ...armP.brief })
+  assert(!A.legWorkspaceMap(ad), 'arm must not produce a leg workspace')
+  const roverP = A.PRESETS.find((p) => p.brief.archetype === 'rover')
+  const { design: rd } = A.composeDesign({ ...roverP.brief })
+  assert(!A.legWorkspaceMap(rd), 'rover must not produce a leg workspace')
+  const ov = A.legWorkspaceOverlay(qm)
+  const nPts = qm.legs.reduce((s, l) => s + l.pts.length, 0)
+  assert(ov && ov.verts === nPts * 6, `leg overlay verts ${ov && ov.verts} != ${nPts * 6}`)
+  return `quad legs reach ${qm.legs.map((l) => `${l.key} ${l.reach}/${l.total}`).join(' ')}; humanoid ${hm.legs.length} legs`
+})
+
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────
 const runAutotest = (env) => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
@@ -861,8 +893,12 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
   assert(at.results.length === 8, `expected 8 results (3 reach + home + 3 lift + limits), got ${at.results.length}`)
   const steel = at.results.find((r) => r.id === 'reach-steel')
   assert(steel && steel.pass, `arm should reach the steel block — ${steel && steel.detail}`)
-  const bin = at.results.find((r) => r.id === 'reach-bin')
-  assert(bin && !bin.pass, `parts bin should be honestly unreachable for this arm — ${bin && bin.detail}`)
+  // yaw joints joined the CCD solve — the arm reaches all three props now;
+  // the honest differentiation lives in the lift legs, not reach
+  for (const id of ['reach-bin', 'reach-print', 'reach-steel']) {
+    const r = at.results.find((x) => x.id === id)
+    assert(r && r.pass && /err 0mm/.test(r.detail), `${id} should reach with yaw IK — ${r && r.detail}`)
+  }
   // the lift legs must differentiate by mass: 80g bin passes on stall margin,
   // the 1.2kg steel block must fail — reaching is not lifting
   const liftBin = at.results.find((r) => r.id === 'lift-bin')
