@@ -1,7 +1,7 @@
 #!/bin/bash
 # RigForge launch cut — beats from the raw screen capture, <90s.
 set -e
-SRC=/home/decrux/.cache/devin/scratch/rigforge-demo/page@17fef21e2ec07fd49056ab6f7ef059d2.webm
+SRC=/home/decrux/.cache/devin/scratch/rigforge-demo/page@5890ec913a989214fce02a9960414359.webm
 OUT=/home/decrux/Code/rigforge-plugin/videos/rigforge-launch
 FONT=/home/decrux/.local/share/fonts/JetBrainsMonoNL-SemiBold.ttf
 FPS=25
@@ -15,16 +15,16 @@ seg() { # name in out speed
     -an -c:v libx264 -preset fast -crf 20 -y "$OUT/render/$name.mp4"
 }
 
-seg 01-build   5   16  1
-seg 02-bench   21  32  1
-seg 03a-auto   46  62  1.5
-seg 03b-cert   68  74  1
-seg 04-break   75  85  1
-seg 05-fix     88  99  1
-seg 06-gantry  102 112 1
-seg 07-custom  119 124 1
-seg 08-editor  126 130 1
-seg 09-export  131 135 1
+seg 01-build   8   19  1
+seg 02-bench   22  33  1
+seg 03a-auto   53  69  1.5
+seg 03b-cert   66  72  1
+seg 04-break   73  83  1
+seg 05-fix     86  97  1
+seg 06-gantry  106 116 1
+seg 07-custom  122 127 1
+seg 08-editor  129 133 1
+seg 09-export  136 141 1
 
 # outro card — the whole loop in one line
 ffmpeg -v error -f lavfi -i "color=c=0x0a0d10:s=${W}x${H}:d=3:r=$FPS" \
@@ -39,7 +39,7 @@ for f in $(ls $OUT/render/*.mp4 | sort); do echo "file '$f'" >> $OUT/render/list
 ffmpeg -v error -f concat -safe 0 -i $OUT/render/list.txt -c copy -y $OUT/renders/raw-cut.mp4
 
 # captions + intro title, timed to the cut
-# segment starts: 0,12,24,34.7,40.7,51.7,60.7,65.7,69.7,73.7(outro)
+# segment starts: 0,11,22,32.7,38.7,48.7,59.7,69.7,74.7,78.7,83.7(outro)
 ffmpeg -v error -i $OUT/renders/raw-cut.mp4 \
   -vf "\
 drawtext=fontfile=$FONT:text='RIGFORGE':fontcolor=0xFF8A3D:fontsize=58:x=(w-text_w)/2:y=180:enable='between(t,0.6,4.2)',\

@@ -45,6 +45,7 @@ const MAT = {
   // a board reads as a board when you can see copper and white ink on it
   copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
   silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
+  pcbblue: { alb: L(22, 46, 96), spec: 0.3, shine: 40, metal: 0.0, glow: 0.03, rough: 0.5 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
