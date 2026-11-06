@@ -345,7 +345,10 @@ function TabPower({ analysis }) {
             h('td', { style: { ...S.td, color: r.lead === 'extend' ? C.red : r.lead === 'check' ? C.amber : C.faint, fontSize: '9.5px' } },
               r.lead === 'daisy-chain' ? 'TTL bus' : r.lead === 'stock' ? 'stock ok' : r.lead === 'check' ? 'check lead' : r.lead === 'extend' ? 'needs ext.' : r.lead),
             h('td', { style: { ...S.tdNum, color: r.vdrop > 0.5 ? C.red : C.faint } }, `${r.vdrop}V`))))),
-        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } }, analysis.harness.note))
+        h('div', { style: { fontSize: '10.5px', color: C.faint, marginTop: '6px', lineHeight: 1.5 } },
+          analysis.harness.note +
+          `  Run total ~${(analysis.harness.rows.reduce((s, r) => s + (r.run || 0), 0) / 1000).toFixed(2)} m` +
+          (analysis.harness.rows.some((r) => r.lead === 'extend') ? ' — extension leads are in the BOM.' : '.')))
       : null,
     h('div', { style: { ...S.sectionLabel, marginTop: '14px' } }, 'energy'),
     h('div', { style: S.kv },

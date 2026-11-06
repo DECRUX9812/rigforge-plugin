@@ -689,9 +689,12 @@ check('cable overlay: one run per joint, pose-aware, verdict colours', () => {
 // ── 29c. reach overlay: workspace sphere contains every reachable tip ────────
 check('reach overlay: sphere bound contains the live tip, quad gets none', () => {
   const armP = A.PRESETS.find((p) => p.brief.archetype === 'arm')
-  const { design } = A.composeDesign({ ...armP.brief })
+  const { design, analysis } = A.composeDesign({ ...armP.brief })
   const ik = A.createArmTeleop(design)
   assert(ik && ik.reachSphere, 'arm IK should expose a reach sphere')
+  // the spec's reach row and the viewport sphere are the same number
+  assert(analysis.reach && analysis.reach.r === ik.reachSphere.r,
+    `analysis reach ${analysis.reach && analysis.reach.r} != overlay ${ik.reachSphere.r}`)
   const { c, r } = ik.reachSphere
   assert(r > 200 && r < 1200, `arm reach bound ${r}mm outside sane range`)
   // every reachable tip sits inside: rest pose and a swung pose must both fit
@@ -705,10 +708,11 @@ check('reach overlay: sphere bound contains the live tip, quad gets none', () =>
   assert(ov && ov.verts === 126, `sphere+tip should be 63 segs = 126 verts, got ${ov && ov.verts}`)
   const ovBare = A.reachOverlay(ik.reachSphere, null)
   assert(ovBare.verts === 120, `sphere alone should be 60 segs = 120 verts, got ${ovBare.verts}`)
-  // ambiguous machines honestly get no IK → no sphere
+  // ambiguous machines honestly get no IK → no sphere, no spec reach row
   const quadP = A.PRESETS.find((p) => p.brief.archetype === 'quadruped')
-  const { design: qd } = A.composeDesign({ ...quadP.brief })
+  const { design: qd, analysis: qa } = A.composeDesign({ ...quadP.brief })
   assert(!A.createArmTeleop(qd), 'quadruped must not get a single-arm IK')
+  assert(!qa.reach, 'quadruped spec must not claim a single-arm reach bound')
   return `reach sphere r=${r}mm contains all sampled tips; ${ov.verts} overlay verts`
 })
 
