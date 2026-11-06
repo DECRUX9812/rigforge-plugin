@@ -764,6 +764,39 @@ check('reach overlay: sphere bound contains the live tip, quad gets none', () =>
   return `reach sphere r=${r}mm contains all sampled tips; ${ov.verts} overlay verts`
 })
 
+// ── 29d. workspace map: sampled reachable/liftable cloud is honest ──────────
+check('workspace map: IK-sampled cloud respects joint limits and lift torque', () => {
+  const armP = A.PRESETS.find((p) => p.brief.archetype === 'arm')
+  const { design, analysis } = A.composeDesign({ ...armP.brief })
+  const ws = A.workspaceMap(design, analysis, { payloadG: 100, dirs: 30, radii: [0.5, 0.75] })
+  assert(ws && ws.stats.total > 0, 'arm workspace map should sample targets')
+  const { total, reach, lift } = ws.stats
+  assert(reach > 0 && reach <= total, `reach ${reach}/${total} out of range`)
+  assert(lift <= reach, `lift ${lift} exceeds reach ${reach}`)
+  assert(lift > 0, 'a 100g payload should lift somewhere in a 450mm arm workspace')
+  // heavier payload can only shrink the lift set, never grow it
+  const heavy = A.workspaceMap(design, analysis, { payloadG: 2000, dirs: 30, radii: [0.5, 0.75] })
+  assert(heavy.stats.lift <= lift, `2kg lift ${heavy.stats.lift} > 100g lift ${lift} — impossible`)
+  // no point may sit under the bench plane
+  for (const s of ws.pts) assert(s.p[2] >= 25, `sampled point below bench: z=${s.p[2]}`)
+  // every reported point was actually IK-verified: re-solve from two seeds
+  // (CCD has local minima — one seed failing proves nothing)
+  const s = ws.pts[Math.floor(ws.pts.length / 2)]
+  const tip = A.armTipChain(design)
+  const frac = (f) => design.joints.map((j) => j.min + (j.max - j.min) * f)
+  let r = { err: 1e9 }
+  for (const seed of [frac(0.5), frac(0.15)]) {
+    const scratch = { ...design, joints: design.joints.map((j, k) => ({ ...j, angle: seed[k] })) }
+    const ikChain = tip.tipChain.map((j) => scratch.joints.find((x) => x.id === j.id)).filter(Boolean)
+    const rr = A.solveChainIK(scratch, ikChain, s.p, (d) => A.benchNodeWorld(d, A.chainsFor(d), tip.tipNode), 20)
+    if (rr.err < r.err) r = rr
+  }
+  assert(r.err < 15, `workspace point re-solve err ${r.err.toFixed(1)}mm — cloud claims unreachable`)
+  const ov = A.workspaceOverlay(ws)
+  assert(ov && ov.verts === ws.pts.length * 6, `overlay verts ${ov && ov.verts} != ${ws.pts.length * 6}`)
+  return `workspace ${reach}/${total} reachable, ${lift} lift 100g; re-solve ${r.err.toFixed(1)}mm`
+})
+
 // ── 30/31. autopilot certification scores maneuvers honestly ───────────────
 const runAutotest = (env) => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })
