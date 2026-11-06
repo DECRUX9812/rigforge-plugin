@@ -409,6 +409,11 @@ function TabPrint({ design, analysis }) {
             })))
       })()
       : null,
+    analysis.print.wall && analysis.print.wall.parts.length
+      ? h('div', {
+        style: { fontFamily: C.mono, fontSize: 11, color: analysis.print.wall.thin.length ? C.red : C.faint, marginBottom: '12px' },
+      }, `wall check · thinnest ~${analysis.print.wall.thinnest}mm${analysis.print.wall.thin.length ? ` · ${analysis.print.wall.thin.length} part(s) under ${analysis.print.wall.minWall}mm` : ' · all walls printable'}`)
+      : null,
     h('table', { style: S.table },
       h('thead', {}, h('tr', {},
         h('th', { style: S.th }, 'PART'), h('th', { style: S.th }, 'SIZE'),
