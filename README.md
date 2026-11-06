@@ -88,7 +88,7 @@ Every claim above is backed by a gate that can fail. These run by hand
 
 | gate | what it asserts | current |
 |---|---|---|
-| `tests/truth.mjs` | 63 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **63/63** |
+| `tests/truth.mjs` | 65 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **65/65** |
 | `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
 | `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
 | `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
@@ -217,7 +217,7 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
-node tests/truth.mjs            # 63 behaviour-contract claims — the numbers must stay honest
+node tests/truth.mjs            # 65 behaviour-contract claims — the numbers must stay honest
 node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
