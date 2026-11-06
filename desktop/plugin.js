@@ -2869,6 +2869,10 @@ function buildIot(brief) {
   // side cut-outs: USB-C tab on the right wall, sensor grille on the left
   box(d, 'usb-notch', [3, 6, 5], [W / 2 - WT / 2, 0, 12], 'rubber')
   for (let i = -2; i <= 2; i += 1) box(d, `vent-${i}`, [2, 22, 1.6], [-W / 2 - 0.2, i * 4, 14], 'rubber')
+  // jog dial on the lid's front-right corner — a lathe'd thumb-wheel like
+  // the selector on a real node; axis-vertical so it beds flat and
+  // self-supports in the print pack
+  lathe(d, 'dial', [[0, -2], [5.5, -2], [6, -1], [6, 1], [4.5, 2], [0, 2]], [24, -6, 32], 'z', 'accent', { print: true })
 
   // the board sits on standoffs inside the cavity, the sensor by the
   // grille, the cell flat on the base
