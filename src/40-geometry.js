@@ -1401,6 +1401,21 @@ function toSTEP(design) {
     if (!byNode.has(k)) byNode.set(k, [])
     byNode.get(k).push(t)
   }
+  const partPDs = []
+  // Shared identity frame: first item of every part rep and the source side
+  // of each placement transform — same role OCC's compound origin plays.
+  let originPlc = 0
+  const identAxis = () => {
+    if (!originPlc) {
+      const o = P([0, 0, 0]); const z = DIR([0, 0, 1]); const x = DIR([1, 0, 0])
+      originPlc = push(`AXIS2_PLACEMENT_3D('',#${o},#${z},#${x})`)
+    }
+    return originPlc
+  }
+  const slotAxis = () => {
+    const o = P([0, 0, 0]); const z = DIR([0, 0, 1]); const x = DIR([1, 0, 0])
+    return push(`AXIS2_PLACEMENT_3D('',#${o},#${z},#${x})`)
+  }
   for (const [name, list] of byNode) {
     // inward-wound parts get flipped so the solid's volume reads positive
     const flip = signedVol(list) < 0
@@ -1418,7 +1433,7 @@ function toSTEP(design) {
     }
     const shell = push(`CLOSED_SHELL('',(${faceIds.map((f) => `#${f}`).join(',')}))`)
     const brep = push(`FACETED_BREP('${safe}',#${shell})`)
-    const rep = push(`FACETED_BREP_SHAPE_REPRESENTATION('${safe}',(#${brep}),#${ctx})`)
+    const rep = push(`FACETED_BREP_SHAPE_REPRESENTATION('${safe}',(#${identAxis()},#${brep}),#${ctx})`)
     // product chain — one PRODUCT per node, positioned in world mm
     const pctx = push(`PRODUCT_CONTEXT('',#2,'mechanical')`)
     const prod = push(`PRODUCT('${safe}','${safe}','',(#${pctx}))`)
@@ -1427,6 +1442,33 @@ function toSTEP(design) {
     const pd = push(`PRODUCT_DEFINITION('design','',#${pdf},#${pdc})`)
     const pds = push(`PRODUCT_DEFINITION_SHAPE('','',#${pd})`)
     push(`SHAPE_DEFINITION_REPRESENTATION(#${pds},#${rep})`)
+    partPDs.push({ name: safe, pd, rep })
+  }
+  // Assembly level (AP214, same shape OCC emits): a COMPOUND-style product
+  // owns a SHAPE_REPRESENTATION listing one placement slot per component;
+  // each part is linked back through CONTEXT_DEPENDENT_SHAPE_REPRESENTATION →
+  // REPRESENTATION_RELATIONSHIP(+TRANSFORMATION) → ITEM_DEFINED_TRANSFORMATION
+  // → NEXT_ASSEMBLY_USAGE_OCCURRENCE. Breps are authored in machine/world mm,
+  // so every placement is honestly the identity — no invented local frames.
+  if (partPDs.length > 1) {
+    const apc = push(`PRODUCT_CONTEXT('',#2,'mechanical')`)
+    const title = String(design.title || 'rigforge assembly').replace(/'/g, '')
+    const aprod = push(`PRODUCT('assembly','${title}','',(#${apc}))`)
+    const apdf = push(`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#${aprod},.NOT_KNOWN.)`)
+    const apdc = push(`PRODUCT_DEFINITION_CONTEXT('assembly definition',#2,'design')`)
+    const apd = push(`PRODUCT_DEFINITION('design','',#${apdf},#${apdc})`)
+    const apsds = push(`PRODUCT_DEFINITION_SHAPE('','',#${apd})`)
+    const slots = [identAxis(), ...partPDs.map(() => slotAxis())]
+    const aprep = push(`SHAPE_REPRESENTATION('',(${slots.map((s) => `#${s}`).join(',')}),#${ctx})`)
+    push(`SHAPE_DEFINITION_REPRESENTATION(#${apsds},#${aprep})`)
+    partPDs.forEach(({ name, pd, rep }, i) => {
+      const slot = slots[i + 1]
+      const idt = push(`ITEM_DEFINED_TRANSFORMATION('','',#${identAxis()},#${slot})`)
+      const rel = push(`( REPRESENTATION_RELATIONSHIP('','',#${rep},#${aprep}) REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#${idt}) SHAPE_REPRESENTATION_RELATIONSHIP() )`)
+      const nauo = push(`NEXT_ASSEMBLY_USAGE_OCCURRENCE('${i + 1}','${name}','',#${apd},#${pd},$)`)
+      const ppds = push(`PRODUCT_DEFINITION_SHAPE('Placement','Placement of an item',#${nauo})`)
+      push(`CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#${rel},#${ppds})`)
+    })
   }
   lines.push("ENDSEC;", "END-ISO-10303-21;")
   return lines.join('\n') + '\n'
