@@ -10,7 +10,7 @@
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|cone|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -20,7 +20,8 @@
 // Per-kind extras: box/rbox/wedge/rack take size:[x,y,z] (rbox also r=chamfer);
 // cyl takes r,h,axis,r2(taper),segs; ring takes ro,ri (RADII),h,axis;
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
-// bend takes R,r,arc(deg),rot aims it; mesh takes part,size.
+// bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
+// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre).
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
@@ -31,6 +32,7 @@ function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
     cone: 'cone', pyramid: 'cone',
+    lathe: 'lathe', revolve: 'lathe', spin: 'lathe',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -69,6 +71,16 @@ function specEmit(d, raw, idx, warn) {
       const e = { ...extra }
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       cone(d, id, r, h, at, axis, mat, e); break
+    }
+    case 'lathe': {
+      const prof = raw.profile || raw.points || raw.outline
+      const ok = Array.isArray(prof) && prof.length >= 3
+        && prof.every((p) => Array.isArray(p) && p.length >= 2
+          && Number.isFinite(+p[0]) && Number.isFinite(+p[1]) && +p[0] >= 0)
+      if (!ok) return warn(`node ${id}: lathe needs profile:[[r,z],...] with r>=0 and >=3 points`)
+      const e = { ...extra }
+      if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
+      lathe(d, id, prof.map((p) => [+p[0], +p[1]]), at, axis, mat, e); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
