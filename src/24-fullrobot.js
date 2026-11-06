@@ -57,6 +57,8 @@ function buildFullRobot(brief) {
   elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
   elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
   elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
+  // XT60 on the pack lid, clear of the avionics row — the lead's first stop
+  elec(d, 'xt60', 'xt60', [px + 28, -20, deckZ + 40])
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [

@@ -78,6 +78,8 @@ function buildGantry(brief) {
     elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
     elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
     elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
+    // XT60 at the cage mouth — pack lead lands on the fuse first
+    elec(d, 'xt60', 'xt60', [cb[0], cb[1] + 12, cb[2] - 34])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,

@@ -113,7 +113,8 @@ function buildGripper(brief) {
   // clear of keepers (y≤29.5) and the cheek (z≤46)
   elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
   elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
-  elec(d, 'rocker', 'rocker', [-deckL / 2 + 42, deckW / 2 - 8, deckZ + 9])
+  // rocker stays BOM-only: the jaw sweeps every deck/plate face at OPEN —
+  // there is no honest place for a panel switch on this machine
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────

@@ -70,8 +70,10 @@ function buildRover(brief) {
   // power path on the open deck: ATO fuse at the pack feed, rail cap at the
   // drivers, rocker on the deck edge — all catalog dims
   elec(d, 'fuse', 'fuse', [-wheelbase * 0.178, 0, deckTop + 9])
-  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, 0, deckTop + 8])
+  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, track * 0.05, deckTop + 8])
   elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
+  // XT60 at the pack feed, between the fuse and the drivers
+  elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
   cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
