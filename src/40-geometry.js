@@ -406,6 +406,48 @@ function coneTris(r, h, axis, segs) {
   return tris
 }
 
+/** Lathe: revolve a closed (radius,height) profile polygon around the axis.
+ *  profile = [[r,z],…] with r≥0 and z measured from the node centre; the
+ *  loop closes automatically. Touch r=0 to close the solid on the axis,
+ *  stay off it for rings/flanges. Axis maps are proper rotations (det=+1)
+ *  and winding is enforced by signed volume — non-convex profiles (stepped
+ *  shafts, vases) can't rely on the convex-kind orient guard. */
+function latheTris(profile, segs, axis) {
+  const n = profile.length
+  const map = (r, z, i) => {
+    const a = (i / segs) * Math.PI * 2
+    const u = Math.cos(a) * r; const v = Math.sin(a) * r
+    if (axis === 'z') return [u, v, z]
+    if (axis === 'y') return [u, z, -v]
+    return [z, u, v]
+  }
+  const tris = []
+  const area2 = (a, b, c) => {
+    const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]
+    const vx = c[0] - a[0]; const vy = c[1] - a[1]; const vz = c[2] - a[2]
+    const cx = uy * vz - uz * vy; const cy = uz * vx - ux * vz; const cz = ux * vy - uy * vx
+    return cx * cx + cy * cy + cz * cz
+  }
+  for (let e = 0; e < n; e += 1) {
+    const [r1, z1] = profile[e]; const [r2, z2] = profile[(e + 1) % n]
+    if (r1 === r2 && z1 === z2) continue
+    for (let i = 0; i < segs; i += 1) {
+      const j = i + 1
+      const p1a = map(r1, z1, i); const p1b = map(r1, z1, j)
+      const p2a = map(r2, z2, j); const p2b = map(r2, z2, i)
+      for (const t of [[p1a, p1b, p2a], [p1a, p2a, p2b]]) {
+        if (area2(...t) > 1e-9) tris.push(t)
+      }
+    }
+  }
+  let vol = 0
+  for (const [a, b, c] of tris) {
+    vol += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }
+  if (vol < 0) for (const t of tris) t.reverse()
+  return tris
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -683,6 +725,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'rack': local = rackTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.teeth); break
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
     case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
+    case 'lathe': local = latheTris(node.profile || [], node.segs || CYL_SEGS, node.axis || 'z'); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -1767,7 +1810,9 @@ function toOpenSCAD(design) {
     names.push(name)
     const pos = `translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}])`
     const euler = n.rot ? `rotate([${n.rot.map((r) => (r * 180 / Math.PI).toFixed(0)).join(', ')}]) ` : ''
-    const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([90, 0, 0]) ' : ''
+    // rotate([-90,0,0]) sends +z to +y — the same convention every mesh
+    // y-map uses; [90,0,0] mirrored asymmetric parts (cone apex, bend arc)
+    const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([-90, 0, 0]) ' : ''
     const wrap = `${pos} ${euler}${axRot}`
     let prim
     if (n.kind === 'box' || n.kind === 'rbox') {
@@ -1788,6 +1833,9 @@ function toOpenSCAD(design) {
       prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
     } else if (n.kind === 'cone') {
       prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r1=${n.radius.toFixed(1)}, r2=0, center=true); /* cone */`
+    } else if (n.kind === 'lathe') {
+      const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
+      prim = `${wrap}rotate_extrude() polygon([${pts}]); /* lathe */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -1995,7 +2043,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': case 'cone': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': case 'lathe': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -2013,10 +2061,10 @@ function boundsOf(nodes) {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
-      const r = n.kind === 'cyl' || n.kind === 'cone' ? Math.max(n.radius, n.radius2 || 0)
+      const r = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' ? Math.max(n.radius, n.radius2 || 0)
         : n.kind === 'ring' ? n.outer
           : boundRadius(n)
-      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
+      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
       half = n.axis === 'x' ? [along, r, r] : n.axis === 'y' ? [r, along, r] : [r, r, along]
       if (n.kind === 'torus' || n.kind === 'bend' || n.kind === 'sphere') half = [r, r, r]
     }

@@ -665,8 +665,8 @@ const money = (n) => '$' + (n >= 100 ? Math.round(n) : Number(n).toFixed(2))
 //
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
-//              cone (pointed taper), ring (hollow cyl), torus, wedge
-//              (triangular prism), sphere,
+//              cone (pointed taper), lathe (revolved [r,z] profile),
+//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -930,6 +930,25 @@ function cone(d, id, radius, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'cone', radius, height, pos, axis, mat, ...extra })
 }
 
+/** Lathe — revolve a closed [radius,z] profile (mm, z measured from centre,
+ *  r≥0) into a solid of revolution: knobs, handles, bell mouths, stepped
+ *  shafts, rings. ≥3 points, loop closes automatically; touch r=0 to close
+ *  on the axis, stay off it for annular parts. Frustum: [[0,-h/2],[r1,-h/2],[r2,h/2],[0,h/2]]. */
+function lathe(d, id, profile, pos, axis, mat, extra) {
+  const zs = profile.map((p) => p[1])
+  const zMid = (Math.min(...zs) + Math.max(...zs)) / 2
+  const span = Math.max(...zs) - Math.min(...zs)
+  const rad = Math.max(...profile.map((p) => p[0]))
+  const v = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[axis] || [0, 0, 1]
+  const c = [...pos]
+  c[0] += v[0] * zMid; c[1] += v[1] * zMid; c[2] += v[2] * zMid
+  d.nodes.push({
+    id, kind: 'lathe',
+    profile: profile.map(([r, z]) => [r, z - zMid]),
+    radius: rad, height: span, pos: c, axis, mat, ...extra,
+  })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -991,6 +1010,16 @@ function nodeVolume(node) {
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
     case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
+    case 'lathe': {
+      // exact solid-of-revolution volume: signed frustum sum around the loop
+      const p = node.profile || []
+      let v = 0
+      for (let i = 0; i < p.length; i += 1) {
+        const [r1, z1] = p[i]; const [r2, z2] = p[(i + 1) % p.length]
+        v += (Math.PI * (r1 * r1 + r1 * r2 + r2 * r2) * (z2 - z1)) / 3
+      }
+      return Math.abs(v)
+    }
     case 'ring': return Math.PI * (node.outer ** 2 - node.inner ** 2) * node.height
     case 'torus': return 2 * Math.PI * Math.PI * node.R * node.r ** 2
     case 'sphere': return (4 / 3) * Math.PI * node.radius ** 3
@@ -1019,7 +1048,7 @@ function shellVolume(n) {
   // Rings are already the shell — wall thickness IS the part.
   if (n.kind === 'ring' || n.kind === 'bend' || n.kind === 'torus') return nodeVolume(n)
   const solid = nodeVolume(n)
-  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'sphere' || n.kind === 'gear') {
+  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' || n.kind === 'sphere' || n.kind === 'gear') {
     const r = n.radius || n.outer || ((n.module * n.teeth) / 4)
     if (r <= WALL * 1.6) return solid
     const h = n.height || n.width || r * 2
@@ -2458,7 +2487,7 @@ void loop() {
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|cone|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -2468,7 +2497,8 @@ void loop() {
 // Per-kind extras: box/rbox/wedge/rack take size:[x,y,z] (rbox also r=chamfer);
 // cyl takes r,h,axis,r2(taper),segs; ring takes ro,ri (RADII),h,axis;
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
-// bend takes R,r,arc(deg),rot aims it; mesh takes part,size.
+// bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
+// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre).
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
@@ -2479,6 +2509,7 @@ function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
     cone: 'cone', pyramid: 'cone',
+    lathe: 'lathe', revolve: 'lathe', spin: 'lathe',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -2517,6 +2548,16 @@ function specEmit(d, raw, idx, warn) {
       const e = { ...extra }
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       cone(d, id, r, h, at, axis, mat, e); break
+    }
+    case 'lathe': {
+      const prof = raw.profile || raw.points || raw.outline
+      const ok = Array.isArray(prof) && prof.length >= 3
+        && prof.every((p) => Array.isArray(p) && p.length >= 2
+          && Number.isFinite(+p[0]) && Number.isFinite(+p[1]) && +p[0] >= 0)
+      if (!ok) return warn(`node ${id}: lathe needs profile:[[r,z],...] with r>=0 and >=3 points`)
+      const e = { ...extra }
+      if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
+      lathe(d, id, prof.map((p) => [+p[0], +p[1]]), at, axis, mat, e); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
@@ -4444,6 +4485,48 @@ function coneTris(r, h, axis, segs) {
   return tris
 }
 
+/** Lathe: revolve a closed (radius,height) profile polygon around the axis.
+ *  profile = [[r,z],…] with r≥0 and z measured from the node centre; the
+ *  loop closes automatically. Touch r=0 to close the solid on the axis,
+ *  stay off it for rings/flanges. Axis maps are proper rotations (det=+1)
+ *  and winding is enforced by signed volume — non-convex profiles (stepped
+ *  shafts, vases) can't rely on the convex-kind orient guard. */
+function latheTris(profile, segs, axis) {
+  const n = profile.length
+  const map = (r, z, i) => {
+    const a = (i / segs) * Math.PI * 2
+    const u = Math.cos(a) * r; const v = Math.sin(a) * r
+    if (axis === 'z') return [u, v, z]
+    if (axis === 'y') return [u, z, -v]
+    return [z, u, v]
+  }
+  const tris = []
+  const area2 = (a, b, c) => {
+    const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]
+    const vx = c[0] - a[0]; const vy = c[1] - a[1]; const vz = c[2] - a[2]
+    const cx = uy * vz - uz * vy; const cy = uz * vx - ux * vz; const cz = ux * vy - uy * vx
+    return cx * cx + cy * cy + cz * cz
+  }
+  for (let e = 0; e < n; e += 1) {
+    const [r1, z1] = profile[e]; const [r2, z2] = profile[(e + 1) % n]
+    if (r1 === r2 && z1 === z2) continue
+    for (let i = 0; i < segs; i += 1) {
+      const j = i + 1
+      const p1a = map(r1, z1, i); const p1b = map(r1, z1, j)
+      const p2a = map(r2, z2, j); const p2b = map(r2, z2, i)
+      for (const t of [[p1a, p1b, p2a], [p1a, p2a, p2b]]) {
+        if (area2(...t) > 1e-9) tris.push(t)
+      }
+    }
+  }
+  let vol = 0
+  for (const [a, b, c] of tris) {
+    vol += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }
+  if (vol < 0) for (const t of tris) t.reverse()
+  return tris
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -4721,6 +4804,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'rack': local = rackTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.teeth); break
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
     case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
+    case 'lathe': local = latheTris(node.profile || [], node.segs || CYL_SEGS, node.axis || 'z'); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -5805,7 +5889,9 @@ function toOpenSCAD(design) {
     names.push(name)
     const pos = `translate([${n.pos.map((v) => v.toFixed(1)).join(', ')}])`
     const euler = n.rot ? `rotate([${n.rot.map((r) => (r * 180 / Math.PI).toFixed(0)).join(', ')}]) ` : ''
-    const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([90, 0, 0]) ' : ''
+    // rotate([-90,0,0]) sends +z to +y — the same convention every mesh
+    // y-map uses; [90,0,0] mirrored asymmetric parts (cone apex, bend arc)
+    const axRot = n.axis === 'x' ? 'rotate([0, 90, 0]) ' : n.axis === 'y' ? 'rotate([-90, 0, 0]) ' : ''
     const wrap = `${pos} ${euler}${axRot}`
     let prim
     if (n.kind === 'box' || n.kind === 'rbox') {
@@ -5826,6 +5912,9 @@ function toOpenSCAD(design) {
       prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
     } else if (n.kind === 'cone') {
       prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r1=${n.radius.toFixed(1)}, r2=0, center=true); /* cone */`
+    } else if (n.kind === 'lathe') {
+      const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
+      prim = `${wrap}rotate_extrude() polygon([${pts}]); /* lathe */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -6033,7 +6122,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': case 'cone': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': case 'lathe': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -6051,10 +6140,10 @@ function boundsOf(nodes) {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
-      const r = n.kind === 'cyl' || n.kind === 'cone' ? Math.max(n.radius, n.radius2 || 0)
+      const r = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' ? Math.max(n.radius, n.radius2 || 0)
         : n.kind === 'ring' ? n.outer
           : boundRadius(n)
-      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
+      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
       half = n.axis === 'x' ? [along, r, r] : n.axis === 'y' ? [r, along, r] : [r, r, along]
       if (n.kind === 'torus' || n.kind === 'bend' || n.kind === 'sphere') half = [r, r, r]
     }
@@ -6130,6 +6219,10 @@ function benchCoM(design, mat) {
 function benchNodeDrop(node) {
   if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
+  }
+  if (node.kind === 'lathe') {
+    // centred profile: bottom is span/2 on-axis, maxR off-axis
+    return node.axis === 'z' ? (node.height || 0) / 2 : Math.max(node.radius || 0, (node.height || 0) / 2)
   }
   if (node.kind === 'box' || node.kind === 'rbox' || node.kind === 'wedge') return (node.size?.[2] || 10) / 2
   if (node.kind === 'torus' || node.kind === 'bend') return (node.R || 20) - (node.r || 5)
@@ -13338,7 +13431,7 @@ function SpecDialog({ open, brief, onApply, onClose }) {
       err
         ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
         : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
-          'Kinds: box rbox cyl cone ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
+          'Kinds: box rbox cyl cone lathe ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
       h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
       h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'BUILD IT'))))

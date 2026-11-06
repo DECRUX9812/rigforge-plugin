@@ -54,6 +54,10 @@ function benchNodeDrop(node) {
   if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
   }
+  if (node.kind === 'lathe') {
+    // centred profile: bottom is span/2 on-axis, maxR off-axis
+    return node.axis === 'z' ? (node.height || 0) / 2 : Math.max(node.radius || 0, (node.height || 0) / 2)
+  }
   if (node.kind === 'box' || node.kind === 'rbox' || node.kind === 'wedge') return (node.size?.[2] || 10) / 2
   if (node.kind === 'torus' || node.kind === 'bend') return (node.R || 20) - (node.r || 5)
   return Math.min(node.size?.[0] || node.radius || node.outer || 20, 30) / 2

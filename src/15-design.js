@@ -4,8 +4,8 @@
 //
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
-//              cone (pointed taper), ring (hollow cyl), torus, wedge
-//              (triangular prism), sphere,
+//              cone (pointed taper), lathe (revolved [r,z] profile),
+//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -269,6 +269,25 @@ function cone(d, id, radius, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'cone', radius, height, pos, axis, mat, ...extra })
 }
 
+/** Lathe — revolve a closed [radius,z] profile (mm, z measured from centre,
+ *  r≥0) into a solid of revolution: knobs, handles, bell mouths, stepped
+ *  shafts, rings. ≥3 points, loop closes automatically; touch r=0 to close
+ *  on the axis, stay off it for annular parts. Frustum: [[0,-h/2],[r1,-h/2],[r2,h/2],[0,h/2]]. */
+function lathe(d, id, profile, pos, axis, mat, extra) {
+  const zs = profile.map((p) => p[1])
+  const zMid = (Math.min(...zs) + Math.max(...zs)) / 2
+  const span = Math.max(...zs) - Math.min(...zs)
+  const rad = Math.max(...profile.map((p) => p[0]))
+  const v = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[axis] || [0, 0, 1]
+  const c = [...pos]
+  c[0] += v[0] * zMid; c[1] += v[1] * zMid; c[2] += v[2] * zMid
+  d.nodes.push({
+    id, kind: 'lathe',
+    profile: profile.map(([r, z]) => [r, z - zMid]),
+    radius: rad, height: span, pos: c, axis, mat, ...extra,
+  })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -330,6 +349,16 @@ function nodeVolume(node) {
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
     case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
+    case 'lathe': {
+      // exact solid-of-revolution volume: signed frustum sum around the loop
+      const p = node.profile || []
+      let v = 0
+      for (let i = 0; i < p.length; i += 1) {
+        const [r1, z1] = p[i]; const [r2, z2] = p[(i + 1) % p.length]
+        v += (Math.PI * (r1 * r1 + r1 * r2 + r2 * r2) * (z2 - z1)) / 3
+      }
+      return Math.abs(v)
+    }
     case 'ring': return Math.PI * (node.outer ** 2 - node.inner ** 2) * node.height
     case 'torus': return 2 * Math.PI * Math.PI * node.R * node.r ** 2
     case 'sphere': return (4 / 3) * Math.PI * node.radius ** 3
@@ -358,7 +387,7 @@ function shellVolume(n) {
   // Rings are already the shell — wall thickness IS the part.
   if (n.kind === 'ring' || n.kind === 'bend' || n.kind === 'torus') return nodeVolume(n)
   const solid = nodeVolume(n)
-  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'sphere' || n.kind === 'gear') {
+  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' || n.kind === 'sphere' || n.kind === 'gear') {
     const r = n.radius || n.outer || ((n.module * n.teeth) / 4)
     if (r <= WALL * 1.6) return solid
     const h = n.height || n.width || r * 2
