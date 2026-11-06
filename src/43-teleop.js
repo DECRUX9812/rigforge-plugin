@@ -566,6 +566,28 @@ function fixSuggestions(s) {
     push('warn', `Fix payload: ${s.prop.name} is ${s.prop.massG}g vs the arm's ${Math.round((s.prop.ratingG || 0) / 100) / 10}kg rating — pick lighter or upsize`,
       { payloadKg: Math.max(0.1, Math.round(pay * 0.7 * 10) / 10) })
   }
+  // arm reach: a prop fully outside the bound sphere can't be touched at ANY
+  // joint angle — that's geometry, not tuning, so the fix is a longer arm.
+  // Point-to-box distance keeps the check honest: near-misses stay the IK
+  // solver's problem, only provable outsiders get the prescription.
+  if (s.reach && s.reach.c && s.reach.r) {
+    let worst = null
+    for (const p of DESK_PROPS) {
+      const dx = Math.max(Math.abs(p.pos[0] - s.reach.c[0]) - p.size[0] / 2, 0)
+      const dy = Math.max(Math.abs(p.pos[1] - s.reach.c[1]) - p.size[1] / 2, 0)
+      const dz = Math.max(Math.abs(p.pos[2] - s.reach.c[2]) - p.size[2] / 2, 0)
+      const gap = Math.hypot(dx, dy, dz) - s.reach.r
+      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap }
+    }
+    if (worst) {
+      const arch = brief.archetype || ''
+      const DEF = { arm: 450, robot: 450, humanoid: 620 }
+      const cur = brief.reachMm || DEF[arch] || 450
+      const next = Math.min(1200, Math.ceil((cur + worst.gap * 1.2) / 20) * 20)
+      push('warn', `Fix reach: ${worst.prop.name} sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound — lengthen the arm`,
+        next > cur ? { reachMm: next } : null)
+    }
+  }
   if (s.sense && s.sense.kind === 'sense' && s.sense.alerts && s.sense.alerts.length) {
     push('warn', `Fix sense: ${s.sense.alerts[0]} — check the installation, the threshold, or the case seal`)
   }

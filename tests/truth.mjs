@@ -1128,6 +1128,20 @@ check('autotest sense: stimulus sweep fires a real threshold alert', () => {
   return at.results[0].detail
 })
 
+check('fix suggestions: unreachable desk props prescribe a longer arm', () => {
+  const mk = (arch) => {
+    const { design, analysis } = presetDesign(arch)
+    return A.fixSuggestions({ bench: A.benchReport(design, analysis, { slopeDeg: 15 }), reach: analysis.reach, brief: design.brief || {} })
+  }
+  const hum = mk('humanoid').find((f) => /Fix reach/.test(f.msg))
+  assert(hum, 'humanoid arms cannot reach the desk — a reach fix should fire')
+  assert(hum.apply && hum.apply.reachMm > 620, `reach fix should propose a bigger arm, got ${JSON.stringify(hum.apply)}`)
+  const arm = mk('arm').find((f) => /Fix reach/.test(f.msg))
+  assert(!arm, 'the 450mm arm reaches every desk prop — no reach fix should fire')
+  assert(!mk('quadruped').some((f) => /Fix reach/.test(f.msg)), 'legged machines have no arm reach to fix')
+  return `humanoid: ${hum.msg.slice(0, 70)} → reachMm ${hum.apply.reachMm}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
