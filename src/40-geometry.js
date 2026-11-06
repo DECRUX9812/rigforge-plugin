@@ -293,65 +293,37 @@ function boxTris(sx, sy, sz) {
  */
 function rboxTris(sx, sy, sz, r) {
   const rr = Math.min(r, Math.min(sx, sy, sz) * 0.45)
-  const P = (sxn, syn, szn, ex, ey, ez) => [
-    sxn * (sx - ex * rr), syn * (sy - ey * rr), szn * (sz - ez * rr),
-  ]
-  const C = []
-  for (const szn of [-1, 1]) for (const syn of [-1, 1]) for (const sxn of [-1, 1]) {
-    C.push({ s: [sxn, syn, szn], x: P(sxn, syn, szn, 1, 0, 0), y: P(sxn, syn, szn, 0, 1, 0), z: P(sxn, syn, szn, 0, 0, 1) })
-  }
-  const at = (sxn, syn, szn) => C.find((c) => c.s[0] === sxn && c.s[1] === syn && c.s[2] === szn)
+  const ix = sx - rr, iy = sy - rr, iz = sz - rr
   const tris = []
-  const fan = (verts) => { for (let i = 1; i < verts.length - 1; i += 1) tris.push([verts[0], verts[i], verts[i + 1]]) }
-
-  // face octagons
-  const faces = [
-    { axis: 'z', sign: 1, pts: (c) => [c.x, c.y], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-    { axis: 'z', sign: -1, pts: (c) => [c.x, c.y], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-    { axis: 'y', sign: 1, pts: (c) => [c.x, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-    { axis: 'y', sign: -1, pts: (c) => [c.x, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-    { axis: 'x', sign: 1, pts: (c) => [c.y, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-    { axis: 'x', sign: -1, pts: (c) => [c.y, c.z], order: [[-1, -1], [1, -1], [1, 1], [-1, 1]] },
-  ]
-  for (const f of faces) {
-    const verts = []
-    for (const [u, v] of f.order) {
-      const s = f.axis === 'z' ? [u, v, f.sign] : f.axis === 'y' ? [u, f.sign, v] : [f.sign, u, v]
-      const c = at(s[0], s[1], s[2])
-      const [p0, p1] = f.pts(c)
-      verts.push(p0)
-      verts.push(p1 === p0 ? p0 : p1)
-    }
-    // order the 8 pts correctly: each corner contributes two edge points;
-    // walking the perimeter: [c0.p0, c1.p0, c1.p1, c2.p0? ...]
-    const oct = [
-      f.pts(at(...(f.axis === 'z' ? [-1, -1, f.sign] : f.axis === 'y' ? [-1, f.sign, -1] : [f.sign, -1, -1])))[0],
-      f.pts(at(...(f.axis === 'z' ? [1, -1, f.sign] : f.axis === 'y' ? [1, f.sign, -1] : [f.sign, 1, -1])))[0],
-      f.pts(at(...(f.axis === 'z' ? [1, -1, f.sign] : f.axis === 'y' ? [1, f.sign, -1] : [f.sign, 1, -1])))[1],
-      f.pts(at(...(f.axis === 'z' ? [1, 1, f.sign] : f.axis === 'y' ? [1, f.sign, 1] : [f.sign, 1, 1])))[1],
-      f.pts(at(...(f.axis === 'z' ? [1, 1, f.sign] : f.axis === 'y' ? [1, f.sign, 1] : [f.sign, 1, 1])))[0],
-      f.pts(at(...(f.axis === 'z' ? [-1, 1, f.sign] : f.axis === 'y' ? [-1, f.sign, 1] : [f.sign, -1, 1])))[0],
-      f.pts(at(...(f.axis === 'z' ? [-1, 1, f.sign] : f.axis === 'y' ? [-1, f.sign, 1] : [f.sign, -1, 1])))[1],
-      f.pts(at(...(f.axis === 'z' ? [-1, -1, f.sign] : f.axis === 'y' ? [-1, f.sign, -1] : [f.sign, -1, -1])))[1],
-    ]
-    fan(oct)
+  const quad = (a, b, c, d) => { tris.push([a, b, c], [a, c, d]) }
+  // Chamfered box = 6 face plates + 12 chamfer quads + 8 corner triangles.
+  // Face plates are squares inset rr on both in-plane axes; chamfers span
+  // only the inner ix/iy/iz extents so they meet the corner triangles
+  // exactly — no overlapping fins (the previous construction self-
+  // intersected: quads ran the full edge length and skewered the corners).
+  quad([-ix, -iy, sz], [ix, -iy, sz], [ix, iy, sz], [-ix, iy, sz])
+  quad([-ix, -iy, -sz], [-ix, iy, -sz], [ix, iy, -sz], [ix, -iy, -sz])
+  quad([-ix, -sy, -iz], [ix, -sy, -iz], [ix, -sy, iz], [-ix, -sy, iz])
+  quad([-ix, sy, -iz], [-ix, sy, iz], [ix, sy, iz], [ix, sy, -iz])
+  quad([-sx, -iy, -iz], [-sx, -iy, iz], [-sx, iy, iz], [-sx, iy, -iz])
+  quad([sx, -iy, -iz], [sx, iy, -iz], [sx, iy, iz], [sx, -iy, iz])
+  for (const syn of [-1, 1]) for (const szn of [-1, 1])
+    quad([-ix, syn * iy, szn * sz], [ix, syn * iy, szn * sz], [ix, syn * sy, szn * iz], [-ix, syn * sy, szn * iz])
+  for (const sxn of [-1, 1]) for (const szn of [-1, 1])
+    quad([sxn * ix, -iy, szn * sz], [sxn * ix, iy, szn * sz], [sxn * sx, iy, szn * iz], [sxn * sx, -iy, szn * iz])
+  for (const sxn of [-1, 1]) for (const syn of [-1, 1])
+    quad([sxn * sx, syn * iy, -iz], [sxn * sx, syn * iy, iz], [sxn * ix, syn * sy, iz], [sxn * ix, syn * sy, -iz])
+  for (const sxn of [-1, 1]) for (const syn of [-1, 1]) for (const szn of [-1, 1])
+    tris.push([[sxn * ix, syn * iy, szn * sz], [sxn * ix, syn * sy, szn * iz], [sxn * sx, syn * iy, szn * iz]])
+  // convex and centred on the origin: a face's outward normal always has
+  // positive dot with its centroid — flip stragglers so winding is uniform
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+  const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+  for (const t of tris) {
+    const n = cr(sub(t[1], t[0]), sub(t[2], t[0]))
+    const g = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3]
+    if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) { const tmp = t[1]; t[1] = t[2]; t[2] = tmp }
   }
-
-  // 12 edge chamfers
-  for (const syn of [-1, 1]) for (const szn of [-1, 1]) {
-    const c0 = at(-1, syn, szn); const c1 = at(1, syn, szn)
-    tris.push([c0.y, c1.y, c1.z]); tris.push([c0.y, c1.z, c0.z])
-  }
-  for (const sxn of [-1, 1]) for (const szn of [-1, 1]) {
-    const c0 = at(sxn, -1, szn); const c1 = at(sxn, 1, szn)
-    tris.push([c0.x, c0.z, c1.z]); tris.push([c0.x, c1.z, c1.x])
-  }
-  for (const sxn of [-1, 1]) for (const syn of [-1, 1]) {
-    const c0 = at(sxn, syn, -1); const c1 = at(sxn, syn, 1)
-    tris.push([c0.x, c1.x, c1.y]); tris.push([c0.x, c1.y, c0.y])
-  }
-  // 8 corner triangles
-  for (const c of C) tris.push([c.x, c.z, c.y])
   return tris
 }
 
@@ -1057,7 +1029,9 @@ function overhangReport(design) {
       const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3
       const zc = (a[2] + b[2] + c[2]) / 3
       if (zc < 0.8) { bed += area; continue }
-      if (nz < -0.6) {
+      // strict column test only for overhangs steeper than ~48° — a 45°
+      // chamfer (nz≈-0.71) is the FDM self-support limit, not a failure
+      if (nz < -0.75) {
         if (zc <= colMin(cx, cy) + 0.6) unsupported += area
       } else {
         steep += area
