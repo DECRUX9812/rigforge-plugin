@@ -143,9 +143,11 @@ function createJointSim(design, analysis) {
         const err = t - a
         if (Math.abs(err) < 0.01) { state.vel[i] = 0; continue }
         if (j.slide) {
-          // leadscrew/rail: ~45 mm/s, no stall model — the analysis already
-          // sized these for the load they see
-          const step = Math.sign(err) * Math.min(Math.abs(err), 45 * dt)
+          // rail/belt vs leadscrew differ by ~20× — j.slideSpeed carries the
+          // axis's real rate (gantry sets 250 belt / 12 screw); 45 is the
+          // stock-rail fallback the jaw and generic slides already used
+          const spd = j.slideSpeed || 45
+          const step = Math.sign(err) * Math.min(Math.abs(err), spd * dt)
           state.angles[i] = a + step
           state.vel[i] = step / Math.max(dt, 1e-4)
           moved = true

@@ -114,6 +114,12 @@ const POSE_PRESETS = {
     { name: 'CENTER', pose: { 'head-pan': 0 } },
     { name: 'SCAN-R', pose: { 'head-pan': 60 } },
   ],
+  gantry: [
+    // quill to work depth over the centre, and the far corner that exercises
+    // every axis limit at once — 'max' tracks the live joint range
+    { name: 'PROBE', pose: { 'gantry-z': 'max' } },
+    { name: 'EXTREME', pose: { 'gantry-x': 'max', 'gantry-y': 'max', 'gantry-z': 'max' } },
+  ],
 }
 
 /** Resolve a named preset to a full angle array in design.joints order.

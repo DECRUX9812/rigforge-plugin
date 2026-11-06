@@ -466,6 +466,50 @@ function createGripTeleop(design) {
   }
 }
 
+// ── gantry: three chained slides, WASD plane + RF drop ──────────────────────
+// The only all-slide machine: portal X, saddle Y, quill Z. cmd axes are
+// normalized -1..1; positions integrate at each axis's own slideSpeed (belt
+// ~250mm/s, leadscrew ~12mm/s) and hold when keys release — steppers hold.
+
+function createGantryTeleop(design) {
+  const joints = design.joints || []
+  if (!joints.length || joints.some((j) => !j.slide) || joints.length !== 3) return null
+  const byAxis = {}
+  for (const j of joints) {
+    if (byAxis[j.axis]) return null
+    byAxis[j.axis] = j
+  }
+  if (!byAxis.x || !byAxis.y || !byAxis.z) return null
+  const pos = { x: 0, y: 0, z: 0 }
+  const pose = () => joints.map((j) => pos[j.axis])
+  return {
+    kind: 'gantry',
+    state: pos,
+    design,
+    /** cmd: {x,y,z} each -1..1; returns desired joint angles (mm) or null. */
+    step(cmd, dt) {
+      const d = Math.max(0, Math.min(0.05, dt || 0))
+      for (const ax of ['x', 'y', 'z']) {
+        const j = byAxis[ax]
+        const v = (cmd && cmd[ax]) || 0
+        if (!v) continue
+        const spd = j.slideSpeed || 45
+        pos[ax] = Math.max(j.min, Math.min(j.max, pos[ax] + Math.sign(v) * Math.min(Math.abs(v), 1) * spd * d))
+      }
+      return pose()
+    },
+    reset() { pos.x = 0; pos.y = 0; pos.z = 0 },
+    hud() {
+      return {
+        kind: 'gantry',
+        x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z),
+        span: [byAxis.x.max - byAxis.x.min, byAxis.y.max - byAxis.y.min, byAxis.z.max - byAxis.z.min]
+          .map((v) => Math.round(v)).join('×'),
+      }
+    },
+  }
+}
+
 // ── desk bench: weighted pick-place props for the reach mode ────────────────
 // Three honest objects on the bench at pick heights — the light bin, the
 // printed part, the steel block. The IK HUD names whichever one the

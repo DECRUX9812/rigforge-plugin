@@ -714,6 +714,7 @@ function Studio() {
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
   const senseRef = useRef(null)
+  const gantryRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
@@ -771,11 +772,14 @@ function Studio() {
     ikRef.current = createArmTeleop(design)
     // second arm only exists on side-prefixed designs (the humanoid)
     ikLRef.current = ikRef.current ? createArmTeleop(design, 'l') : null
-    const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : null
+    // gantry is the only all-slide machine — it gets teleop when nothing else did
+    gantryRef.current = (driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current)
+      ? null : createGantryTeleop(design)
+    const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : gantryRef.current ? 'gantry' : null
     setTeleopKind(kind)
     // the primary suite doesn't have to be the only one: a humanoid walks AND
     // reaches with both arms, a drive robot with an arm tours the desk too
-    const primaryTel = driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current
+    const primaryTel = driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current || gantryRef.current
     const armSubs = []
     if (primaryTel !== ikRef.current && ikRef.current) armSubs.push({ t: ikRef.current, tag: ikLRef.current ? 'R' : 'ARM' })
     if (ikLRef.current) armSubs.push({ t: ikLRef.current, tag: 'L' })
@@ -789,6 +793,7 @@ function Studio() {
     if (ikLRef.current) ikLRef.current.reset()
     if (gaitRef.current) gaitRef.current.reset()
     if (gripRef.current) gripRef.current.reset()
+    if (gantryRef.current) gantryRef.current.reset()
     powerRef.current = createPowerSim(design)
     const mk = design.metrics && design.metrics.motor ? PARTS[design.metrics.motor] : null
     motorARef.current = mk && mk.curr ? (mk.curr.typ || 0.5) * 2 : 0
@@ -799,7 +804,7 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current && !gantryRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
     const ikL = ikLRef.current
@@ -807,6 +812,7 @@ function Studio() {
     const gait = gaitRef.current
     const grip = gripRef.current
     const sense = senseRef.current
+    const gantry = gantryRef.current
     benchStatsRef.current = {
       seconds: 0, maxV: 0, bumps: 0, stallMs: 0, slipMs: 0,
       minSoc: 100, maxTemp: 0, cutouts: 0, ikErr: null, mode: teleopKind,
@@ -926,6 +932,23 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      } else if (!pwrDead && gantry) {
+        // gantry has no certification suite — WASD plane, F feeds / R raises
+        let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
+        let cz = (k.f ? 1 : 0) - (k.r ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+            cx = -gy; cy = gx; cz = gz
+          }
+        }
+        if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
+        const desired = gantry.step({ x: cx, y: cy, z: cz }, dt)
+        if (desired) setPose(desired)
       }
       // POSE→SWEEP: command min, then max, then rest — the joint sim slews at
       // real servo speed, so stalls and torque limits show up live
@@ -1023,7 +1046,7 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); ikLRef.current && ikLRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); ikLRef.current && ikLRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); gantryRef.current && gantryRef.current.reset(); powerRef.current && powerRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
       if (key === 'm' && (driveRef.current || gaitRef.current) && ikRef.current && !(autotestRef.current && autotestRef.current.running)) {
         const sides = (ikRef.current ? 1 : 0) + (ikLRef.current ? 1 : 0)
@@ -1119,7 +1142,7 @@ function Studio() {
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
-  const teleop = (armHud ? armHudIk : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
+  const teleop = (armHud ? armHudIk : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current || gantryRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -1867,6 +1890,12 @@ function Studio() {
                   ? h('span', { key: 'al', style: { color: C.amber } }, `⚠ ${driveHud.alerts[0]}${driveHud.alerts.length > 1 ? ` +${driveHud.alerts.length - 1}` : ''}`)
                   : h('span', { key: 'ok', style: { color: C.green } }, 'all readings nominal'),
               ]
+            : driveHud.kind === 'gantry'
+            ? [
+                h('span', { key: 'a' }, `X ${driveHud.x} Y ${driveHud.y} Z ${driveHud.z}`),
+                h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.span}mm axes`),
+                h('span', { key: 'c', style: { color: C.faint } }, isTouch ? 'STICK traverse' : 'WASD·F/R · 0 center'),
+              ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
                 h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
@@ -2129,9 +2158,11 @@ function Studio() {
                 ? 'jaw mode — Space opens/closes the gripper'
                 : teleopKind === 'sense'
                 ? 'sense mode — stimulus sliders inject the environment'
+                : teleopKind === 'gantry'
+                ? 'gantry mode — WASD portal/saddle, F feeds / R raises the quill, 0 centers'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : teleopKind === 'gantry' ? 'GANTRY' : 'DRIVE'),
             dualMode ? h('button', {
               style: armMode ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!armMode,

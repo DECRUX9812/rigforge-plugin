@@ -20,6 +20,26 @@ function buildGantry(brief) {
   d.subtitle = `${spanX}×${spanY}×${spanZ}mm travel · belt XY · leadscrew Z`
   d.metrics = { spanX, spanY, spanZ }
 
+  // ── motion: three chained slides — portal X, saddle Y, quill Z ──────────
+  // The quill inherits saddle+portal displacement through the slide chain, so
+  // one tag moves it in all three axes. X/Y are centred (min<0); Z drops from
+  // the top, so its joint sign is -1 and angle 0 is the raised pose.
+  slideJoint(d, 'gantry-x', 'Portal X', 'x', 720)
+  slideJoint(d, 'gantry-y', 'Saddle Y', 'y', 580)
+  slideJoint(d, 'gantry-z', 'Quill drop', 'z', 60)
+  const jx = d.joints.find((j) => j.id === 'gantry-x')
+  const jy = d.joints.find((j) => j.id === 'gantry-y')
+  const jz = d.joints.find((j) => j.id === 'gantry-z')
+  // travel is what the geometry honestly allows: portal edge clears the side
+  // rails, saddle stays on the beam, and the quill stops ~12mm over the bed
+  // ribs — spanZ is the screw's rating, not room the frame gives it
+  jx.min = -360; jx.max = 360; jx.slideSpeed = 250
+  jy.min = -290; jy.max = 290; jy.slideSpeed = 250; jy.parent = 'gantry-x'
+  jz.min = 0; jz.max = 60; jz.sign = -1; jz.slideSpeed = 12; jz.parent = 'gantry-y'
+  const onX = { slide: { joint: 'gantry-x', sign: 1 } }
+  const onY = { slide: { joint: 'gantry-y', sign: 1 } }
+  const onZ = { slide: { joint: 'gantry-z', sign: 1 } }
+
   // ── frame: two side rails, a bed, and the moving gantry bridge ───────────
   for (const sx of [-1, 1]) {
     rbox(d, `side-rail-${sx > 0 ? 'r' : 'l'}`, [20, spanY + 120, railW], [sx * (spanX / 2 + 40), 0, railW / 2], 2, 'metal')
@@ -36,26 +56,26 @@ function buildGantry(brief) {
   }
 
   // gantry bridge: one beam carrying X, two uprights riding Y
-  rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false })
+  rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false, ...onX })
   for (const sy of [-1, 1]) {
-    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false })
+    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false, ...onX })
     // Y carriage: rail block + rollers
-    rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal')
-    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel')
+    rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
+    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel', onX)
   }
   // X carriage + Z column
-  rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal')
-  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false })
-  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal')
-  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel')
+  rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal', onY)
+  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false, ...onY })
+  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal', onZ)
+  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel', onZ)
 
   // drive: motors, belts (as flat straps), leadscrew, limit switches
   cyl(d, 'motor-x', 21, 40, [spanX / 2 + 10, -(spanY / 2 + 10), z0 + beamH + 6], 'x', 'servo')
   cyl(d, 'motor-y', 21, 40, [0, -(spanY / 2 + 10), railW + 10], 'y', 'servo')
-  cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo')
+  cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo', onY)
   rbox(d, 'belt-x', [8, spanY + 40, 6], [spanX / 2 + 10, 0, z0 + beamH - 10], 1, 'belt')
   rbox(d, 'belt-y', [spanX, 8, 6], [0, -(spanY / 2 + 10), railW + 22], 1, 'belt')
-  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel')
+  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel', onY)
   for (const [ax, pos] of [['x', [spanX / 2 - 20, -(spanY / 2 + 10), z0 + 10]], ['y', [0, -(spanY / 2 + 20), railW + 10]], ['z', [30, 0, z0 + beamH + 40]]]) {
     rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb')
   }
@@ -69,8 +89,8 @@ function buildGantry(brief) {
   for (const sy of [-1, 1]) {
     rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
   }
-  rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true })
-  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true })
+  rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
+  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true, ...onZ })
 
   // ── parts ────────────────────────────────────────────────────────────────
   const railMetres = Math.ceil((2 * (spanY + 120) + 2 * spanX + 4 * 400) / 1000 * 2) / 2
@@ -118,6 +138,7 @@ function buildGantry(brief) {
   d.notes.push(`Belt drive on X and Y: ${fmt(force, 0)}N available at the pulley, ${fmt(accelNeed, 0)}N wanted for ${fmt(gantryMassKg, 1)}kg at 2m/s².`)
   d.notes.push(`Y belt sag over ${spanY}mm is about ${fmt(beltDeflect, 2)}mm unless it is tensioned hard — that is your ripple in the surface finish.`)
   d.notes.push(`Bridge beam deflects ~${fmt(beamDeflect, 3)}mm at the middle under its own carriage — fine. Past ~1.2m span it is not: go to a taller extrusion or two beams.`)
+  d.notes.push(`Quill drop is limited to ${jz.max}mm by the spoilboard ribs, not the screw's ${spanZ}mm rating — the frame gives less than the mechanics could use.`)
 
   if (spanX > 1000) {
     d.checks.push({ level: 'warn', msg: `${spanX}mm travel: the print/step files for the bed and side rails exceed a 256mm bed several times over. Plan a 4-part bed with dowel joins, or buy extrusion by the metre and cut it.` })

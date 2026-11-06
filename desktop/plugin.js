@@ -775,6 +775,12 @@ const POSE_PRESETS = {
     { name: 'CENTER', pose: { 'head-pan': 0 } },
     { name: 'SCAN-R', pose: { 'head-pan': 60 } },
   ],
+  gantry: [
+    // quill to work depth over the centre, and the far corner that exercises
+    // every axis limit at once — 'max' tracks the live joint range
+    { name: 'PROBE', pose: { 'gantry-z': 'max' } },
+    { name: 'EXTREME', pose: { 'gantry-x': 'max', 'gantry-y': 'max', 'gantry-z': 'max' } },
+  ],
 }
 
 /** Resolve a named preset to a full angle array in design.joints order.
@@ -2502,6 +2508,26 @@ function buildGantry(brief) {
   d.subtitle = `${spanX}×${spanY}×${spanZ}mm travel · belt XY · leadscrew Z`
   d.metrics = { spanX, spanY, spanZ }
 
+  // ── motion: three chained slides — portal X, saddle Y, quill Z ──────────
+  // The quill inherits saddle+portal displacement through the slide chain, so
+  // one tag moves it in all three axes. X/Y are centred (min<0); Z drops from
+  // the top, so its joint sign is -1 and angle 0 is the raised pose.
+  slideJoint(d, 'gantry-x', 'Portal X', 'x', 720)
+  slideJoint(d, 'gantry-y', 'Saddle Y', 'y', 580)
+  slideJoint(d, 'gantry-z', 'Quill drop', 'z', 60)
+  const jx = d.joints.find((j) => j.id === 'gantry-x')
+  const jy = d.joints.find((j) => j.id === 'gantry-y')
+  const jz = d.joints.find((j) => j.id === 'gantry-z')
+  // travel is what the geometry honestly allows: portal edge clears the side
+  // rails, saddle stays on the beam, and the quill stops ~12mm over the bed
+  // ribs — spanZ is the screw's rating, not room the frame gives it
+  jx.min = -360; jx.max = 360; jx.slideSpeed = 250
+  jy.min = -290; jy.max = 290; jy.slideSpeed = 250; jy.parent = 'gantry-x'
+  jz.min = 0; jz.max = 60; jz.sign = -1; jz.slideSpeed = 12; jz.parent = 'gantry-y'
+  const onX = { slide: { joint: 'gantry-x', sign: 1 } }
+  const onY = { slide: { joint: 'gantry-y', sign: 1 } }
+  const onZ = { slide: { joint: 'gantry-z', sign: 1 } }
+
   // ── frame: two side rails, a bed, and the moving gantry bridge ───────────
   for (const sx of [-1, 1]) {
     rbox(d, `side-rail-${sx > 0 ? 'r' : 'l'}`, [20, spanY + 120, railW], [sx * (spanX / 2 + 40), 0, railW / 2], 2, 'metal')
@@ -2518,26 +2544,26 @@ function buildGantry(brief) {
   }
 
   // gantry bridge: one beam carrying X, two uprights riding Y
-  rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false })
+  rbox(d, 'bridge', [railW, spanY + 60, beamH], [0, 0, z0 + beamH / 2], 3, 'accent', { print: false, ...onX })
   for (const sy of [-1, 1]) {
-    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false })
+    rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0], [0, sy * (spanY / 2 + 10), z0 / 2], 2, 'accent', { print: false, ...onX })
     // Y carriage: rail block + rollers
-    rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal')
-    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel')
+    rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
+    for (const bx of [-1, 1]) cyl(d, `y-roller-${sy}${bx}`, 9, 12, [bx * 22, sy * (spanY / 2 + 10), railW + 6], 'x', 'steel', onX)
   }
   // X carriage + Z column
-  rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal')
-  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false })
-  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal')
-  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel')
+  rbox(d, 'x-carriage', [44, railW, 34], [0, 0, z0 + beamH + 10], 2, 'metal', onY)
+  rbox(d, 'z-column', [34, 34, spanZ + 60], [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 2, 'accent', { print: false, ...onY })
+  rbox(d, 'z-carriage', [60, 60, 22], [0, 0, z0 + beamH + 28], 2, 'metal', onZ)
+  cyl(d, 'spindle', 16, 46, [0, 0, z0 + beamH + 6], 'z', 'steel', onZ)
 
   // drive: motors, belts (as flat straps), leadscrew, limit switches
   cyl(d, 'motor-x', 21, 40, [spanX / 2 + 10, -(spanY / 2 + 10), z0 + beamH + 6], 'x', 'servo')
   cyl(d, 'motor-y', 21, 40, [0, -(spanY / 2 + 10), railW + 10], 'y', 'servo')
-  cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo')
+  cyl(d, 'motor-z', 21, 40, [0, 0, z0 + beamH + 40], 'z', 'servo', onY)
   rbox(d, 'belt-x', [8, spanY + 40, 6], [spanX / 2 + 10, 0, z0 + beamH - 10], 1, 'belt')
   rbox(d, 'belt-y', [spanX, 8, 6], [0, -(spanY / 2 + 10), railW + 22], 1, 'belt')
-  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel')
+  cyl(d, 'leadscrew', 6, spanZ + 60, [0, 0, z0 + beamH + 10 - (spanZ + 60) / 2 + 30], 'z', 'steel', onY)
   for (const [ax, pos] of [['x', [spanX / 2 - 20, -(spanY / 2 + 10), z0 + 10]], ['y', [0, -(spanY / 2 + 20), railW + 10]], ['z', [30, 0, z0 + beamH + 40]]]) {
     rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb')
   }
@@ -2551,8 +2577,8 @@ function buildGantry(brief) {
   for (const sy of [-1, 1]) {
     rbox(d, `motor-mount-${sy}`, [56, 56, 10], [spanX / 2 + 10 + sy * 24, -(spanY / 2 + 10), z0 + beamH + 6], 2, 'accent', { print: true })
   }
-  rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true })
-  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true })
+  rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
+  rbox(d, 'spindle-clamp', [70, 70, 40], [0, 0, z0 + beamH + 2], 3, 'accent', { print: true, ...onZ })
 
   // ── parts ────────────────────────────────────────────────────────────────
   const railMetres = Math.ceil((2 * (spanY + 120) + 2 * spanX + 4 * 400) / 1000 * 2) / 2
@@ -2600,6 +2626,7 @@ function buildGantry(brief) {
   d.notes.push(`Belt drive on X and Y: ${fmt(force, 0)}N available at the pulley, ${fmt(accelNeed, 0)}N wanted for ${fmt(gantryMassKg, 1)}kg at 2m/s².`)
   d.notes.push(`Y belt sag over ${spanY}mm is about ${fmt(beltDeflect, 2)}mm unless it is tensioned hard — that is your ripple in the surface finish.`)
   d.notes.push(`Bridge beam deflects ~${fmt(beamDeflect, 3)}mm at the middle under its own carriage — fine. Past ~1.2m span it is not: go to a taller extrusion or two beams.`)
+  d.notes.push(`Quill drop is limited to ${jz.max}mm by the spoilboard ribs, not the screw's ${spanZ}mm rating — the frame gives less than the mechanics could use.`)
 
   if (spanX > 1000) {
     d.checks.push({ level: 'warn', msg: `${spanX}mm travel: the print/step files for the bed and side rails exceed a 256mm bed several times over. Plan a 4-part bed with dowel joins, or buy extrusion by the metre and cut it.` })
@@ -3938,14 +3965,27 @@ function applyChain(chain, point) {
   ]
 }
 
-/** Linear-joint displacement for a node that rides a slide. */
+/** Linear-joint displacement for a node that rides a slide. Slide joints
+ *  chain like revolute ones: a node tagged on a child slide inherits every
+ *  slide ancestor's displacement (gantry quill = Z drop + saddle Y + portal
+ *  X). Each joint contributes dir·angle·(j.sign||1); the node's own sign
+ *  flips only the joint it is tagged on. */
 function slideDisp(design, node) {
   if (!node.slide) return [0, 0, 0]
-  const j = design.joints.find((jj) => jj.id === node.slide.joint)
-  if (!j || !j.slide) return [0, 0, 0]
-  const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
-  const t = j.angle * (node.slide.sign || 1)
-  return [dir[0] * t, dir[1] * t, dir[2] * t]
+  const j0 = design.joints.find((jj) => jj.id === node.slide.joint)
+  if (!j0 || !j0.slide) return [0, 0, 0]
+  const out = [0, 0, 0]
+  const seen = new Set()
+  let j = j0, own = true
+  while (j && j.slide && !seen.has(j.id)) {
+    seen.add(j.id)
+    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+    const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
+    out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
+    own = false
+    j = j.parent ? design.joints.find((jj) => jj.id === j.parent) : null
+  }
+  return out
 }
 
 // ── local vertex generators (centred at origin) ─────────────────────────────
@@ -6529,9 +6569,11 @@ function createJointSim(design, analysis) {
         const err = t - a
         if (Math.abs(err) < 0.01) { state.vel[i] = 0; continue }
         if (j.slide) {
-          // leadscrew/rail: ~45 mm/s, no stall model — the analysis already
-          // sized these for the load they see
-          const step = Math.sign(err) * Math.min(Math.abs(err), 45 * dt)
+          // rail/belt vs leadscrew differ by ~20× — j.slideSpeed carries the
+          // axis's real rate (gantry sets 250 belt / 12 screw); 45 is the
+          // stock-rail fallback the jaw and generic slides already used
+          const spd = j.slideSpeed || 45
+          const step = Math.sign(err) * Math.min(Math.abs(err), spd * dt)
           state.angles[i] = a + step
           state.vel[i] = step / Math.max(dt, 1e-4)
           moved = true
@@ -7421,6 +7463,50 @@ function createGripTeleop(design) {
     reset() { state.open = false; state.was = false },
     hud() {
       return { kind: 'grip', open: state.open }
+    },
+  }
+}
+
+// ── gantry: three chained slides, WASD plane + RF drop ──────────────────────
+// The only all-slide machine: portal X, saddle Y, quill Z. cmd axes are
+// normalized -1..1; positions integrate at each axis's own slideSpeed (belt
+// ~250mm/s, leadscrew ~12mm/s) and hold when keys release — steppers hold.
+
+function createGantryTeleop(design) {
+  const joints = design.joints || []
+  if (!joints.length || joints.some((j) => !j.slide) || joints.length !== 3) return null
+  const byAxis = {}
+  for (const j of joints) {
+    if (byAxis[j.axis]) return null
+    byAxis[j.axis] = j
+  }
+  if (!byAxis.x || !byAxis.y || !byAxis.z) return null
+  const pos = { x: 0, y: 0, z: 0 }
+  const pose = () => joints.map((j) => pos[j.axis])
+  return {
+    kind: 'gantry',
+    state: pos,
+    design,
+    /** cmd: {x,y,z} each -1..1; returns desired joint angles (mm) or null. */
+    step(cmd, dt) {
+      const d = Math.max(0, Math.min(0.05, dt || 0))
+      for (const ax of ['x', 'y', 'z']) {
+        const j = byAxis[ax]
+        const v = (cmd && cmd[ax]) || 0
+        if (!v) continue
+        const spd = j.slideSpeed || 45
+        pos[ax] = Math.max(j.min, Math.min(j.max, pos[ax] + Math.sign(v) * Math.min(Math.abs(v), 1) * spd * d))
+      }
+      return pose()
+    },
+    reset() { pos.x = 0; pos.y = 0; pos.z = 0 },
+    hud() {
+      return {
+        kind: 'gantry',
+        x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z),
+        span: [byAxis.x.max - byAxis.x.min, byAxis.y.max - byAxis.y.min, byAxis.z.max - byAxis.z.min]
+          .map((v) => Math.round(v)).join('×'),
+      }
     },
   }
 }
@@ -12474,6 +12560,7 @@ function Studio() {
   const gaitRef = useRef(null)
   const gripRef = useRef(null)
   const senseRef = useRef(null)
+  const gantryRef = useRef(null)
   const powerRef = useRef(null)
   const motorARef = useRef(0)
   const [driveAvail, setDriveAvail] = useState(false)
@@ -12531,11 +12618,14 @@ function Studio() {
     ikRef.current = createArmTeleop(design)
     // second arm only exists on side-prefixed designs (the humanoid)
     ikLRef.current = ikRef.current ? createArmTeleop(design, 'l') : null
-    const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : null
+    // gantry is the only all-slide machine — it gets teleop when nothing else did
+    gantryRef.current = (driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current)
+      ? null : createGantryTeleop(design)
+    const kind = driveRef.current ? 'drive' : gaitRef.current ? 'gait' : gripRef.current ? 'grip' : senseRef.current ? 'sense' : ikRef.current ? 'ik' : gantryRef.current ? 'gantry' : null
     setTeleopKind(kind)
     // the primary suite doesn't have to be the only one: a humanoid walks AND
     // reaches with both arms, a drive robot with an arm tours the desk too
-    const primaryTel = driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current
+    const primaryTel = driveRef.current || gaitRef.current || gripRef.current || senseRef.current || ikRef.current || gantryRef.current
     const armSubs = []
     if (primaryTel !== ikRef.current && ikRef.current) armSubs.push({ t: ikRef.current, tag: ikLRef.current ? 'R' : 'ARM' })
     if (ikLRef.current) armSubs.push({ t: ikLRef.current, tag: 'L' })
@@ -12549,6 +12639,7 @@ function Studio() {
     if (ikLRef.current) ikLRef.current.reset()
     if (gaitRef.current) gaitRef.current.reset()
     if (gripRef.current) gripRef.current.reset()
+    if (gantryRef.current) gantryRef.current.reset()
     powerRef.current = createPowerSim(design)
     const mk = design.metrics && design.metrics.motor ? PARTS[design.metrics.motor] : null
     motorARef.current = mk && mk.curr ? (mk.curr.typ || 0.5) * 2 : 0
@@ -12559,7 +12650,7 @@ function Studio() {
   }, [benchEnv])
 
   useEffect(() => {
-    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current)) return undefined
+    if (!driveOn || (!driveRef.current && !ikRef.current && !gaitRef.current && !gripRef.current && !senseRef.current && !gantryRef.current)) return undefined
     const drive = driveRef.current
     const ik = ikRef.current
     const ikL = ikLRef.current
@@ -12567,6 +12658,7 @@ function Studio() {
     const gait = gaitRef.current
     const grip = gripRef.current
     const sense = senseRef.current
+    const gantry = gantryRef.current
     benchStatsRef.current = {
       seconds: 0, maxV: 0, bumps: 0, stallMs: 0, slipMs: 0,
       minSoc: 100, maxTemp: 0, cutouts: 0, ikErr: null, mode: teleopKind,
@@ -12686,6 +12778,23 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
+      } else if (!pwrDead && gantry) {
+        // gantry has no certification suite — WASD plane, F feeds / R raises
+        let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
+        let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
+        let cz = (k.f ? 1 : 0) - (k.r ? 1 : 0)
+        if (gp) {
+          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+          const gx = dz(gp.axes[0] || 0)
+          const gy = dz(gp.axes[1] || 0)
+          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+            cx = -gy; cy = gx; cz = gz
+          }
+        }
+        if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
+        const desired = gantry.step({ x: cx, y: cy, z: cz }, dt)
+        if (desired) setPose(desired)
       }
       // POSE→SWEEP: command min, then max, then rest — the joint sim slews at
       // real servo speed, so stalls and torque limits show up live
@@ -12783,7 +12892,7 @@ function Studio() {
         if (key === ' ' && !e.repeat) spaceEdgeRef.current = true
         e.preventDefault()
       }
-      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); ikLRef.current && ikLRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); powerRef.current && powerRef.current.reset() }
+      if (key === '0') { driveRef.current && driveRef.current.reset(); ikRef.current && ikRef.current.reset(); ikLRef.current && ikLRef.current.reset(); gaitRef.current && gaitRef.current.reset(); gripRef.current && gripRef.current.reset(); senseRef.current && senseRef.current.reset(); gantryRef.current && gantryRef.current.reset(); powerRef.current && powerRef.current.reset() }
       if (key === 'x' && driveRef.current) driveRef.current.shove(15)
       if (key === 'm' && (driveRef.current || gaitRef.current) && ikRef.current && !(autotestRef.current && autotestRef.current.running)) {
         const sides = (ikRef.current ? 1 : 0) + (ikLRef.current ? 1 : 0)
@@ -12879,7 +12988,7 @@ function Studio() {
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
-  const teleop = (armHud ? armHudIk : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current
+  const teleop = (armHud ? armHudIk : null) || driveRef.current || ikRef.current || gaitRef.current || gripRef.current || senseRef.current || gantryRef.current
   const driveHud = driveOn && teleop && (teleopKind !== 'ik' || ikRef.current.state.ready)
     ? teleop.hud()
     : null
@@ -13627,6 +13736,12 @@ function Studio() {
                   ? h('span', { key: 'al', style: { color: C.amber } }, `⚠ ${driveHud.alerts[0]}${driveHud.alerts.length > 1 ? ` +${driveHud.alerts.length - 1}` : ''}`)
                   : h('span', { key: 'ok', style: { color: C.green } }, 'all readings nominal'),
               ]
+            : driveHud.kind === 'gantry'
+            ? [
+                h('span', { key: 'a' }, `X ${driveHud.x} Y ${driveHud.y} Z ${driveHud.z}`),
+                h('span', { key: 'b', style: { color: C.faint } }, `${driveHud.span}mm axes`),
+                h('span', { key: 'c', style: { color: C.faint } }, isTouch ? 'STICK traverse' : 'WASD·F/R · 0 center'),
+              ]
             : [
                 h('span', { key: 'a' }, `v ${driveHud.speed.toFixed(2)} m/s`),
                 h('span', { key: 'b' }, `hdg ${driveHud.yawDeg}°`),
@@ -13889,9 +14004,11 @@ function Studio() {
                 ? 'jaw mode — Space opens/closes the gripper'
                 : teleopKind === 'sense'
                 ? 'sense mode — stimulus sliders inject the environment'
+                : teleopKind === 'gantry'
+                ? 'gantry mode — WASD portal/saddle, F feeds / R raises the quill, 0 centers'
                 : 'drive mode — WASD or gamepad: W/S throttle, A/D steer, 0 reset',
               onClick: () => setDriveOn((o) => !o),
-            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : 'DRIVE'),
+            }, teleopKind === 'ik' ? 'REACH' : teleopKind === 'gait' ? 'WALK' : teleopKind === 'grip' ? 'GRIP' : teleopKind === 'sense' ? 'SENSE' : teleopKind === 'gantry' ? 'GANTRY' : 'DRIVE'),
             dualMode ? h('button', {
               style: armMode ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!armMode,
