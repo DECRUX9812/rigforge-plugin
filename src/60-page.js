@@ -501,7 +501,7 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
@@ -690,8 +690,16 @@ function Studio() {
     [opts.reach, design],
   )
   const legWsOv = useMemo(() => legWorkspaceOverlay(legWsMap), [legWsMap])
+  // Joint-load heat: crosshair per driven joint, coloured by the sim's live
+  // gravity-load ratio — the torque story drawn on the machine itself.
+  const loadOv = useMemo(() => {
+    if (!opts.heat) return null
+    const st = simRef.current && simRef.current.state
+    if (!st || !st.loadNm) return null
+    return loadOverlay(posedDesign, st.loadNm, st.stallNm, st.stalled)
+  }, [opts.heat, posedDesign, dispPose])
   const rawOv = useMemo(() => {
-    const parts = [benchOv, cableOv, reachOv, wsOv, legWsOv].filter(Boolean)
+    const parts = [benchOv, cableOv, reachOv, wsOv, legWsOv, loadOv].filter(Boolean)
     if (!parts.length) return null
     if (parts.length === 1) return parts[0]
     const total = parts.reduce((s, p) => s + p.data.length, 0)
@@ -699,7 +707,7 @@ function Studio() {
     let off = 0
     for (const p of parts) { d.set(p.data, off); off += p.data.length }
     return { data: d, verts: parts.reduce((s, p) => s + p.verts, 0) }
-  }, [benchOv, cableOv, reachOv, wsOv, legWsOv])
+  }, [benchOv, cableOv, reachOv, wsOv, legWsOv, loadOv])
 
   // ── drive mode: WASD / gamepad throttle+steer on wheeled machines ────────
   const driveRef = useRef(null)
@@ -2026,7 +2034,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
