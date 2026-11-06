@@ -470,7 +470,7 @@ function analyze(design) {
     pins,
     power,
     harness,
-    reach: armReachBound(armTipChain(design)),
+    reach: armReachBound(primaryArmTip(design)),
     cost,
     costBuy,
     costShop: cost - costBuy,
