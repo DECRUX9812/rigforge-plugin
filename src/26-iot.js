@@ -21,32 +21,38 @@ function buildIot(brief) {
   d.subtitle = `${W}×${H}×${D}mm printed case · one sensor · one board`
   d.metrics = {}
 
-  // shell: base tray, lid, four ears, a window over the display, a USB notch
-  rbox(d, 'tray', [W, H, D - 8], [0, 0, (D - 8) / 2], 2.5, 'shell', { print: true })
-  rbox(d, 'lid', [W, H, 4], [0, 0, D - 2], 2.5, 'shell', { print: true })
+  // shell: clamshell — base slab, four walls, lid. The old solid tray
+  // buried every internal part (display included); a real cavity lets the
+  // board, sensor and cell sit where a builder would put them.
+  const WT = 2.4 // wall thickness
+  rbox(d, 'base', [W, H, 3], [0, 0, 1.5], 2, 'shell', { print: true })
+  for (const sx of [-1, 1]) box(d, `wall-x${sx}`, [WT, H, 23], [sx * (W / 2 - WT / 2), 0, 14.5], 'shell', { print: true })
+  for (const sy of [-1, 1]) box(d, `wall-y${sy}`, [W - WT * 2, WT, 23], [0, sy * (H / 2 - WT / 2), 14.5], 'shell', { print: true })
+  rbox(d, 'lid', [W, H, 4], [0, 0, 28], 2.5, 'shell', { print: true })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    // four feet under the tray — a hole in each takes a screw or a
+    // four feet under the base — a hole in each takes a screw or a
     // stick-on bumper; modelled flush with the bottom face, not buried
     box(d, `ear-${sx}${sy}`, [8, 8, 3], [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'shell', { print: true })
     cyl(d, `ear-hole-${sx}${sy}`, 1.6, 3.2, [sx * (W / 2 - 4), sy * (H / 2 - 4), -1.5], 'z', 'rubber')
   }
-  // front window + bezel
-  const frontZ = D / 2
-  rbox(d, 'bezel', [34, 26, 2], [0, 0, frontZ + 1], 1.5, 'accent', { print: true })
-  box(d, 'window', [24, 16, 1.4], [0, 0, frontZ + 2.2], 'glass')
-  // side cut-outs: USB-C, sensor grille
-  box(d, 'usb-notch', [10, 6, 5], [W / 2 - 1, 0, D / 2 - 4], 'rubber')
-  for (let i = -2; i <= 2; i += 1) box(d, `vent-${i}`, [1.6, 22, 1.6], [-W / 2 + 1, i * 4, D / 2 + 0.4], 'rubber')
+  // display faces UP on the lid: bezel frame, glass window, OLED beneath
+  const lidTop = 30
+  rbox(d, 'bezel', [34, 26, 2], [0, 0, lidTop + 1], 1.5, 'accent', { print: true })
+  box(d, 'window', [24, 16, 1.4], [0, 0, lidTop + 2.2], 'glass')
+  // side cut-outs: USB-C tab on the right wall, sensor grille on the left
+  box(d, 'usb-notch', [3, 6, 5], [W / 2 - WT / 2, 0, 12], 'rubber')
+  for (let i = -2; i <= 2; i += 1) box(d, `vent-${i}`, [2, 22, 1.6], [-W / 2 - 0.2, i * 4, 14], 'rubber')
 
-  // the board sits on standoffs, the sensor on the lid, the cell underneath
-  rbox(d, 'mcu', [26, 18, 5], [-8, 0, 18], 1, 'pcb')
-  rbox(d, 'sensor', [14, 12, 4], [12, 6, 22], 0.8, 'pcb')
-  rbox(d, 'cell', [40, 26, 8], [0, 0, 10], 2, 'steel')
+  // the board sits on standoffs inside the cavity, the sensor by the
+  // grille, the cell flat on the base
+  rbox(d, 'mcu', [26, 18, 5], [-8, 0, 16], 1, 'pcb')
+  rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  rbox(d, 'cell', [40, 26, 8], [0, 0, 7], 2, 'steel')
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    cyl(d, `standoff-${sx}${sy}`, 2.4, 10, [sx * 10 - 8, sy * 7, 15], 'z', 'metal')
+    cyl(d, `standoff-${sx}${sy}`, 2.4, 11, [sx * 10 - 8, sy * 7, 8.5], 'z', 'metal')
   }
   if (wants.display) {
-    rbox(d, 'oled', [26, 16, 2], [0, 0, frontZ + 0.6], 0.6, 'pcb')
+    rbox(d, 'oled', [26, 16, 2], [0, 0, lidTop + 0.6], 0.6, 'pcb')
   }
 
   // ── parts ────────────────────────────────────────────────────────────────
