@@ -62,7 +62,19 @@ function buildHumanoid(brief) {
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
   cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
-  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
+  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
+  // controller + drivers on the backpack's rear face and the lower back —
+  // the way a real humanoid routes its electronics behind the torso. The
+  // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
+  // rear deck above the pack, the other UBECs below it.
+  const packBack = -limbD / 2 - 25 // rear face of the pack box
+  const packZ = pelvisTop + torsoH * 0.55
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1])
+  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1])
+  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1])
+  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1])
+  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1])
+  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1])
   cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
   box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
   box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')

@@ -48,6 +48,16 @@ function box(d, id, size, pos, mat, extra) {
   d.nodes.push({ id, kind: 'box', size, pos, mat, ...extra })
 }
 
+/** Electronics node at CATALOG dims — the board on the BOM is the board on
+ *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
+ *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
+ *  [2,0,1] stands a board on edge). Defaults to lying flat. */
+function elec(d, id, key, pos, axes) {
+  const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
+  const m = axes || [0, 1, 2]
+  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb')
+}
+
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
 /**
  * Print-bed aware box: anything longer or wider than the bed becomes a grid of

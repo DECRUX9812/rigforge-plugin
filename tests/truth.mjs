@@ -871,11 +871,11 @@ check('buried parts: internals are not hidden inside printed solids', () => {
 // it as placed nodes — a BOM line with no geometry is a lie the render tells.
 check('electronics: BOM brains exist as placed geometry in every preset', () => {
   const EXPECTED = {
-    rover: ['esp32', 'imu', 'tof-drop'],
-    quadruped: ['imu', 'esp32'],
-    arm: ['pca9685', 'esp32'],
-    gripper: ['pca9685', 'esp32'],
-    humanoid: ['tof', 'imu'],
+    rover: ['esp32', 'imu', 'tof-drop', 'bts7960-a', 'bts7960-b', 'buck5a'],
+    quadruped: ['imu', 'esp32', 'pca9685-a', 'pca9685-b', 'buck5a-a', 'buck5a-b'],
+    arm: ['pca9685', 'esp32', 'buck5a'],
+    gripper: ['esp32', 'bus-adapter', 'buck5a', 'enc-pcb'],
+    humanoid: ['tof', 'imu', 'esp32', 'bus-adapter-a', 'bus-adapter-b', 'buck5a-a', 'buck5a-b', 'buck5a-c'],
     robot: ['imu', 'pca9685', 'esp32', 'bts7960', 'buck5a-a', 'buck5a-b'], // avionics/pack-box/tof/cam predate this check
     gantry: ['esp32', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'buck5a'],
   }
@@ -896,11 +896,11 @@ check('electronics: BOM brains exist as placed geometry in every preset', () => 
 // pose preset is a real collision, not a mount contact.
 check('electronics: BOM parts stay clear of the mechanism at every pose', () => {
   const EXPECTED = {
-    rover: ['esp32', 'imu', 'tof-drop'],
-    quadruped: ['imu', 'esp32'],
-    arm: ['pca9685', 'esp32'],
-    gripper: ['pca9685', 'esp32'],
-    humanoid: ['tof', 'imu'],
+    rover: ['esp32', 'imu', 'tof-drop', 'bts7960-a', 'bts7960-b', 'buck5a'],
+    quadruped: ['imu', 'esp32', 'pca9685-a', 'pca9685-b', 'buck5a-a', 'buck5a-b'],
+    arm: ['pca9685', 'esp32', 'buck5a'],
+    gripper: ['esp32', 'bus-adapter', 'buck5a', 'elec-plate'],
+    humanoid: ['tof', 'imu', 'esp32', 'bus-adapter-a', 'bus-adapter-b', 'buck5a-a', 'buck5a-b', 'buck5a-c'],
     robot: ['imu', 'pca9685', 'esp32', 'bts7960', 'buck5a-a', 'buck5a-b'],
     gantry: ['ctrl-base', 'ctrl-wall-y-1', 'ctrl-wall-y1', 'ctrl-wall-x-1', 'ctrl-wall-x1', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'esp32', 'buck5a'],
   }

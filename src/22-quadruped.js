@@ -21,8 +21,14 @@ function buildQuadruped(brief) {
   // the BOM's brains are real parts: IMU centered on the spine shelf for
   // body attitude, controller board on the body top outboard of the spine
   const bodyTop = z0 + bodyH / 2
-  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
-  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
+  elec(d, 'imu', 'bno085', [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5])
+  // the BOM's driver boards at catalog dims: two PCA9685 on the pack lid,
+  // two UBECs on the body-top front strip clear of spine and pack
+  elec(d, 'pca9685-a', 'pca9685', [-20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'pca9685-b', 'pca9685', [20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'buck5a-a', 'buck5a', [-25, 57, bodyTop + 6])
+  elec(d, 'buck5a-b', 'buck5a', [25, 57, bodyTop + 6])
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
