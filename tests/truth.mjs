@@ -885,6 +885,57 @@ check('electronics: BOM brains exist as placed geometry in every preset', () => 
   return `${Object.keys(EXPECTED).length} presets expose their BOM electronics as nodes`
 })
 
+// ── 23f. electronics stay clear at every named pose ────────────────────────
+// The IMU first shipped buried inside the humanoid torso — rest-pose probes
+// missed it. Electronics are fixed to the airframe, so any overlap at ANY
+// pose preset is a real collision, not a mount contact.
+check('electronics: BOM parts stay clear of the mechanism at every pose', () => {
+  const EXPECTED = {
+    rover: ['esp32', 'imu', 'tof-drop'],
+    quadruped: ['imu', 'esp32'],
+    arm: ['pca9685', 'esp32'],
+    gripper: ['pca9685', 'esp32'],
+    humanoid: ['tof', 'imu'],
+    robot: ['imu'],
+    gantry: ['ctrl-box'],
+  }
+  const bbOf = (design, chains, n) => {
+    const w = A.benchNodeWorld(design, chains, n)
+    let sx, sy, sz
+    if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring') {
+      const r = n.radius || n.outer || 10
+      const h = n.height || n.outer || 10
+      if (n.axis === 'x') { sx = h; sy = 2 * r; sz = 2 * r } else if (n.axis === 'y') { sx = 2 * r; sy = h; sz = 2 * r } else { sx = 2 * r; sy = 2 * r; sz = h }
+    } else { [sx, sy, sz] = n.size || [10, 10, 10] }
+    return { x0: w[0] - sx / 2, y0: w[1] - sy / 2, z0: w[2] - sz / 2, x1: w[0] + sx / 2, y1: w[1] + sy / 2, z1: w[2] + sz / 2 }
+  }
+  const hits = []
+  for (const [arch, ids] of Object.entries(EXPECTED)) {
+    const p = A.PRESETS.find((x) => x.brief.archetype === arch)
+    const { design } = A.composeDesign({ ...p.brief })
+    const chains = A.chainsFor(design)
+    const poses = [null, ...(A.POSE_PRESETS[arch] || []).map((x) => x.name)]
+    for (const pose of poses) {
+      design.joints.forEach((j) => { j.angle = 0 })
+      if (pose) {
+        const a = A.applyPosePreset(design, pose, null)
+        if (a) design.joints.forEach((j, i) => { if (a[i] != null) j.angle = a[i] })
+      }
+      const all = design.nodes.map((n) => ({ n, b: bbOf(design, chains, n) }))
+      for (const c of all.filter((x) => ids.includes(x.n.id))) {
+        for (const o of all) {
+          if (o.n.id === c.n.id) continue
+          const b = c.b, q = o.b
+          if (b.x0 < q.x1 && b.x1 > q.x0 && b.y0 < q.y1 && b.y1 > q.y0 && b.z0 < q.z1 && b.z1 > q.z0)
+            hits.push(`${arch}:${pose || 'rest'} ${c.n.id}×${o.n.id}`)
+        }
+      }
+    }
+  }
+  assert(!hits.length, `electronics hit the mechanism: ${hits.slice(0, 8).join(' · ')}`)
+  return 'electronics clear of the mechanism at rest and every pose preset'
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
