@@ -1339,12 +1339,20 @@ function Studio() {
     // printed machine wants STLs, a board wants the fab/assembly three files.
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
-      : [`Print pack · per-part STLs${packPlates > 1 ? ` + ${packPlates} plate-ready 3MFs` : ''} (zip)`, () => {
+      : [`Print pack · per-part STLs${packPlates > 1 ? ` + ${packPlates} plate-ready 3MFs + plate map` : ''} (zip)`, () => {
         const entries = printedPartSTLs(design)
         const mat = analysis.print && analysis.print.material
         for (let p = 0; p < packPlates; p++) {
           const b = to3MF(design, mat, p)
           if (b) entries.push({ name: `${fileBase}-plate${p + 1}.3mf`, buf: b })
+        }
+        if (packPlates > 1) {
+          // part→plate map for anyone slicing the loose STLs themselves —
+          // the 3MFs already group, but STL users need the same answer
+          const plateOf = new Map((analysis.print.pack.items || []).map((it) => [it.id, it.plate + 1]))
+          const rows = ['part,plate']
+          for (const n of design.nodes) if (n.print) rows.push(`${slug(n.id)},${plateOf.get(n.id) || '?'}`)
+          entries.push({ name: 'plates.csv', buf: rows.join('\n') })
         }
         download(`${fileBase}-printpack.zip`, zipStore(entries), 'application/zip')
       }],
