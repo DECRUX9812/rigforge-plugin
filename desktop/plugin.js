@@ -4266,6 +4266,20 @@ function boxTris(sx, sy, sz) {
  * Chamfered box: each corner cut at distance r along its three edges.
  * 6 octagonal faces + 12 edge chamfers + 8 corner triangles — the machined look.
  */
+// Convex shapes centred on the origin: a face's outward normal always has
+// positive dot with its centroid — flip stragglers so winding is uniform.
+// Generators can't be trusted per-axis (cyl caps wind inward off-axis).
+function orientTrisOutward(tris) {
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+  const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+  for (const t of tris) {
+    const n = cr(sub(t[1], t[0]), sub(t[2], t[0]))
+    const g = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3]
+    if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) { const tmp = t[1]; t[1] = t[2]; t[2] = tmp }
+  }
+  return tris
+}
+
 function rboxTris(sx, sy, sz, r) {
   const rr = Math.min(r, Math.min(sx, sy, sz) * 0.45)
   const ix = sx - rr, iy = sy - rr, iz = sz - rr
@@ -4290,16 +4304,7 @@ function rboxTris(sx, sy, sz, r) {
     quad([sxn * sx, syn * iy, -iz], [sxn * sx, syn * iy, iz], [sxn * ix, syn * sy, iz], [sxn * ix, syn * sy, -iz])
   for (const sxn of [-1, 1]) for (const syn of [-1, 1]) for (const szn of [-1, 1])
     tris.push([[sxn * ix, syn * iy, szn * sz], [sxn * ix, syn * sy, szn * iz], [sxn * sx, syn * iy, szn * iz]])
-  // convex and centred on the origin: a face's outward normal always has
-  // positive dot with its centroid — flip stragglers so winding is uniform
-  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-  const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-  for (const t of tris) {
-    const n = cr(sub(t[1], t[0]), sub(t[2], t[0]))
-    const g = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3, (t[0][2] + t[1][2] + t[2][2]) / 3]
-    if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] < 0) { const tmp = t[1]; t[1] = t[2]; t[2] = tmp }
-  }
-  return tris
+  return orientTrisOutward(tris)
 }
 
 /** Triangular prism: tall face on the dir side, hypotenuse falling away. */
@@ -4428,33 +4433,45 @@ function sphereTris(r) {
   return tris
 }
 
-/** Spur gear: root disc + tooth boxes around it. */
+/** Spur gear: trapezoid-tooth profile extruded — one clean solid. The old
+ *  build fused a root disc with penetrating tooth boxes: intersecting
+ *  surfaces, non-manifold edges, BRepCheck-invalid solids. */
 function gearTris(m, teeth, width, axis) {
-  const tris = []
-  const pitchR = (m * teeth) / 2
-  const rootR = Math.max(1, pitchR - 1.1 * m)
+  const T = Math.max(3, Math.round(teeth))
+  const pitchR = (m * T) / 2
+  const rootR = Math.max(0.5, pitchR - 1.1 * m)
   const tipR = pitchR + 0.85 * m
   const hh = width / 2
-  tris.push(...cylTris(rootR, hh, axis, Math.max(teeth * 2, 16)))
-  // hub bore suggestion: darker inner disc is skipped — a bore ring costs tris
-  const tw = Math.max(0.7, m * 0.85) // tooth thickness (tangential)
-  const th = tipR - rootR + m * 0.4  // tooth radial depth
-  for (let i = 0; i < teeth; i += 1) {
-    const a = (i / teeth) * Math.PI * 2
-    const cx = Math.cos(a) * (rootR + th / 2 - m * 0.2)
-    const cy = Math.sin(a) * (rootR + th / 2 - m * 0.2)
-    const tooth = boxTris(th / 2, tw / 2, hh * 0.92)
-    for (const t of tooth) {
-      tris.push(t.map((p) => {
-        // local tooth box points radially along +x before spin to angle a
-        const x = p[0]; const y = p[1]; const z = p[2]
-        const rx = x * Math.cos(a) - y * Math.sin(a) + cx
-        const ry = x * Math.sin(a) + y * Math.cos(a) + cy
-        if (axis === 'z') return [rx, ry, z]
-        if (axis === 'y') return [rx, z, ry]
-        return [z, ry, rx]
-      }))
-    }
+  const mm = Math.max(0.2, m)
+  // outline: 4 pts per tooth — root/tip flanks at angular half-widths scaled
+  // by radius so tooth thickness stays credible at root and tip
+  const aPitch = Math.PI / (2 * T)              // half-thickness angle at pitch
+  const aRoot = Math.min(aPitch * pitchR / rootR, (Math.PI / T) * 0.42)
+  const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
+  const outline = []
+  for (let i = 0; i < T; i += 1) {
+    const a = (i / T) * Math.PI * 2
+    outline.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
+    outline.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
+    outline.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
+    outline.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
+  }
+  const N = outline.length
+  // proper rotations only (det=+1) — a mirrored map flips every face inward
+  const map = (x, y, z) => axis === 'z' ? [x, y, z] : axis === 'y' ? [x, z, -y] : [z, x, y]
+  const tris = []
+  // caps: fan from centre — outline is star-shaped about the origin
+  for (let i = 0; i < N; i += 1) {
+    const j = (i + 1) % N
+    tris.push([map(0, 0, hh), map(outline[i][0], outline[i][1], hh), map(outline[j][0], outline[j][1], hh)])
+    tris.push([map(0, 0, -hh), map(outline[j][0], outline[j][1], -hh), map(outline[i][0], outline[i][1], -hh)])
+  }
+  // sides: one quad per outline edge
+  for (let i = 0; i < N; i += 1) {
+    const j = (i + 1) % N
+    const a = outline[i]; const b = outline[j]
+    tris.push([map(a[0], a[1], -hh), map(b[0], b[1], -hh), map(b[0], b[1], hh)])
+    tris.push([map(a[0], a[1], -hh), map(b[0], b[1], hh), map(a[0], a[1], hh)])
   }
   return tris
 }
@@ -4586,6 +4603,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'mesh': local = importedMeshTris(node); break
     default: local = []
   }
+  if (CONVEX_KINDS.has(node.kind)) local = orientTrisOutward(local)
   for (const t of local) push(t[0], t[1], t[2])
   return tris
 }
