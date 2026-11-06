@@ -9,7 +9,7 @@ a complete machine from one brief:
 
 | | |
 |---|---|
-| geometry | posed 3D assembly, orbit/zoom, joint sliders, real forward kinematics, exploded view |
+| geometry | posed 3D assembly, orbit/zoom, joint sliders, real forward kinematics, exploded view, **click any part to inspect it**, studio-lit renderer with environment reflections and baked contact occlusion |
 | mechanics | joint torque cascade → servo/belt-stage selection, wheel torque → motor choice, link bending + deflection |
 | power | per-rail typical and stall current → pack → runtime, wire gauge, fuse and connector sizing |
 | electronics | pin map that refuses strapping pins and the flash bus, PCA9685 channels, UART bus reservation |
@@ -88,7 +88,7 @@ Every claim above is backed by a gate that can fail. These run by hand
 
 | gate | what it asserts | current |
 |---|---|---|
-| `tests/truth.mjs` | 66 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness/interference, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, honest refusals | **66/66** |
+| `tests/truth.mjs` | 67 engine claims: cost/mass/print arithmetic recomputed from the parts table, STL + 3MF + GLB + STEP structure, plate-aware packing, DFM overhang/brim/wall-thickness/interference, kinematics, autopilot certification (including gantry slide-axis legs), spec-driven custom machines, baked-AO determinism, honest refusals | **67/67** |
 | `tests/render-ssr.mjs` | every spec tab mounts through real React 19 SSR | **clean** |
 | `tests/layout-widths.mjs` | no sideways scroll at laptop/tablet/phone widths | **clean** |
 | `tests/export-sweep.mjs` | every Export-menu entry downloads the right type | **clean** |
@@ -187,6 +187,7 @@ src/35-firmware.js    Arduino generation + assembly steps
 src/40-geometry.js    FK pass, meshes, STL / 3MF / GLB / STEP / OpenSCAD / markdown / CSV exporters, bed packing, DFM overhang + wall thickness + rest-pose interference
 src/41-bench.js       statics: CoM, support polygon, slope tip-over, torque vs stall, CCD IK
 src/41-sim-export.js  URDF + MJCF export for ROS / MuJoCo / PyBullet
+src/42-ao.js          baked vertex ambient occlusion — CPU ray bake, BVH, per-corner 0..1
 src/42-physics.js     joint dynamics: servo-speed slew, stall sag, thermal, bus current
 src/43-drive.js       wheeled chassis: traction, grade, payload, shove, stairs/room courses
 src/43-teleop.js      drive / IK-reach / gait-locomote / grip / sensor / gantry-slide teleop + AUTO scripts
@@ -195,7 +196,7 @@ src/44-share.js       build codes (RF1-…), encode/decode
 src/45-compose.js     brief parsing, presets, agent prompt, directive parsing
 src/46-autotest.js    certification suites per machine kind
 src/50-viewport.js    viewport shell
-src/51-gl.js          WebGL2 renderer: shadow map, GGX, layer lines, ACES (2D canvas fallback)
+src/51-gl.js          WebGL2 renderer: shadow map, GGX, env probe, baked AO, ray-pick inspect, ACES (2D canvas fallback)
 src/55-styles.js      the studio's palette + element factory
 src/parts-bracket.js  imported CAD mesh (Sand3D) as a real printable part
 src/56-panels.js      the eight spec tabs
@@ -217,7 +218,7 @@ node tests/shoot.mjs            # headless screenshots of every tab
 node tests/shots-docs.mjs       # the README screenshots, current UI
 node tests/capture-v4.mjs       # 1080p footage for the demo films
 node tests/functional.mjs       # pose a joint, export an STL, verify the bytes
-node tests/truth.mjs            # 66 behaviour-contract claims — the numbers must stay honest
+node tests/truth.mjs            # 67 behaviour-contract claims — the numbers must stay honest
 node tests/layout-widths.mjs    # no overflow at laptop/tablet/phone widths
 HERMES_HOME=$(mktemp -d) python3 tests/agent_half.py   # tools, store, HTTP routes
 ```
