@@ -56,6 +56,8 @@ uniform vec3 uRimColor;
 uniform vec3 uSkyColor;
 uniform vec3 uGroundColor;
 uniform sampler2D uShadow;
+uniform sampler2D uEnv;
+uniform float uUseEnv;
 uniform float uShadowTexel;
 uniform float uHasShadow;
 
@@ -65,6 +67,32 @@ vec3 aces(vec3 x) {
   float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
+// cheap value noise: three octaves is enough to break up a perfectly flat
+// surface without looking like sandpaper
+float hash31(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float n000 = hash31(i);
+  float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+  float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+  float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+  float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+  float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+  float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+  float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+  return mix(
+    mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+    mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+    f.z
+  );
+}
+
 vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
 }
@@ -75,16 +103,28 @@ float shadowFactor(vec3 n) {
   proj = proj * 0.5 + 0.5;
   if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
   float bias = max(0.0015 * (1.0 - dot(n, uKeyDir)), 0.0004);
+  // Three rings of taps: a studio key has a real penumbra, and a 5x5 grid at
+  // this map resolution reads as a stencil.
+  // Nine taps in two rings, rotated per pixel so the pattern does not read as a
+  // grid, and stretched along the shadow texel so the penumbra stays wide. The
+  // earlier 5x5 version cost 25 texture fetches per fragment: on a software GL
+  // stack that is 4 fps, which is not a renderer anyone can use.
+  float ang = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float ca = cos(ang);
+  float sa = sin(ang);
+  mat2 rot = mat2(ca, -sa, sa, ca);
   float sum = 0.0;
   float wsum = 0.0;
-  for (int x = -2; x <= 2; x++) {
-    for (int y = -2; y <= 2; y++) {
-      vec2 off = vec2(float(x), float(y)) * uShadowTexel * 2.6;
-      float d = texture(uShadow, proj.xy + off).r;
-      float w = 1.0 / (1.0 + float(x * x + y * y));
-      sum += ((proj.z - bias) > d ? 0.0 : 1.0) * w;
-      wsum += w;
-    }
+  for (int i = 0; i < 9; i++) {
+    float fi = float(i);
+    // ring 0 = centre, 1..4 inner ring, 5..8 outer ring (Vogel-ish spacing)
+    float rad = i == 0 ? 0.0 : (i < 5 ? 1.9 : 4.4);
+    float th = i == 0 ? 0.0 : (fi * 2.3999632) + ang;
+    vec2 off = (rot * vec2(cos(th), sin(th))) * rad * uShadowTexel * 1.35;
+    float d = texture(uShadow, proj.xy + off).r;
+    float w = rad < 1.0 ? 1.0 : (rad < 2.0 ? 0.85 : 0.55);
+    sum += ((proj.z - bias * 1.6) > d ? 0.0 : 1.0) * w;
+    wsum += w;
   }
   return sum / wsum;
 }
@@ -105,6 +145,7 @@ void main() {
   vec3 n = normalize(vNormal);
   vec3 v = normalize(uEye - vWorld);
   vec3 albedo = vMat.rgb;
+  float rough = clamp(vSurf.x, 0.06, 1.0);
 
   // FDM layer lines: a 0.2 mm sawtooth on world Z, faded out where the stripes
   // fall below a pixel (fwidth) so a zoomed-out view never turns to moiré. This
@@ -116,8 +157,19 @@ void main() {
     float w = fwidth(zz);
     float vis = clamp(1.0 - w * 1.6, 0.0, 1.0);
     albedo *= 1.0 + (f - 0.5) * 0.22 * vis;
+
+    // macro surface: a printed wall is never perfectly flat. A slow noise term
+    // tilts the normal a couple of degrees and lifts the roughness slightly, so
+    // the part reads as a moulded object rather than a flat-shaded solid.
+    float grain = vnoise(vWorld * 0.35) - 0.5;
+    vec3 jitter = vec3(
+      vnoise(vWorld * 0.35 + vec3(11.0, 0.0, 0.0)) - 0.5,
+      vnoise(vWorld * 0.35 + vec3(0.0, 13.0, 0.0)) - 0.5,
+      vnoise(vWorld * 0.35 + vec3(0.0, 0.0, 17.0)) - 0.5
+    );
+    n = normalize(n + jitter * 0.10);
+    rough = clamp(rough + grain * 0.06, 0.05, 1.0);
   }
-  float rough = clamp(vSurf.x, 0.06, 1.0);
   float metal = clamp(vSurf.y, 0.0, 1.0);
   float glow = vMat.a;
 
@@ -134,7 +186,12 @@ void main() {
   // Ambient is a fill, not the light: too much of it desaturates every filament
   // toward white and the machine reads as clay again.
   float up = n.z * 0.5 + 0.5;
-  vec3 ambient = mix(uGroundColor, uSkyColor, up) * albedo * (0.22 + 0.26 * shade);
+  vec3 skyTerm = mix(uGroundColor, uSkyColor, up);
+  if (uUseEnv > 0.5) {
+    vec2 auv = vec2(atan(n.y, n.x) / 6.2831853 + 0.5, acos(clamp(n.z, -1.0, 1.0)) / 3.1415927);
+    skyTerm = textureLod(uEnv, auv, 7.0).rgb;
+  }
+  vec3 ambient = skyTerm * albedo * (0.22 + 0.26 * shade);
 
   float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
   vec3 sheen = mix(uSkyColor, vec3(0.8), 0.35) * fres * (0.55 - 0.35 * rough) * (1.0 - metal);
@@ -145,7 +202,36 @@ void main() {
     + uFillColor * spec(n, uFillDir, v, rough) * fill * (0.25 + 0.4 * metal)
     + uRimColor * rim * (0.25 + 0.75 * metal) * 0.9;
 
-  vec3 color = diffuse + ambient + specular + albedo * glow;
+  // environment: an equirectangular studio probe, sampled along the reflection
+  // vector with a mip chosen from roughness. That is what makes a rough plastic
+  // pick up a soft sheen and a polished bolt pick up the softbox as a shape,
+  // instead of both getting the same analytic blob.
+  vec3 R = reflect(-v, n);
+  vec2 ruv = vec2(atan(R.y, R.x) / 6.2831853 + 0.5, acos(clamp(R.z, -1.0, 1.0)) / 3.1415927);
+  float lod = clamp(rough * 7.0, 0.0, 7.0);
+  vec3 env = textureLod(uEnv, ruv, lod).rgb;
+  if (uUseEnv < 0.5) {
+    float sky = smoothstep(-0.55, 0.75, R.z);
+    env = mix(uGroundColor * 1.7, uSkyColor * 3.4, sky);
+  }
+  // a small analytic kicker on top of the probe: the probe is 256 px wide, so a
+  // crisp highlight on a bolt has to be added rather than sampled
+  env += uKeyColor * pow(max(dot(R, uKeyDir), 0.0), 120.0) * 1.6;
+  // The probe is painted in sRGB and it is a *light source*, so decode it and
+  // give it radiance. Dielectrics reflect through Fresnel (almost nothing head
+  // on, a lot at grazing angles), metals reflect everything — that curve is what
+  // puts a real edge highlight on a silhouette.
+  vec3 envLin = pow(max(env, vec3(0.0)), vec3(2.2)) * 6.0;
+  float fresnelEnv = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  vec3 reflection = envLin * mix(fresnelEnv, 1.0, metal) * (1.0 - rough * 0.55);
+
+  // Bounce: the floor throws light back up at everything, tinted by what the
+  // machine is made of. Without it the underside of every part is dead black and
+  // the assembly reads as separate floating blocks.
+  float underside = clamp(-n.z * 0.5 + 0.5, 0.0, 1.0);
+  vec3 bounce = uGroundColor * albedo * underside * 1.4;
+
+  vec3 color = diffuse + ambient + specular + reflection + bounce + albedo * glow;
   color = aces(color * 1.0);
   fragColor = vec4(toSRGB(color), 1.0);
 }`
@@ -171,6 +257,8 @@ in vec3 vWorld;
 in vec4 vLightPos;
 uniform vec3 uEye;
 uniform sampler2D uShadow;
+uniform sampler2D uEnv;
+uniform float uUseEnv;
 uniform float uShadowTexel;
 uniform float uHasShadow;
 uniform vec3 uPlateColor;
@@ -179,6 +267,32 @@ uniform float uGridMm;
 uniform float uContactMm;
 uniform float uShowGrid;
 out vec4 fragColor;
+
+// cheap value noise: three octaves is enough to break up a perfectly flat
+// surface without looking like sandpaper
+float hash31(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec3 x) {
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float n000 = hash31(i);
+  float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+  float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+  float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+  float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+  float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+  float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+  float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+  return mix(
+    mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+    mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+    f.z
+  );
+}
 
 vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
@@ -219,6 +333,9 @@ void main() {
   fragColor = vec4(base, fade);
 }`
 
+// Screen-space ambient occlusion. Twelve taps on a spiral inside a hemisphere,
+// compared in view space: this is what puts dark contact in the corners where a
+// servo meets a plate, which flat shading cannot fake at any light count.
 const DEPTH_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
@@ -251,6 +368,67 @@ vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(max(c, 0.0), vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
 }
 void main() { fragColor = vec4(toSRGB(aces(vCol * 1.5)), 0.9); }`
+
+/**
+ * A studio environment probe, painted once into an equirectangular canvas and
+ * uploaded with mipmaps. Two soft boxes, a cool rim strip, a warm floor bounce
+ * and a gradient sky: enough that reflections carry a *shape*, which is the
+ * difference between "shiny" and "reflective". No external HDRI to download,
+ * which also keeps the plugin offline.
+ */
+function studioEnv(gl) {
+  const W = 256
+  const H = 128
+  const cv = document.createElement('canvas')
+  cv.width = W
+  cv.height = H
+  const g = cv.getContext('2d')
+
+  // sky → horizon → floor
+  const sky = g.createLinearGradient(0, 0, 0, H)
+  sky.addColorStop(0.0, '#8fa2b8')
+  sky.addColorStop(0.45, '#5b6b80')
+  sky.addColorStop(0.52, '#2a3543')
+  sky.addColorStop(1.0, '#12171d')
+  g.fillStyle = sky
+  g.fillRect(0, 0, W, H)
+
+  // key soft box: broad, warm, upper left
+  const key = g.createRadialGradient(W * 0.30, H * 0.22, 2, W * 0.30, H * 0.22, W * 0.24)
+  key.addColorStop(0, 'rgba(255,246,232,1)')
+  key.addColorStop(0.45, 'rgba(255,238,214,0.55)')
+  key.addColorStop(1, 'rgba(255,236,210,0)')
+  g.fillStyle = key
+  g.fillRect(0, 0, W, H)
+
+  // fill soft box: cooler, wider, right
+  const fill = g.createRadialGradient(W * 0.72, H * 0.30, 2, W * 0.72, H * 0.30, W * 0.28)
+  fill.addColorStop(0, 'rgba(198,224,255,0.85)')
+  fill.addColorStop(0.5, 'rgba(170,205,240,0.30)')
+  fill.addColorStop(1, 'rgba(160,200,240,0)')
+  g.fillStyle = fill
+  g.fillRect(0, 0, W, H)
+
+  // rim strip behind the machine: a thin cool band, which is what draws an edge
+  // highlight along a silhouette
+  const strip = g.createLinearGradient(W * 0.44, 0, W * 0.52, 0)
+  strip.addColorStop(0, 'rgba(120,200,230,0)')
+  strip.addColorStop(0.5, 'rgba(140,215,240,0.75)')
+  strip.addColorStop(1, 'rgba(120,200,230,0)')
+  g.fillStyle = strip
+  g.fillRect(W * 0.44, H * 0.22, W * 0.08, H * 0.30)
+
+  const tex = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv)
+  gl.generateMipmap(gl.TEXTURE_2D)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  return tex
+}
 
 function compile(gl, type, src) {
   const sh = gl.createShader(type)
@@ -309,6 +487,40 @@ const M4 = {
     return o
   },
 }
+M4.inverse = (m) => {
+  const o = new Float32Array(16)
+  const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3]
+  const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7]
+  const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11]
+  const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15]
+  const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10
+  const b02 = a00 * a13 - a03 * a10, b03 = a01 * a12 - a02 * a11
+  const b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12
+  const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30
+  const b08 = a20 * a33 - a23 * a30, b09 = a21 * a32 - a22 * a31
+  const b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32
+  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
+  if (!det) return M4.ident()
+  det = 1 / det
+  o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det
+  o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det
+  o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det
+  o[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det
+  o[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det
+  o[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det
+  o[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det
+  o[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det
+  o[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det
+  o[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det
+  o[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det
+  o[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det
+  o[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det
+  o[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det
+  o[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det
+  o[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det
+  return o
+}
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -359,6 +571,9 @@ function createGLRenderer(canvas) {
   }
   globalThis.__rfGL = 'ok'
 
+  let envTex = null
+  try { envTex = studioEnv(gl) } catch (e) { envTex = null }
+
   const vao = gl.createVertexArray()
   const vbo = gl.createBuffer()
   const ibo = gl.createBuffer()
@@ -385,6 +600,7 @@ function createGLRenderer(canvas) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
 
   const uni = (p, name) => gl.getUniformLocation(p, name)
+
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -578,7 +794,7 @@ function createGLRenderer(canvas) {
 
       gl.disable(gl.POLYGON_OFFSET_FILL)
 
-      // 2) main pass
+      // 3) main pass
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, w, h)
       gl.clearColor(0, 0, 0, 0)
@@ -624,6 +840,14 @@ function createGLRenderer(canvas) {
       gl.uniform1i(uni(meshProg, 'uShadow'), 0)
       gl.uniform1f(uni(meshProg, 'uShadowTexel'), 1 / SHADOW)
       gl.uniform1f(uni(meshProg, 'uHasShadow'), 1)
+      if (envTex) {
+        gl.activeTexture(gl.TEXTURE4)
+        gl.bindTexture(gl.TEXTURE_2D, envTex)
+        gl.uniform1i(uni(meshProg, 'uEnv'), 4)
+        gl.uniform1f(uni(meshProg, 'uUseEnv'), 1)
+      } else {
+        gl.uniform1f(uni(meshProg, 'uUseEnv'), 0)
+      }
       gl.bindVertexArray(vao)
       gl.drawArrays(gl.TRIANGLES, 0, count)
       gl.bindVertexArray(null)
