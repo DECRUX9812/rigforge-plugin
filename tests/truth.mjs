@@ -808,6 +808,52 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
   return '43 kind×axis cases: watertight, consistently oriented, positive volume'
 })
 
+// ── 23d. buried parts: no internals hidden inside printed solids ────────────
+// iot's tray and gadget's case were solid blocks with every internal part
+// inside them — invisible displays, unassemblable "cases". A part's centre
+// inside a printed solid's bbox means it's buried unless it's a fastener,
+// a jointed mechanism relative, or inside a hollow ring.
+check('buried parts: internals are not hidden inside printed solids', () => {
+  const bb = (tris) => {
+    const min = [1e9, 1e9, 1e9]; const max = [-1e9, -1e9, -1e9]
+    for (const t of tris) for (const p of t.pts || t) for (let i = 0; i < 3; i += 1) {
+      min[i] = Math.min(min[i], p[i]); max[i] = Math.max(max[i], p[i])
+    }
+    return { min, max }
+  }
+  const volOf = (b) => (b.max[0] - b.min[0]) * (b.max[1] - b.min[1]) * (b.max[2] - b.min[2])
+  const HOLLOW = new Set(['ring', 'torus', 'bend'])
+  const bad = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    const byNode = new Map()
+    for (const t of A.buildMesh(design)) {
+      if (!byNode.has(t.node)) byNode.set(t.node, [])
+      byNode.get(t.node).push(t)
+    }
+    const boxes = new Map()
+    for (const [id, tris] of byNode) boxes.set(id, bb(tris))
+    for (const [outerId, o] of boxes) {
+      const outer = design.nodes.find((n) => n.id === outerId)
+      if (!outer || !outer.print || HOLLOW.has(outer.kind) || volOf(o) < 20000) continue
+      for (const [innerId, ib] of boxes) {
+        if (innerId === outerId) continue
+        const inner = design.nodes.find((n) => n.id === innerId)
+        // jointed/slide relatives nest by design (carriage in mount, shaft in
+        // clamp, leg in body); hollow kinds' bbox centres are empty space
+        if (!inner || inner.joint || inner.slide || HOLLOW.has(inner.kind) || volOf(ib) < 800) continue
+        // fully contained, not merely centred inside — a bushing around an
+        // axle at a rail's end pokes out both faces and is not "buried"
+        const m = 0.5
+        const buried = ib.min.every((v, i) => v > o.min[i] + m) && ib.max.every((v, i) => v < o.max[i] - m)
+        if (buried) bad.push(`${p.id}:${outerId}~${innerId}`)
+      }
+    }
+  }
+  assert(!bad.length, `parts buried inside printed solids: ${bad.join(' · ')}`)
+  return 'no internals hidden inside printed solids across all presets'
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
