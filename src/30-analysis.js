@@ -429,14 +429,22 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
-  // the pack as a whole: per-part fit is not plate fit — shelf packing can
-  // still run off the bed in depth, and the 3MF ships exactly this layout
+  // the pack as a whole: per-part fit is not plate fit. Two honest cases —
+  // parts that can't sit on ANY plate (split or bigger bed), and packs that
+  // simply need more than one print job (per-plate 3MFs ship in the ZIP).
   const pack = packBedLayout(design, design.brief && design.brief.bedMm)
   if (pack.items.length && pack.offBed) {
     checks.push({
       level: 'warn',
-      msg: `The print pack needs ~${pack.plates} plate(s) on a ${pack.bed}mm bed — ${pack.offBed} of ${pack.items.length} parts land off the printable square in the 3MF. Print in batches from the STL pack, or pick a bigger bed.`,
+      msg: `${pack.offBed} of ${pack.items.length} printed parts are bigger than the ${pack.bed}mm bed's usable square — they can't print on any plate. Split them in CAD or pick a bigger bed.`,
     })
+  } else if (pack.items.length && pack.plates > 1) {
+    checks.push({
+      level: 'warn',
+      msg: `The print pack needs ~${pack.plates} plates on a ${pack.bed}mm bed — ${pack.items.length} parts in batches. The print-pack ZIP ships one ready-to-slice 3MF per plate.`,
+    })
+  } else if (pack.items.length) {
+    checks.push({ level: 'ok', msg: `All ${pack.items.length} printed parts fit a single ${pack.bed}mm plate.` })
   }
   const overhang = overhangReport(design)
   if (overhang.unsupportedMm2 > 150) {

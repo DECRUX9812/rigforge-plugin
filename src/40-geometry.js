@@ -785,41 +785,76 @@ function printReadyTris(tris) {
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**
- * Shelf-pack every printed node onto a bed of bedMm — the exact layout the
- * 3MF export ships, now bed-aware. Returns per-part bed-space rects, the
- * 3MF transform offsets, an offBed flag for anything past the usable
- * square, and the plate count a slicer would actually need. Items are
- * never dropped: off-bed parts stay in the file so the user sees them.
+ * Shelf-pack every printed node onto plates of bedMm — the exact layout the
+ * 3MF export ships, bed-aware and plate-aware. Each item gets a 0-based
+ * `plate` and plate-local bed coords in `rect`; `offBed` marks parts whose
+ * footprint can't sit on ANY plate (bigger than the usable square), as
+ * opposed to parts that simply need a second plate. Nothing is dropped.
  */
 function packBedLayout(design, bedMm) {
   const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
   const usable = bed - 8, GAP = 8
-  const items = []
-  let cx = 10, cy = 10, rowH = 0
-  for (const node of design.nodes) {
-    if (!node.print) continue
+  // measure every printed part first, then place biggest-footprint-first —
+  // design order leaves half-empty rows; sorted order is what a slicer's
+  // own arranger would do and it measurably cuts the plate count.
+  const pending = []
+  design.nodes.forEach((node, ord) => {
+    if (!node.print) return
     let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
     if (CONVEX_KINDS.has(node.kind)) raw = orientConvex(raw)
     const tris = printReadyTris(raw)
-    if (!tris.length) continue
+    if (!tris.length) return
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
     for (const t of tris) for (const p of t.pts) {
       if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0]
       if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
     }
-    const w = maxx - minx, d = maxy - miny
-    if (cx + w > usable && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
-    items.push({
-      id: node.id, tris,
-      x: cx - minx, y: cy - miny,          // 3MF transform offsets
-      rect: { x: cx, y: cy, w, d },        // bed-space footprint, mm
-      offBed: cx + w > usable || cy + d > usable,
-    })
-    cx += w + GAP
-    rowH = Math.max(rowH, d)
+    pending.push({ node, tris, minx, miny, w: maxx - minx, d: maxy - miny, ord })
+  })
+  // shelf-pack each ordering and keep the best — the measurement pass above
+  // dominates the cost, placement is nearly free, and no single sort key wins
+  // on every machine. Score: fewest plates, then tightest last plate.
+  const place = (sorted) => {
+    const items = []
+    let plate = 0, cx = 10, cy = 10, rowH = 0
+    const newRow = () => { cx = 10; cy += rowH + GAP; rowH = 0 }
+    const newPlate = () => { plate += 1; cx = 10; cy = 10; rowH = 0 }
+    for (const { node, tris, minx, miny, w, d } of sorted) {
+      // bigger than the usable square → can't print on any plate. Flag it and
+      // keep it in the flow (still visible in the file) without letting it
+      // start plates or corrupt the packing of parts that do fit.
+      const tooBig = w > usable - 10 || d > usable - 10
+      if (!tooBig) {
+        if (cx + w > usable) newRow()
+        if (cy + Math.max(rowH, d) > usable) newPlate()
+      }
+      items.push({
+        id: node.id, tris,
+        x: cx - minx, y: cy - miny,        // 3MF transform offsets (plate-local)
+        plate,
+        rect: { x: cx, y: cy, w, d },      // plate-local footprint, mm
+        offBed: tooBig || cx + w > usable || cy + d > usable,
+      })
+      cx += w + GAP
+      if (!tooBig) rowH = Math.max(rowH, d)
+    }
+    return { items, plates: items.length ? plate + 1 : 0, lastDepth: cy + rowH }
   }
-  const depth = items.length ? cy + rowH : 0
-  return { bed, usable, items, plates: items.length ? Math.max(1, Math.ceil(depth / usable)) : 0, offBed: items.filter((i) => i.offBed).length }
+  const KEYS = [
+    (a, b) => b.d - a.d || b.w - a.w || a.node.id.localeCompare(b.node.id),
+    (a, b) => b.w - a.w || b.d - a.d || a.node.id.localeCompare(b.node.id),
+    (a, b) => b.w * b.d - a.w * a.d || b.d - a.d || a.node.id.localeCompare(b.node.id),
+    (a, b) => a.ord - b.ord,
+  ]
+  let best = null
+  for (const key of KEYS) {
+    const sorted = [...pending].sort(key)
+    const res = place(sorted)
+    const score = res.plates * 1e6 + res.lastDepth
+    if (!best || score < best.score) best = { ...res, score }
+  }
+  const items = best.items
+  return { bed, usable, items, plates: items.length ? best.plates : 0, offBed: items.filter((i) => i.offBed).length }
 }
 
 /**
@@ -828,12 +863,16 @@ function packBedLayout(design, bedMm) {
  * Every printed node becomes an object with its bed-oriented triangles
  * inline; items are shelf-packed so parts don't overlap at origin.
  */
-function to3MF(design, material) {
+function to3MF(design, material, plate) {
   const matName = typeof material === 'string' ? material : material && material.name
   const objects = []
   const items = []
   const layout = packBedLayout(design, design.brief && design.brief.bedMm)
-  layout.items.forEach((it, i) => {
+  // plate == null → one build with every plate banded below the last (global
+  // coords, slicer flags the overflow honestly); plate = n → that plate only,
+  // plate-local coords, a file that slices clean on its own.
+  const sel = plate == null ? layout.items : layout.items.filter((it) => it.plate === plate)
+  sel.forEach((it, i) => {
     const oid = i + 1
     const tris = it.tris
     const vmap = new Map()
@@ -854,7 +893,8 @@ function to3MF(design, material) {
       vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
     }
     objects.push(`<object id="${oid}" type="model" name="${xmlEsc(it.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
-    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${it.y.toFixed(3)} 0"/>`)
+    const ty = it.y + (plate == null ? it.plate * layout.usable : 0)
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${ty.toFixed(3)} 0"/>`)
   })
   if (!objects.length) return null
   const model = `<?xml version="1.0" encoding="UTF-8"?>

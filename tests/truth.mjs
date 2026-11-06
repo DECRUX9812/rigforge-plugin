@@ -197,27 +197,48 @@ check('3MF: zip structure, named objects match printed parts, mm units, Z=0', ()
   return `${objs} 3MF objects validated across presets`
 })
 
-// ── 9e. print pack: bed-aware layout — the 3MF's own placements ─────────────
-check('print pack: bed-aware shelf layout, honest plate count, nothing dropped', () => {
-  let items = 0, off = 0
+// ── 9e. print pack: plate-aware layout — the 3MF's own placements ─────────────
+check('print pack: plate-aware layout, honest plate count, nothing dropped', () => {
+  let items = 0, off = 0, plates = 0
   eachPreset((p, { design }) => {
     const pk = A.packBedLayout(design, design.brief && design.brief.bedMm)
     const printed = design.nodes.filter((n) => n.print).length
     assert(pk.items.length === printed, `${p.id}: pack has ${pk.items.length} items for ${printed} printed nodes — parts dropped`)
     assert(pk.bed === Math.min(600, Math.max(100, Math.round((design.brief && design.brief.bedMm) || 256))),
       `${p.id}: pack ignored the chosen bed`)
+    const byPlate = new Map()
     for (const it of pk.items) {
       assert(Number.isFinite(it.rect.x) && Number.isFinite(it.rect.w) && it.rect.w > 0,
         `${p.id}/${it.id}: degenerate bed rect`)
+      if (!it.offBed) {
+        // fittable parts sit fully inside the usable square on their plate
+        assert(it.rect.x >= -0.01 && it.rect.y >= -0.01 &&
+          it.rect.x + it.rect.w <= pk.usable + 0.01 && it.rect.y + it.rect.d <= pk.usable + 0.01,
+          `${p.id}/${it.id}: packed outside the usable square (plate ${it.plate})`)
+        assert(it.plate >= 0 && it.plate < pk.plates, `${p.id}/${it.id}: bad plate index ${it.plate}`)
+        // shelf packing must never overlap two parts on the same plate
+        const list = byPlate.get(it.plate) || []
+        for (const o of list) {
+          const overlap = it.rect.x < o.rect.x + o.rect.w - 0.01 && o.rect.x < it.rect.x + it.rect.w - 0.01 &&
+            it.rect.y < o.rect.y + o.rect.d - 0.01 && o.rect.y < it.rect.y + it.rect.d - 0.01
+          assert(!overlap, `${p.id}: ${it.id} overlaps ${o.id} on plate ${it.plate}`)
+        }
+        list.push(it); byPlate.set(it.plate, list)
+      }
       items += 1
       if (it.offBed) off += 1
     }
-    if (pk.items.length) assert(pk.plates >= 1, `${p.id}: plates must be ≥1`)
+    if (pk.items.length) {
+      assert(pk.plates >= 1 && pk.plates <= pk.items.length, `${p.id}: plates must be 1..${pk.items.length}, got ${pk.plates}`)
+      plates += pk.plates
+    }
     // bigger bed can only help: repack the same design on a 600mm plate
     const big = A.packBedLayout(design, 600)
-    assert(big.offBed <= pk.offBed, `${p.id}: a bigger bed made the pack worse (${pk.offBed} → ${big.offBed} off-bed)`)
+    assert(big.offBed <= pk.offBed && big.plates <= pk.plates,
+      `${p.id}: a bigger bed made the pack worse (${pk.plates}p/${pk.offBed}off → ${big.plates}p/${big.offBed}off)`)
   })
-  // the 3MF's transform offsets must be the layout's own numbers, not a copy
+  // the 3MF's transform offsets must be the layout's own numbers — global
+  // build stacks plate bands below each other, one 3MF per plate stays local
   const { design: arm } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
   const pk = A.packBedLayout(arm, arm.brief.bedMm)
   const raw = Buffer.from(A.to3MF(arm, null)).toString('latin1')
@@ -226,9 +247,24 @@ check('print pack: bed-aware shelf layout, honest plate count, nothing dropped',
   near(ts.length, pk.items.length, 0, '3MF transform count')
   pk.items.forEach((it, i) => {
     near(ts[i][0], it.x, 0.01, `${it.id} 3MF x`)
-    near(ts[i][1], it.y, 0.01, `${it.id} 3MF y`)
+    near(ts[i][1], it.y + it.plate * pk.usable, 0.01, `${it.id} 3MF y (plate ${it.plate} offset)`)
   })
-  return `${items} packed parts across presets · ${off} honestly off-bed · 3MF transforms = layout`
+  // per-plate export: each file holds exactly that plate's items, and the
+  // transforms are plate-LOCAL (no plate*usable band offset like the build)
+  for (let p = 0; p < pk.plates; p++) {
+    const buf = A.to3MF(arm, null, p)
+    assert(buf, `arm plate ${p + 1} produced no 3MF`)
+    const m = Buffer.from(buf).toString('latin1')
+    const want = pk.items.filter((it) => it.plate === p)
+    near((m.match(/<object /g) || []).length, want.length, 0, `arm plate ${p + 1} object count`)
+    const tsP = [...m.matchAll(/transform="1 0 0 0 1 0 0 0 1 ([\d.-]+) ([\d.-]+) 0"/g)].map((mm) => [Number(mm[1]), Number(mm[2])])
+    near(tsP.length, want.length, 0, `arm plate ${p + 1} transform count`)
+    want.forEach((it, i) => {
+      near(tsP[i][0], it.x, 0.01, `${it.id} plate-${p + 1} x`)
+      near(tsP[i][1], it.y, 0.01, `${it.id} plate-${p + 1} y must be plate-local`)
+    })
+  }
+  return `${items} packed parts across presets · ${plates} plates · ${off} can't fit any plate · 3MF = layout`
 })
 
 // ── 9d. GLB: binary glTF container, named part meshes, Y-up metres ──────────

@@ -1328,6 +1328,9 @@ function Studio() {
   }
 
   const fileBase = slug(design.title)
+  // plates > 1 means the single 3MF can't slice clean — the ZIP then carries
+  // one ready-to-slice 3MF per plate alongside the per-part STLs.
+  const packPlates = !design.pcb && analysis.print && analysis.print.pack ? analysis.print.pack.plates : 0
   const exports = [
     ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
@@ -1336,7 +1339,15 @@ function Studio() {
     // printed machine wants STLs, a board wants the fab/assembly three files.
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
-      : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+      : [`Print pack · per-part STLs${packPlates > 1 ? ` + ${packPlates} plate-ready 3MFs` : ''} (zip)`, () => {
+        const entries = printedPartSTLs(design)
+        const mat = analysis.print && analysis.print.material
+        for (let p = 0; p < packPlates; p++) {
+          const b = to3MF(design, mat, p)
+          if (b) entries.push({ name: `${fileBase}-plate${p + 1}.3mf`, buf: b })
+        }
+        download(`${fileBase}-printpack.zip`, zipStore(entries), 'application/zip')
+      }],
     ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
       const buf = to3MF(design, analysis.print && analysis.print.material)
       if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')

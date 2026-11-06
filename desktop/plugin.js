@@ -3164,14 +3164,22 @@ function analyze(design) {
   } else if (fit.count) {
     checks.push({ level: 'ok', msg: `Every printed part fits a ${fit.bed}mm bed — the largest is the ${fit.worst.name} at ${fit.worst.largest}mm.` })
   }
-  // the pack as a whole: per-part fit is not plate fit — shelf packing can
-  // still run off the bed in depth, and the 3MF ships exactly this layout
+  // the pack as a whole: per-part fit is not plate fit. Two honest cases —
+  // parts that can't sit on ANY plate (split or bigger bed), and packs that
+  // simply need more than one print job (per-plate 3MFs ship in the ZIP).
   const pack = packBedLayout(design, design.brief && design.brief.bedMm)
   if (pack.items.length && pack.offBed) {
     checks.push({
       level: 'warn',
-      msg: `The print pack needs ~${pack.plates} plate(s) on a ${pack.bed}mm bed — ${pack.offBed} of ${pack.items.length} parts land off the printable square in the 3MF. Print in batches from the STL pack, or pick a bigger bed.`,
+      msg: `${pack.offBed} of ${pack.items.length} printed parts are bigger than the ${pack.bed}mm bed's usable square — they can't print on any plate. Split them in CAD or pick a bigger bed.`,
     })
+  } else if (pack.items.length && pack.plates > 1) {
+    checks.push({
+      level: 'warn',
+      msg: `The print pack needs ~${pack.plates} plates on a ${pack.bed}mm bed — ${pack.items.length} parts in batches. The print-pack ZIP ships one ready-to-slice 3MF per plate.`,
+    })
+  } else if (pack.items.length) {
+    checks.push({ level: 'ok', msg: `All ${pack.items.length} printed parts fit a single ${pack.bed}mm plate.` })
   }
   const overhang = overhangReport(design)
   if (overhang.unsupportedMm2 > 150) {
@@ -4475,41 +4483,76 @@ function printReadyTris(tris) {
 const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**
- * Shelf-pack every printed node onto a bed of bedMm — the exact layout the
- * 3MF export ships, now bed-aware. Returns per-part bed-space rects, the
- * 3MF transform offsets, an offBed flag for anything past the usable
- * square, and the plate count a slicer would actually need. Items are
- * never dropped: off-bed parts stay in the file so the user sees them.
+ * Shelf-pack every printed node onto plates of bedMm — the exact layout the
+ * 3MF export ships, bed-aware and plate-aware. Each item gets a 0-based
+ * `plate` and plate-local bed coords in `rect`; `offBed` marks parts whose
+ * footprint can't sit on ANY plate (bigger than the usable square), as
+ * opposed to parts that simply need a second plate. Nothing is dropped.
  */
 function packBedLayout(design, bedMm) {
   const bed = Math.max(100, Math.min(600, Math.round(bedMm || 256)))
   const usable = bed - 8, GAP = 8
-  const items = []
-  let cx = 10, cy = 10, rowH = 0
-  for (const node of design.nodes) {
-    if (!node.print) continue
+  // measure every printed part first, then place biggest-footprint-first —
+  // design order leaves half-empty rows; sorted order is what a slicer's
+  // own arranger would do and it measurably cuts the plate count.
+  const pending = []
+  design.nodes.forEach((node, ord) => {
+    if (!node.print) return
     let raw = nodeTriangles({ ...design, joints: [] }, node, null, null)
     if (CONVEX_KINDS.has(node.kind)) raw = orientConvex(raw)
     const tris = printReadyTris(raw)
-    if (!tris.length) continue
+    if (!tris.length) return
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
     for (const t of tris) for (const p of t.pts) {
       if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0]
       if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1]
     }
-    const w = maxx - minx, d = maxy - miny
-    if (cx + w > usable && cx > 10) { cx = 10; cy += rowH + GAP; rowH = 0 }
-    items.push({
-      id: node.id, tris,
-      x: cx - minx, y: cy - miny,          // 3MF transform offsets
-      rect: { x: cx, y: cy, w, d },        // bed-space footprint, mm
-      offBed: cx + w > usable || cy + d > usable,
-    })
-    cx += w + GAP
-    rowH = Math.max(rowH, d)
+    pending.push({ node, tris, minx, miny, w: maxx - minx, d: maxy - miny, ord })
+  })
+  // shelf-pack each ordering and keep the best — the measurement pass above
+  // dominates the cost, placement is nearly free, and no single sort key wins
+  // on every machine. Score: fewest plates, then tightest last plate.
+  const place = (sorted) => {
+    const items = []
+    let plate = 0, cx = 10, cy = 10, rowH = 0
+    const newRow = () => { cx = 10; cy += rowH + GAP; rowH = 0 }
+    const newPlate = () => { plate += 1; cx = 10; cy = 10; rowH = 0 }
+    for (const { node, tris, minx, miny, w, d } of sorted) {
+      // bigger than the usable square → can't print on any plate. Flag it and
+      // keep it in the flow (still visible in the file) without letting it
+      // start plates or corrupt the packing of parts that do fit.
+      const tooBig = w > usable - 10 || d > usable - 10
+      if (!tooBig) {
+        if (cx + w > usable) newRow()
+        if (cy + Math.max(rowH, d) > usable) newPlate()
+      }
+      items.push({
+        id: node.id, tris,
+        x: cx - minx, y: cy - miny,        // 3MF transform offsets (plate-local)
+        plate,
+        rect: { x: cx, y: cy, w, d },      // plate-local footprint, mm
+        offBed: tooBig || cx + w > usable || cy + d > usable,
+      })
+      cx += w + GAP
+      if (!tooBig) rowH = Math.max(rowH, d)
+    }
+    return { items, plates: items.length ? plate + 1 : 0, lastDepth: cy + rowH }
   }
-  const depth = items.length ? cy + rowH : 0
-  return { bed, usable, items, plates: items.length ? Math.max(1, Math.ceil(depth / usable)) : 0, offBed: items.filter((i) => i.offBed).length }
+  const KEYS = [
+    (a, b) => b.d - a.d || b.w - a.w || a.node.id.localeCompare(b.node.id),
+    (a, b) => b.w - a.w || b.d - a.d || a.node.id.localeCompare(b.node.id),
+    (a, b) => b.w * b.d - a.w * a.d || b.d - a.d || a.node.id.localeCompare(b.node.id),
+    (a, b) => a.ord - b.ord,
+  ]
+  let best = null
+  for (const key of KEYS) {
+    const sorted = [...pending].sort(key)
+    const res = place(sorted)
+    const score = res.plates * 1e6 + res.lastDepth
+    if (!best || score < best.score) best = { ...res, score }
+  }
+  const items = best.items
+  return { bed, usable, items, plates: items.length ? best.plates : 0, offBed: items.filter((i) => i.offBed).length }
 }
 
 /**
@@ -4518,12 +4561,16 @@ function packBedLayout(design, bedMm) {
  * Every printed node becomes an object with its bed-oriented triangles
  * inline; items are shelf-packed so parts don't overlap at origin.
  */
-function to3MF(design, material) {
+function to3MF(design, material, plate) {
   const matName = typeof material === 'string' ? material : material && material.name
   const objects = []
   const items = []
   const layout = packBedLayout(design, design.brief && design.brief.bedMm)
-  layout.items.forEach((it, i) => {
+  // plate == null → one build with every plate banded below the last (global
+  // coords, slicer flags the overflow honestly); plate = n → that plate only,
+  // plate-local coords, a file that slices clean on its own.
+  const sel = plate == null ? layout.items : layout.items.filter((it) => it.plate === plate)
+  sel.forEach((it, i) => {
     const oid = i + 1
     const tris = it.tris
     const vmap = new Map()
@@ -4544,7 +4591,8 @@ function to3MF(design, material) {
       vxml.push(`<vertex x="${verts[i].toFixed(3)}" y="${verts[i + 1].toFixed(3)}" z="${verts[i + 2].toFixed(3)}"/>`)
     }
     objects.push(`<object id="${oid}" type="model" name="${xmlEsc(it.id)}"><mesh><vertices>${vxml.join('')}</vertices><triangles>${faces.join('')}</triangles></mesh></object>`)
-    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${it.y.toFixed(3)} 0"/>`)
+    const ty = it.y + (plate == null ? it.plate * layout.usable : 0)
+    items.push(`<item objectid="${oid}" transform="1 0 0 0 1 0 0 0 1 ${it.x.toFixed(3)} ${ty.toFixed(3)} 0"/>`)
   })
   if (!objects.length) return null
   const model = `<?xml version="1.0" encoding="UTF-8"?>
@@ -11000,21 +11048,34 @@ function TabPrint({ design, analysis }) {
     analysis.print.pack && analysis.print.pack.items.length
       ? (() => {
         const pk = analysis.print.pack
+        // plates as a grid of bed squares — a 6-plate pack is six print jobs,
+        // not one squished strip. Plate-local rects + per-plate origin.
+        const nPlates = Math.max(1, pk.plates)
+        const cols = Math.min(nPlates, Math.ceil(Math.sqrt(nPlates)))
+        const rows = Math.ceil(nPlates / cols)
+        const cell = pk.bed + 24
+        const byPlate = Array.from({ length: nPlates }, (_, i) => pk.items.filter((it) => it.plate === i))
         return h('div', { style: { marginBottom: '12px' } },
           h('svg', {
-            viewBox: `0 0 ${pk.bed} ${pk.bed}`, width: '100%', height: 'auto',
+            viewBox: `0 0 ${cols * cell} ${rows * cell}`, width: '100%', height: 'auto',
             style: { display: 'block', borderRadius: '6px', border: `1px solid ${C.line}`, background: C.panel2 },
-            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts, ${pk.offBed} off-bed`,
+            role: 'img', 'aria-label': `print bed layout — ${pk.items.length} parts on ${nPlates} plate(s), ${pk.offBed} off-bed`,
           },
-            h('rect', { x: 8, y: 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
-            ...pk.items.map((it) => h('rect', {
-              key: it.id, x: it.rect.x, y: it.rect.y, width: it.rect.w, height: it.rect.d,
-              fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
-              stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
-              style: { cursor: 'default' },
-            }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
-            h('text', { x: 10, y: pk.bed - 6, fill: C.faint, fontSize: 9, fontFamily: C.mono },
-              `${pk.bed}mm bed · ${pk.items.length} parts${pk.offBed ? ` · ${pk.offBed} off-bed → ~${pk.plates} plate(s)` : ' · fits one plate'}`)))
+            ...byPlate.flatMap((plateItems, p) => {
+              const ox = (p % cols) * cell, oy = Math.floor(p / cols) * cell
+              return [
+                h('rect', { key: `b${p}`, x: ox, y: oy, width: pk.bed, height: pk.bed, fill: 'none', stroke: C.faint, strokeWidth: 1 }),
+                h('rect', { key: `u${p}`, x: ox + 8, y: oy + 8, width: pk.usable, height: pk.usable, fill: 'none', stroke: C.faint, strokeWidth: 1, strokeDasharray: '4 3', opacity: 0.5 }),
+                h('text', { key: `t${p}`, x: ox + 8, y: oy + pk.bed + 14, fill: C.faint, fontSize: 9, fontFamily: C.mono },
+                  `P${p + 1} · ${plateItems.length} part${plateItems.length === 1 ? '' : 's'}`),
+                ...plateItems.map((it) => h('rect', {
+                  key: `${p}-${it.id}`, x: ox + it.rect.x, y: oy + it.rect.y, width: it.rect.w, height: it.rect.d,
+                  fill: it.offBed ? C.red : C.accent, fillOpacity: it.offBed ? 0.35 : 0.16,
+                  stroke: it.offBed ? C.red : C.accent, strokeWidth: 1,
+                  style: { cursor: 'default' },
+                }, h('title', {}, `${prettyPart(it.id)} — ${Math.round(it.rect.w)}×${Math.round(it.rect.d)}mm${it.offBed ? ' · OFF BED' : ''}`))),
+              ]
+            })))
       })()
       : null,
     h('table', { style: S.table },
@@ -12722,6 +12783,9 @@ function Studio() {
   }
 
   const fileBase = slug(design.title)
+  // plates > 1 means the single 3MF can't slice clean — the ZIP then carries
+  // one ready-to-slice 3MF per plate alongside the per-part STLs.
+  const packPlates = !design.pcb && analysis.print && analysis.print.pack ? analysis.print.pack.plates : 0
   const exports = [
     ['Build code · share this design', copyBuildCode],
     ['STL mesh (mm)', () => download(`${fileBase}.stl`, toSTL(buildMesh(posedDesign)), 'model/stl')],
@@ -12730,7 +12794,15 @@ function Studio() {
     // printed machine wants STLs, a board wants the fab/assembly three files.
     design.pcb
       ? ['Board pack · BOM + CPL + spec (zip)', () => download(`${fileBase}-boardpack.zip`, zipStore(boardPack(design, analysis, fileBase)), 'application/zip')]
-      : ['Print pack · per-part STLs (zip)', () => download(`${fileBase}-printpack.zip`, zipStore(printedPartSTLs(design)), 'application/zip')],
+      : [`Print pack · per-part STLs${packPlates > 1 ? ` + ${packPlates} plate-ready 3MFs` : ''} (zip)`, () => {
+        const entries = printedPartSTLs(design)
+        const mat = analysis.print && analysis.print.material
+        for (let p = 0; p < packPlates; p++) {
+          const b = to3MF(design, mat, p)
+          if (b) entries.push({ name: `${fileBase}-plate${p + 1}.3mf`, buf: b })
+        }
+        download(`${fileBase}-printpack.zip`, zipStore(entries), 'application/zip')
+      }],
     ...(design.pcb ? [] : [['Print pack · 3MF slicer file', () => {
       const buf = to3MF(design, analysis.print && analysis.print.material)
       if (buf) download(`${fileBase}-printpack.3mf`, buf, 'model/3mf')
