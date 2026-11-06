@@ -3,7 +3,7 @@
   "label": "Rigforge",
   "description": "Build studio for robots, printed machines and controller boards: posed 3D geometry, joint sizing, power and wiring, pin map, firmware, priced BOM, bed-aware STL packs, a board pack for fab/assembly — plus show-the-working on every number and before/after on every change.",
   "icon": "Cpu",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "api": "plugin_api.py",
   "tab": {
     "hidden": true
