@@ -97,7 +97,8 @@ function buildGantry(brief) {
   const legBot = railW + 27 // flush on the y-carriage top
   for (const sy of [-1, 1]) {
     rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0 - legBot], [0, sy * (spanY / 2 + 10), (z0 + legBot) / 2], 2, 'accent', { print: false, ...onX })
-    // Y carriage: rail block riding the X rail (MGN-style, like the BOM's mgn12)
+    // Y carriage: bearing block riding the 2040 X rail — MGN12 would be
+    // comically undersized at this span; V-slot extrusion is the honest guide
     rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
   }
 
@@ -178,7 +179,8 @@ function buildGantry(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller (GRBL-firmware)')
   addPart(d, 'gt2_kit', 1, 'X/Y belts + pulleys')
   addPart(d, 'leadscrew_t8', 1, 'Z axis')
-  addPart(d, 'mgn12', 3, 'linear rails')
+  // no mgn12 here: 12mm rail on a metre gantry is a toy — the 2040
+  // extrusion budget above IS the guide rail, carriages ride it directly
   addPart(d, 'limit_sw', 3, 'homes')
   addPart(d, 'buck5a', 1, 'logic rail')
   addPart(d, 'fuse', 1, 'main protection')
