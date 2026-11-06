@@ -465,6 +465,16 @@ function analyze(design) {
       msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
     })
   }
+  const wall = wallReport(design)
+  if (wall.thin.length) {
+    const names = wall.thin.slice(0, 3).map((p) => `${prettyPart(p.id)} (~${p.p10}mm)`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${wall.thin.length} printed part(s) measure under ${wall.minWall}mm walls — ${names}. Three 0.4mm nozzle lines need ~1.2mm; thinner walls print as a skin that strings or splits. Thicken the wall or switch to a finer nozzle.`,
+    })
+  } else if (wall.parts.length) {
+    checks.push({ level: 'ok', msg: `Wall check: every printed part holds ≥${wall.minWall}mm walls — thinnest reads ~${wall.thinnest}mm.` })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
@@ -498,7 +508,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
