@@ -3163,7 +3163,7 @@ function buildPcb(brief) {
   rbox(d, 'board', [W, H, T], [0, 0, 0], 2, 'pcb', { print: false })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `hole-${sx}${sy}`, 1.6, T + 1, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), 0], 'z', 'rubber')
-    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'brass')
+    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'copper')
   }
   // USB-C and the antenna keep-out as silkscreen blocks the eye can read
   box(d, 'usb', [9, 7.5, 3], [-W / 2 + 1, 0, T / 2 + 1.5], 'metal')
@@ -3180,12 +3180,12 @@ function buildPcb(brief) {
     const [l, w, h] = part.dims || [10, 10, 3]
     const sx = Math.max(3, l * 0.86)
     const sy = Math.max(3, w * 0.86)
-    rbox(d, `part-${des}`, [sx, sy, Math.max(2, h)], [x, y, T / 2 + Math.max(2, h) / 2], 0.4, 'pcb', {
+    rbox(d, `part-${des}`, [sx, sy, Math.max(2, h)], [x, y, T / 2 + Math.max(2, h) / 2], 0.4, 'rubber', {
       rot: [0, 0, (rot * Math.PI) / 180],
     })
     // a pin-1 marker: the one detail that says "this is a real footprint"
     box(d, `pin1-${des}`, [1.2, 1.2, 0.6], [x - sx / 2 + 1.5, y - sy / 2 + 1.5, T / 2 + Math.max(2, h) + 0.3], 'brass')
-    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
+    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module', sz: [sx, sy], h: Math.max(2, h) })
   }
   for (const [des, pkg, fx, fy, rot, why] of PCB_PASSIVES) {
     const x = Math.round(fx * (W / 2 - 10))
@@ -3194,8 +3194,91 @@ function buildPcb(brief) {
     box(d, `pass-${des}`, [size[0], size[1], 0.5], [x, y, T / 2 + 0.25], 'metal', {
       rot: [0, 0, (rot * Math.PI) / 180],
     })
-    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
+    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why, sz: size })
   }
+  // ── the detail that makes it read as a board, not a green slab ──────────
+  // Pads (ENIG), a white silkscreen outline around every placement, and copper
+  // traces leaving each pad toward the controller. A real board hides its
+  // traces under the mask, but a board with none at all reads as plastic.
+  const rot2 = (dx, dy, deg) => {
+    const r = (deg * Math.PI) / 180
+    const c = Math.cos(r)
+    const sn = Math.sin(r)
+    return [dx * c - dy * sn, dx * sn + dy * c]
+  }
+  const hub = [0, Math.round(0.08 * (H / 2 - 12))]
+  for (const p of placed) {
+    const [sx, sy] = p.sz || [4, 3]
+    const deg = p.rot || 0
+    const zPad = T / 2 + 0.14
+    const zSilk = T / 2 + 0.07
+    const zTrace = T / 2 + 0.05
+
+    // pads: two ends on a passive, a pin row down each long side on a module
+    const pads = []
+    if (p.kind === 'passive') {
+      // pads sit at the ends of the body, half exposed — an SMD joint is a
+      // fillet at the edge, not a decal hidden under the part
+      for (const s of [-1, 1]) pads.push([s * (sx / 2 + 0.35), 0])
+    } else {
+      // a module is soldered by a pin row along each long side, and the pads
+      // must stick out past the body or the body simply hides them
+      const n = p.pkg && /MODULE/.test(p.pkg) ? 6 : 4
+      for (let i = 0; i < n; i += 1) {
+        const t = (i / (n - 1) - 0.5) * sx * 0.8
+        pads.push([t, -(sy / 2 + 0.55)], [t, sy / 2 + 0.55])
+      }
+    }
+    pads.forEach(([dx, dy], i) => {
+      const [rx, ry] = rot2(dx, dy, deg)
+      box(d, `pad-${p.des}-${i}`, [1.5, 1.0, 0.22], [p.x + rx, p.y + ry, zPad], 'copper')
+    })
+
+    // silkscreen: four thin bars framing the footprint, just outside the part
+    const halfW = sx / 2 + 0.6
+    const halfH = sy / 2 + 0.6
+    const bars = [
+      [[halfW * 2 + 0.6, 0.5, 0.14], [0, -halfH]],
+      [[halfW * 2 + 0.6, 0.5, 0.14], [0, halfH]],
+      [[0.5, halfH * 2, 0.14], [-halfW, 0]],
+      [[0.5, halfH * 2, 0.14], [halfW, 0]],
+    ]
+    bars.forEach(([size, off], i) => {
+      const [rx, ry] = rot2(off[0], off[1], deg)
+      box(d, `silk-${p.des}-${i}`, size, [p.x + rx, p.y + ry, zSilk], 'silk')
+    })
+
+    // traces: one Manhattan run from the first pad toward the controller
+    const [px0, py0] = rot2(pads[0][0], pads[0][1], deg)
+    const ax = p.x + px0
+    const ay = p.y + py0
+    const midX = (ax + hub[0]) / 2
+    box(d, `trace-${p.des}-a`, [Math.abs(hub[0] - ax) + 0.4, 0.55, 0.12], [midX, ay, zTrace], 'copper')
+    box(d, `trace-${p.des}-b`, [0.55, Math.abs(hub[1] - ay) + 0.4, 0.12], [hub[0], (ay + hub[1]) / 2, zTrace], 'copper')
+  }
+
+  // copper pour ring inside the outline — a real 2-layer board is mostly copper
+  const inset = 2.4
+  for (const [w, h, x, y] of [
+    [W - inset * 2, 2.2, 0, H / 2 - inset],
+    [W - inset * 2, 2.2, 0, -H / 2 + inset],
+    [2.2, H - inset * 2, -W / 2 + inset, 0],
+    [2.2, H - inset * 2, W / 2 - inset, 0],
+  ]) {
+    box(d, `pour-${x}-${y}`, [w, h, 0.05], [x, y, T / 2 + 0.02], 'copper')
+  }
+
+  // the module itself: a metal shield can on the controller, glass on the display
+  const u1 = placed.find((p) => p.des === 'U1')
+  if (u1) {
+    box(d, 'u1-shield', [u1.sz[0] * 0.62, u1.sz[1] * 0.7, 0.7], [u1.x, u1.y, T / 2 + u1.h + 0.35], 'metal')
+    box(d, 'u1-antenna', [u1.sz[0] * 0.5, 1.2, 0.5], [u1.x, u1.y + u1.sz[1] * 0.42, T / 2 + u1.h + 0.25], 'brass')
+  }
+  const u3 = placed.find((p) => p.des === 'U3')
+  if (u3) {
+    box(d, 'u3-glass', [u3.sz[0] * 0.78, u3.sz[1] * 0.62, 0.4], [u3.x, u3.y, T / 2 + u3.h + 0.2], 'glass')
+  }
+
   d.pcb = { placed, W, H, T }
 
   // ── BOM ────────────────────────────────────────────────────────────────
@@ -5785,6 +5868,8 @@ function toGLB(tris) {
     steel: { c: [0.376, 0.424, 0.478], m: 0.85, r: 0.4 },
     brass: { c: [0.737, 0.596, 0.29], m: 0.8, r: 0.4 },
     pcb: { c: [0.125, 0.376, 0.275], m: 0.0, r: 0.7 },
+    copper: { c: [0.59, 0.33, 0.13], m: 0.15, r: 0.6 },
+    silk: { c: [0.93, 0.94, 0.92], m: 0.0, r: 0.8 },
     rubber: { c: [0.149, 0.165, 0.188], m: 0.0, r: 0.95 },
     glass: { c: [0.439, 0.839, 0.91], m: 0.0, r: 0.15 },
     servo: { c: [0.118, 0.133, 0.165], m: 0.3, r: 0.6 },
@@ -9892,6 +9977,9 @@ const MAT = {
   steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
   brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
   pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  // a board reads as a board when you can see copper and white ink on it
+  copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
+  silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
@@ -11053,7 +11141,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
-      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      // A board is FR4 with copper and ENIG, not a 3D-printed part: the title block
+      // on a PCB drawing that says "PETG (FDM)" is simply wrong, and it is the
+      // first thing a hardware person reads.
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'),
+        h('span', { style: S.tbVal }, design.pcb
+          ? 'FR4 1.6mm · 2 layers · ENIG'
+          : `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
       h('div', { style: S.tbRow },
         h('span', { style: S.tbKey }, 'STATUS'),
         h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
