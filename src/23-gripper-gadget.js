@@ -169,11 +169,16 @@ function buildGadget(brief) {
   d.title = 'ESP32 desk device'
   d.subtitle = 'pine enclosure · USB-C powered'
 
-  box(d, 'case', [w, h, thick], [0, 0, thick / 2], 'shell', { print: true })
+  // clamshell: base slab + four walls + lid — a solid case box buried the
+  // pcb and pinned the screen under the lid where nothing could see it
+  const WT = 2.4
+  box(d, 'base', [w, h, 3], [0, 0, 1.5], 'shell', { print: true })
+  for (const sx of [-1, 1]) box(d, `wall-x${sx}`, [WT, h, 35], [sx * (w / 2 - WT / 2), 0, 20.5], 'shell', { print: true })
+  for (const sy of [-1, 1]) box(d, `wall-y${sy}`, [w - WT * 2, WT, 35], [0, sy * (h / 2 - WT / 2), 20.5], 'shell', { print: true })
   box(d, 'lid', [w - 4, h - 4, 4], [0, 0, thick + 2], 'accent', { print: true })
-  box(d, 'pcb', [w - 16, h - 16, 2], [0, 0, 16], 'pcb')
+  box(d, 'pcb', [w - 16, h - 16, 2], [0, 0, 4], 'pcb')
   cyl(d, 'port-usb', 5, 10, [w / 2 - 2, 0, 8], 'x', 'metal')
-  box(d, 'vent', [w * 0.5, 6, 3], [0, h / 2 - 6, 18], 'metal')
+  box(d, 'vent', [2, 30, 12], [-w / 2 - 0.5, 0, 20], 'metal')
 
   const chosen = []
   for (const rule of GADGET_RULES) {
@@ -192,11 +197,14 @@ function buildGadget(brief) {
   const face = big ? big[0] : 'ssd1306'
   const faceSize = face === 'ili9341' ? [62, 47] : face === 'gc9a01' ? [36, 36] : [34, 18]
 
-  box(d, 'screen-behind', [faceSize[0] + 6, faceSize[1] + 6, 3], [-6, 2, thick - 2], 'metal')
-  box(d, 'screen', [faceSize[0], faceSize[1], 2], [0, 0, thick - 1], 'glass')
-  cyl(d, 'knob', 9, 12, [w / 2 - 18, -h / 2 + 16, thick], 'z', 'accent', { print: true })
-  cyl(d, 'button', 5, 8, [-w / 2 + 18, -h / 2 + 16, thick], 'z', 'metal')
-  box(d, 'sensor-window', [16, 8, 2], [0, -h / 2 + 8, thick - 1], 'glass')
+  // display stack rides ON the lid — screen-behind is the bezel plate,
+  // glass sits proud on top; knob/button/sensor-window likewise
+  const lidTop = thick + 4
+  box(d, 'screen-behind', [faceSize[0] + 6, faceSize[1] + 6, 3], [-6, 2, lidTop + 1.5], 'metal')
+  box(d, 'screen', [faceSize[0], faceSize[1], 2], [0, 0, lidTop + 3.5], 'glass')
+  cyl(d, 'knob', 9, 12, [w / 2 - 18, -h / 2 + 16, lidTop + 6], 'z', 'accent', { print: true })
+  cyl(d, 'button', 5, 8, [-w / 2 + 18, -h / 2 + 16, lidTop + 4], 'z', 'metal')
+  box(d, 'sensor-window', [16, 8, 2], [0, -h / 2 + 8, lidTop + 1], 'glass')
 
   for (const [key, role] of chosen) addPart(d, key, 1, role)
   addPart(d, 'esp32s3', 1, 'controller')
