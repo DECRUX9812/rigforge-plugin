@@ -761,6 +761,11 @@ const POSE_PRESETS = {
     // differently-sized humanoid brief
     { name: 'WIDE', legs: { 'l-ankle-roll': [15, 0, 0], 'r-ankle-roll': [-15, 0, 0] } },
   ],
+  quadruped: [
+    // PROWL: front pair steps forward, rear pair back — a real weight shift
+    // the gait engine can then walk out of
+    { name: 'PROWL', legs: { 'tibia-fl': [20, 0, 0], 'tibia-fr': [20, 0, 0], 'tibia-rl': [-20, 0, 0], 'tibia-rr': [-20, 0, 0] } },
+  ],
   gripper: [
     { name: 'OPEN', pose: { jaw: 'max' } },
     { name: 'CLOSE', pose: { jaw: 'min' } },
@@ -791,8 +796,10 @@ function applyPosePreset(design, name, actualAngles) {
       const chain = (chains.get(tipId) || [])
         .map((j) => scratch.joints.find((s) => s.id === j.id)).filter((j) => j && !j.slide)
       if (chain.length < 3) continue
-      const foot = (scratch.nodes || []).filter((n) => n.joint === tipId && n.pos)
-        .sort((a, b) => (a.id.includes('sole') ? -1 : 0) - (b.id.includes('sole') ? -1 : 0))[0]
+      const cands = (scratch.nodes || []).filter((n) => n.joint === tipId && n.pos)
+      const foot = cands.find((n) => n.id.includes('sole'))
+        || cands.find((n) => /foot/.test(n.id))
+        || cands.slice().sort((a, b) => a.pos[2] - b.pos[2])[0]
       if (!foot) continue
       const tipW = (d) => benchNodeWorld(d, chainsFor(d), foot)
       const cur = tipW(scratch)

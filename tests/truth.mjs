@@ -1197,7 +1197,7 @@ check('fix suggestions: cert lift failures prescribe sized payloads honestly', (
 
 check('pose presets: named poses resolve in-limits, presets are FK-verified', () => {
   // every preset on every archetype resolves to a full in-limits angle array
-  for (const arch of ['arm', 'robot', 'humanoid', 'gripper', 'rover']) {
+  for (const arch of ['arm', 'robot', 'humanoid', 'gripper', 'rover', 'quadruped']) {
     const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief })
     for (const p of A.POSE_PRESETS[arch]) {
       const angles = A.applyPosePreset(design, p.name)
@@ -1233,7 +1233,16 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   const lSole = footW('l-ankle-roll', 'sole'), rSole = footW('r-ankle-roll', 'sole')
   assert(lSole[0] > 50 && rSole[0] < -50, `WIDE should plant soles beyond ±50mm, got ${lSole[0].toFixed(0)}/${rSole[0].toFixed(0)}`)
   assert(lSole[2] < 20 && rSole[2] < 20, 'planted soles stay near the floor')
-  return `5 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm only · WIDE replants feet · unknown→null`
+  // PROWL: front feet step +x, rear feet -x — verify via the same foot-node path
+  const prowl = A.applyPosePreset(q, 'PROWL', Array(q.joints.length).fill(0))
+  const qFoot = (jid) => {
+    const d2 = { ...q, joints: q.joints.map((j, i) => ({ ...j, angle: prowl[i] })) }
+    const node = d2.nodes.find((nn) => nn.joint === jid && /foot/.test(nn.id))
+    return A.benchNodeWorld(d2, A.chainsFor(d2), node)
+  }
+  const fl = qFoot('tibia-fl'), rl = qFoot('tibia-rl')
+  assert(fl[0] > 105 && rl[0] < -105, `PROWL should stagger feet (fl ${fl[0].toFixed(0)} / rl ${rl[0].toFixed(0)})`)
+  return `6 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · unknown→null`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────
