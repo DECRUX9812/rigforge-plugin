@@ -1197,6 +1197,24 @@ check('autotest: wet-ice ramp fails the climb check honestly', () => {
   return `climb FAIL — ${climb.detail}`
 })
 
+check('autotest: gantry certifies traverse, drop and return', () => {
+  const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'gantry').brief })
+  const tel = A.createGantryTeleop(design)
+  const at = A.createAutotest(tel)
+  assert(at, 'gantry should get a certification suite')
+  at.start()
+  // feed the sim's actual angles like the page does — teleop pos tracks 1:1
+  for (let i = 0; i < 60 * 40 && at.running; i++) {
+    const cmd = at.tick(1 / 60, [tel.state.x, tel.state.y, tel.state.z])
+    tel.step(cmd || { x: 0, y: 0, z: 0 }, 1 / 60)
+  }
+  assert(at.done, 'gantry cert did not finish')
+  assert(at.results.length === 4, `expected 4 legs, got ${at.results.length}`)
+  const fails = at.results.filter((r) => !r.pass)
+  assert(fails.length === 0, `gantry cert failures: ${fails.map((f) => `${f.label}(${f.detail})`).join(', ')}`)
+  return `${at.score} — ${at.results.map((r) => `${r.label}:${r.detail}`).join(' · ')}`
+})
+
 // ── 32. stairs course: risers taller than wheel bite block honestly ─────────
 check('stairs: 80mm nosing blocks a 100mm-wheel chassis', () => {
   const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'rover').brief })

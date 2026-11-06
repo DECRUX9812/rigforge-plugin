@@ -8606,6 +8606,81 @@ function senseAutotest(sense) {
   })
 }
 
+// ── gantry: traverse each axis to ≥90% travel, then return to centre ────────
+// Measured on the sim's actual angles (what the machine really did), not the
+// commanded target — a slipping axis fails here exactly as it would on the
+// floor. Timeout is travel time at slideSpeed plus generous slew lag.
+
+const GANTRY_LEGS = [
+  { id: 'xt', label: 'TRAVERSE-X', axis: 'x', dir: 1, frac: 0.9, timeout: 6 },
+  { id: 'yt', label: 'TRAVERSE-Y', axis: 'y', dir: 1, frac: 0.9, timeout: 6 },
+  { id: 'zd', label: 'DROP-Z', axis: 'z', dir: 1, frac: 0.9, timeout: 10 },
+  { id: 'hm', label: 'RETURN', axis: null, timeout: 9 },
+]
+
+function gantryAutotest(t) {
+  const st = { running: false, done: false, results: [], phase: null }
+  const joints = (t.design && t.design.joints) || []
+  const idx = {}
+  for (const ax of ['x', 'y', 'z']) idx[ax] = joints.findIndex((j) => j.axis === ax)
+  const range = {}
+  for (const ax of ['x', 'y', 'z']) {
+    const j = joints[idx[ax]]
+    range[ax] = j ? Math.max(Math.abs(j.min), Math.abs(j.max)) : 0
+  }
+  let li = 0, lt = 0
+  const pos = (actual, ax) => {
+    if (actual && idx[ax] >= 0) return actual[idx[ax]] || 0
+    return (t.state && t.state[ax]) || 0
+  }
+  return facade({
+    get running() { return st.running }, get done() { return st.done },
+    get results() { return st.results }, get phase() { return st.phase },
+    start() {
+      t.reset()
+      st.running = true; st.done = false; st.results = []
+      li = 0; lt = 0
+      begin(st, GANTRY_LEGS[0].label, GANTRY_LEGS[0].timeout, 1)
+    },
+    stop() { st.running = false; st.phase = null },
+    tick(dt, actual) {
+      if (!st.running) return { x: 0, y: 0, z: 0 }
+      const leg = GANTRY_LEGS[li]
+      lt += dt
+      st.phase.t = lt
+      const cmd = { x: 0, y: 0, z: 0 }
+      if (leg.axis) {
+        cmd[leg.axis] = leg.dir
+        const here = Math.abs(pos(actual, leg.axis))
+        const need = leg.frac * range[leg.axis]
+        if (here >= need) {
+          pushResult(st, leg.id, leg.label, true, `${Math.round(here)}/${Math.round(range[leg.axis])}mm in ${lt.toFixed(1)}s`)
+          li += 1; lt = 0
+          if (li < GANTRY_LEGS.length) begin(st, GANTRY_LEGS[li].label, GANTRY_LEGS[li].timeout, 1)
+          else { st.running = false; st.done = true; st.phase = null }
+        } else if (lt >= leg.timeout) {
+          pushResult(st, leg.id, leg.label, false, `stalled at ${Math.round(here)}mm of ${Math.round(range[leg.axis])}mm after ${lt.toFixed(1)}s`)
+          li += 1; lt = 0
+          if (li < GANTRY_LEGS.length) begin(st, GANTRY_LEGS[li].label, GANTRY_LEGS[li].timeout, 1)
+          else { st.running = false; st.done = true; st.phase = null }
+        }
+      } else {
+        // RETURN: drive every axis back toward centre until all are close
+        for (const ax of ['x', 'y', 'z']) {
+          const v = pos(actual, ax)
+          cmd[ax] = v > 8 ? -1 : v < -8 ? 1 : 0
+        }
+        const worst = Math.max(Math.abs(pos(actual, 'x')), Math.abs(pos(actual, 'y')), Math.abs(pos(actual, 'z')))
+        if (worst <= 8 || lt >= leg.timeout) {
+          pushResult(st, leg.id, leg.label, worst <= 8, worst <= 8 ? `centred within ${Math.round(worst)}mm` : `ended ${Math.round(worst)}mm off centre`)
+          st.running = false; st.done = true; st.phase = null
+        }
+      }
+      return cmd
+    },
+  })
+}
+
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
 // Runs several certification suites back-to-back — e.g. a humanoid gets its
@@ -8659,6 +8734,7 @@ function createAutotest(teleop, arms) {
     if (t.kind === 'gait') return { kind: 'gait', at: locoGaitAutotest(t) }
     if (t.kind === 'grip') return { kind: 'grip', at: gripAutotest(t) }
     if (t.kind === 'sense') return { kind: 'sense', at: senseAutotest(t) }
+    if (t.kind === 'gantry') return { kind: 'gantry', at: gantryAutotest(t) }
     return null
   }
   const primary = mk(teleop)
@@ -12778,21 +12854,28 @@ function Studio() {
         // fields straight into teleop state on its own timeline
         const at = autotestRef.current
         if (at && at.running) at.tick(dt)
-      } else if (!pwrDead && gantry) {
-        // gantry has no certification suite — WASD plane, F feeds / R raises
+      } else if (!pwrDead && gantry && (!atKind || atKind === 'gantry')) {
+        // gantry: WASD plane, F feeds / R raises — or the cert script's cmd
+        const at = autotestRef.current
         let cx = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0)
         let cy = (k.d || k.arrowright ? 1 : 0) - (k.a || k.arrowleft ? 1 : 0)
         let cz = (k.f ? 1 : 0) - (k.r ? 1 : 0)
-        if (gp) {
-          const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
-          const gx = dz(gp.axes[0] || 0)
-          const gy = dz(gp.axes[1] || 0)
-          const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
-          if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
-            cx = -gy; cy = gx; cz = gz
+        if (!(at && at.running)) {
+          if (gp) {
+            const dz = (v) => (Math.abs(v) < 0.15 ? 0 : v)
+            const gx = dz(gp.axes[0] || 0)
+            const gy = dz(gp.axes[1] || 0)
+            const gz = dz(gp.axes[3] != null ? gp.axes[3] : gp.axes[2] || 0)
+            if (Math.abs(gx) > 0.04 || Math.abs(gy) > 0.04 || Math.abs(gz) > 0.04) {
+              cx = -gy; cy = gx; cz = gz
+            }
           }
+          if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
         }
-        if (touchRef.current.active) { cx = -touchRef.current.y; cy = touchRef.current.x; cz = 0 }
+        if (at && at.running) {
+          const c = at.tick(dt, simRef.current ? simRef.current.state.angles : null)
+          if (c) { cx = c.x || 0; cy = c.y || 0; cz = c.z || 0 }
+        }
         const desired = gantry.step({ x: cx, y: cy, z: cz }, dt)
         if (desired) setPose(desired)
       }
