@@ -3050,6 +3050,23 @@ function buildGantry(brief) {
   }
   rbox(d, 'z-mount', [70, 70, 16], [0, 0, z0 + beamH + 30], 2, 'accent', { print: true, ...onY })
 
+  // drag chain outboard of the front X rail: the spindle harness crosses the
+  // longest slide on a real energy chain, not a dangling cable. The chain
+  // runs in the carriage's outer skirt — clear of the rail it serves — with
+  // a stationary run anchored to the rail underside and a moving run riding
+  // with the portal. Bend slack is implied (the 1m part carries it).
+  {
+    const cy = -(spanY / 2 + 10) - 22 // rail outer face + link half-width
+    // end fitting: taller link that bolts up to the rail underside
+    rbox(d, 'chain-anchor', [26, 30, 16], [-384, cy, 50], 1, 'metal')
+    for (let x = -360, i = 0; x <= -192; x += 24, i += 1)
+      rbox(d, `chain-s${i}`, [20, 15, 14], [x, cy, 51], 1, 'belt')
+    for (let x = -164, i = 0; x <= 16; x += 24, i += 1)
+      rbox(d, `chain-m${i}`, [20, 15, 14], [x, cy, 51], 1, 'belt', onX)
+    // carrier bracket: clamps the moving end under the carriage skirt
+    rbox(d, 'chain-carrier', [22, 24, 10], [2, cy - 5, 57], 1, 'metal', onX)
+  }
+
   // ── parts ────────────────────────────────────────────────────────────────
   const railMetres = Math.ceil((2 * (spanY + 120) + 2 * spanX + 4 * 400) / 1000 * 2) / 2
   const braceMetres = Math.ceil((2 * spanX + 2 * spanY) / 1000 * 2) / 2
