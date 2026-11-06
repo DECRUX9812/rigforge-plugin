@@ -681,7 +681,6 @@ function fixSuggestions(s) {
   return out.sort((a, b) => (a.sev === b.sev ? Number(!!b.apply) - Number(!!a.apply) : a.sev === 'fail' ? -1 : 1))
 }
 
-
 // ── grip bench: one test mass between the pads ──────────────────────────────
 // The gripper's bench piece: a 1kg test block fixtured at pad height on a
 // dark pedestal. Closing the jaw is the test — hold capacity comes straight
