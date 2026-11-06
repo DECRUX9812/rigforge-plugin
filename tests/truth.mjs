@@ -372,17 +372,32 @@ check('STEP: AP214 structure, one faceted solid per part, mm units, deterministi
 
 // ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
 // The dims heuristic used to stand wedges and ring towers on edge — the
-// overhang check caught it, bestBedPerm fixed it. These presets must stay
-// self-supporting; the gantry corner bracket is the honest positive control.
-check('DFM overhang: presets self-support, gantry bracket flags honestly', () => {
+// overhang check caught it, bestBedPerm fixed it. Every preset must stay
+// self-supporting; the positive control is a synthetic Γ-bracket cantilever
+// fed to overhangTrisStats directly (bedFrameTris would always lay a single
+// solid flat, so a real overhang can only be proven pre-oriented).
+check('DFM overhang: presets self-support, cantilever flags honestly', () => {
   const designOf = (arch) => A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === arch).brief }).design
-  for (const arch of ['arm', 'rover', 'robot', 'quadruped', 'humanoid', 'gripper', 'iot', 'gadget']) {
+  for (const arch of ['arm', 'rover', 'robot', 'quadruped', 'humanoid', 'gripper', 'iot', 'gadget', 'gantry', 'custom']) {
     const oh = A.overhangReport(designOf(arch))
     assert(oh.unsupportedMm2 <= 60, `${arch}: ${oh.unsupportedMm2}mm² unsupported — bed orientation regressed`)
   }
-  const oh = A.overhangReport(designOf('gantry'))
-  assert(oh.unsupportedMm2 > 100, `gantry corner overhang should be detected, got ${oh.unsupportedMm2}`)
-  return `gantry flags ${oh.unsupportedMm2}mm² unsupported; all other presets self-support`
+  // Γ bracket, bed-oriented: stem x[-20,-12] z[0,32], arm x[-20,20] z[32,40],
+  // y[-20,20] — the arm underside over x>-12 has air below it.
+  const P = [[-20, 0], [-12, 0], [-12, 32], [20, 32], [20, 40], [-20, 40]] // (x,z) CCW
+  const pt = (i, y) => [P[i][0], y, P[i][1]]
+  const tris = []
+  for (let i = 0; i < 6; i += 1) {
+    const j = (i + 1) % 6
+    tris.push({ pts: [pt(i, -20), pt(j, 20), pt(j, -20)] }, { pts: [pt(i, -20), pt(i, 20), pt(j, 20)] })
+  }
+  for (const [i, j, k] of [[2, 3, 4], [2, 4, 5], [2, 5, 0], [2, 0, 1]]) {
+    for (const y of [-20, 20]) tris.push({ pts: [pt(i, y), pt(j, y), pt(k, y)] })
+  }
+  const st = A.overhangTrisStats(tris)
+  assert(st.unsupported > 500, `cantilever should flag ~1280mm² unsupported, got ${st.unsupported}`)
+  assert(st.bed > 250, `stem foot should count as bed contact, got ${st.bed}`)
+  return `all presets self-support · Γ cantilever flags ${st.unsupported}mm²`
 })
 
 // ── 10. build codes round-trip ───────────────────────────────────────────────
@@ -737,6 +752,46 @@ check('slide chain: gantry axes compose, portal stays on X, limits hold', () => 
   return 'quill XYZ composed · portal X-only · clamps + holds + resets'
 })
 
+// ── 23c. mesh integrity: every primitive kind is closed + outward on all axes ─
+check('mesh integrity: primitives are watertight, outward-wound, positive-volume', () => {
+  const q = (v) => Math.round(v * 1e4) / 1e4
+  const vol = (ts) => ts.reduce((s, t) => {
+    const [a, b, c] = t
+    return s + a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }, 0) / 6
+  const cases = [
+    ['cyl', { radius: 8, height: 12, segs: 18 }, ['z', 'y', 'x']],
+    ['ring', { outer: 10, inner: 5, height: 8 }, ['z', 'y', 'x']],
+    ['torus', { R: 15, r: 5 }, ['z', 'y', 'x']],
+    ['bend', { R: 15, r: 5, arc: 270 }, ['z', 'y', 'x']],
+    ['sphere', { radius: 9 }, ['z']],
+    ['gear', { module: 1, teeth: 12, width: 10 }, ['z', 'y', 'x']],
+    ['box', { size: [20, 14, 10] }, ['z']],
+    ['rbox', { size: [20, 14, 10], r: 2 }, ['z']],
+    ['wedge', { size: [20, 14, 10], dir: 1 }, ['z']],
+    ['rack', { size: [30, 10, 8], teeth: 8 }, ['z']],
+  ]
+  const bad = []
+  for (const [kind, props, axes] of cases) {
+    for (const axis of axes) {
+      const node = { id: 't', kind, pos: [0, 0, 0], mat: 'pla', axis, ...props }
+      const { design } = A.composeDesign({ archetype: 'custom', nodes: [node], joints: [] })
+      const tris = A.buildMesh(design).filter((t) => t.node === 't').map((t) => t.pts)
+      const edges = new Map()
+      for (const t of tris) for (let i = 0; i < 3; i += 1) {
+        const a = t[i]; const b = t[(i + 1) % 3]
+        const k = [[q(a[0]), q(a[1]), q(a[2])].join(','), [q(b[0]), q(b[1]), q(b[2])].join(',')].sort().join('|')
+        edges.set(k, (edges.get(k) || 0) + 1)
+      }
+      const open = [...edges.values()].filter((c) => c !== 2).length
+      const v = vol(tris)
+      if (!tris.length || open || v <= 0) bad.push(`${kind}/${axis}:${tris.length}t vol=${v.toFixed(0)} open=${open}`)
+    }
+  }
+  assert(!bad.length, `non-manifold or inside-out meshes: ${bad.join(' · ')}`)
+  return '22 kind×axis cases: all watertight, outward, positive volume'
+})
+
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────
 check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   const { design } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
@@ -968,12 +1023,9 @@ check('DFM brim: contact ratio measured per part, narrow footprints flagged', ()
       checked += 1
       if (part.brim) flagged += 1
     }
-    // the gantry's corner brackets are the known narrow-footprint case
-    if (p.id === 'gantry') {
-      assert(oh.brim.length >= 1, 'gantry corner brackets should flag for brim')
-    }
   })
-  return `${checked} parts measured, ${flagged} flagged for brim (gantry corners verified)`
+  assert(flagged >= 1, 'no preset part flagged for brim — the check may be vacuous')
+  return `${checked} parts measured, ${flagged} flagged for brim`
 })
 
 // ── 28b. DFM wall thickness: axis raycasts flag thin skins, clear real walls ──

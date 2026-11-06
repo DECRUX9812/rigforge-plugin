@@ -4357,15 +4357,17 @@ function ringTris(outer, inner, h, axis, segs) {
     const a = (t / segs) * Math.PI * 2
     const u = Math.cos(a) * r; const v = Math.sin(a) * r
     if (axis === 'z') return [u, v, side ? h : -h]
-    if (axis === 'y') return [u, side ? h : -h, v]
+    if (axis === 'y') return [u, side ? h : -h, -v]
     return [side ? h : -h, u, v]
   }
   for (let i = 0; i < segs; i += 1) {
     const t0 = i; const t1 = i + 1
-    tris.push([pt(outer, t0, 1), pt(outer, t1, 1), pt(outer, t1, 0)])
-    tris.push([pt(outer, t0, 1), pt(outer, t1, 0), pt(outer, t0, 0)])
-    tris.push([pt(inner, t0, 0), pt(inner, t1, 0), pt(inner, t1, 1)])
-    tris.push([pt(inner, t0, 0), pt(inner, t1, 1), pt(inner, t0, 1)])
+    // wall order verified outward in the canonical z-frame; the y/x maps
+    // below are proper rotations (det=+1) so it stays outward on every axis
+    tris.push([pt(outer, t0, 0), pt(outer, t1, 0), pt(outer, t1, 1)])
+    tris.push([pt(outer, t0, 0), pt(outer, t1, 1), pt(outer, t0, 1)])
+    tris.push([pt(inner, t0, 0), pt(inner, t1, 1), pt(inner, t1, 0)])
+    tris.push([pt(inner, t0, 0), pt(inner, t0, 1), pt(inner, t1, 1)])
     tris.push([pt(outer, t0, 1), pt(inner, t0, 1), pt(inner, t1, 1)])
     tris.push([pt(outer, t0, 1), pt(inner, t1, 1), pt(outer, t1, 1)])
     tris.push([pt(outer, t1, 0), pt(inner, t0, 0), pt(inner, t1, 0)])
@@ -4373,15 +4375,19 @@ function ringTris(outer, inner, h, axis, segs) {
   }
   // The cap windings above only face outward for some axes — enforce it
   // geometrically: a cap tri's normal must point along its own side's axis.
+  // Only true caps qualify: every ring vertex sits at axial=±h, so wall tris
+  // ALSO have all |axial|=h — the old |p[ax]|===h test caught them too and
+  // flipped walls at random (ring/y collapsed to vol −616). Same-sign test
+  // separates caps (all verts one side) from walls (verts on both sides).
   const ax = axis === 'z' ? 2 : axis === 'y' ? 1 : 0
   return tris.map((t) => {
-    if (!t.every((p) => Math.abs(p[ax]) === h)) return t
-    const side = t[0][ax] > 0 ? 1 : -1
+    const s0 = Math.sign(t[0][ax])
+    if (!t.every((p) => Math.sign(p[ax]) === s0)) return t
     const [a, b, c] = t
     const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
     const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
     const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-    return Math.sign(n[ax]) === side ? t : [a, c, b]
+    return Math.sign(n[ax]) === s0 ? t : [a, c, b]
   })
 }
 
@@ -4394,9 +4400,10 @@ function torusTris(R, r, axis, arcDeg) {
     const v = (j / N) * Math.PI * 2
     const rr = R + r * Math.cos(v)
     const x = Math.cos(u) * rr; const y = Math.sin(u) * rr; const z = r * Math.sin(v)
+    // proper rotations only (det=+1) — mirrors wind the tube inside-out
     if (axis === 'z') return [x, y, z]
-    if (axis === 'y') return [x, z, y]
-    return [z, y, x]
+    if (axis === 'y') return [x, z, -y]
+    return [z, x, y]
   }
   for (let i = 0; i < M; i += 1) for (let j = 0; j < N; j += 1) {
     tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
@@ -4407,7 +4414,8 @@ function torusTris(R, r, axis, arcDeg) {
     const uM = Math.PI * 2 * (arcDeg / 360)
     const centre = (u) => {
       const x = Math.cos(u) * R; const y = Math.sin(u) * R
-      return axis === 'z' ? [x, y, 0] : axis === 'y' ? [x, 0, y] : [0, y, x]
+      // matches pt()'s proper rotations so cap winding stays consistent
+      return axis === 'z' ? [x, y, 0] : axis === 'y' ? [x, 0, -y] : [0, x, y]
     }
     const c0 = centre(0); const cM = centre(uM)
     for (let j = 0; j < N; j += 1) {
@@ -4426,7 +4434,15 @@ function sphereTris(r) {
     const v = (j / N) * Math.PI
     return [r * Math.sin(v) * Math.cos(u), r * Math.sin(v) * Math.sin(u), r * Math.cos(v)]
   }
-  for (let i = 0; i < M; i += 1) for (let j = 0; j < N - 1; j += 1) {
+  // pole rings degenerate to points — fan them from real apex vertices
+  // instead of emitting zero-area tris, and cover the polar caps the old
+  // j<N-1 loop silently dropped (the sphere was open at the bottom)
+  const Np = [0, 0, r]; const Sp = [0, 0, -r]
+  for (let i = 0; i < M; i += 1) {
+    tris.push([Np, pt(i, 1), pt(i + 1, 1)])
+    tris.push([Sp, pt(i + 1, N - 1), pt(i, N - 1)])
+  }
+  for (let i = 0; i < M; i += 1) for (let j = 1; j < N - 1; j += 1) {
     tris.push([pt(i, j), pt(i + 1, j), pt(i + 1, j + 1)])
     tris.push([pt(i, j), pt(i + 1, j + 1), pt(i, j + 1)])
   }
@@ -4503,14 +4519,27 @@ const CYL_SEGS = 18
  */
 function importedMeshTris(node) {
   const table = globalThis.__RF_PARTS && globalThis.__RF_PARTS[node.part]
-  if (!table || !table.tris || !table.tris.length) {
-    return boxTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2)
+  const fallback = () => boxTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2)
+  if (!table || !table.tris || !table.tris.length) return fallback()
+  // Manifold guard: a vendored mesh whose edges aren't shared by exactly two
+  // tris would ship holes/T-junctions into every slicer and CAD export. The
+  // BRACKET source data failed exactly this (edges shared by up to 8 faces),
+  // so verify topology on the quantised source before trusting it.
+  const t = table.tris
+  const edges = new Map()
+  for (let i = 0; i + 8 < t.length; i += 9) {
+    for (let e = 0; e < 3; e += 1) {
+      const a = [t[i + e * 3], t[i + e * 3 + 1], t[i + e * 3 + 2]]
+      const b = [t[i + ((e + 1) % 3) * 3], t[i + ((e + 1) % 3) * 3 + 1], t[i + ((e + 1) % 3) * 3 + 2]]
+      const k = [a.join(','), b.join(',')].sort().join('|')
+      edges.set(k, (edges.get(k) || 0) + 1)
+    }
   }
+  for (const c of edges.values()) if (c !== 2) { console.warn(`rigforge: imported mesh '${node.part}' is non-manifold — using bounding box`); return fallback() }
   const radiusMm = table.scale || 20
   const sx = node.size[0] / (radiusMm * 2)
   const sy = node.size[1] / (radiusMm * 2)
   const sz = node.size[2] / (radiusMm * 2)
-  const t = table.tris
   const k = radiusMm / 32767
   const out = []
   for (let i = 0; i < t.length; i += 9) {
@@ -4939,111 +4968,121 @@ function printedPartSTLs(design) {
  * from vertical — past what a 0.4mm nozzle bridges unaided. Heightfield cell
  * size adapts to part size so big plates and tiny brackets both resolve.
  */
+/**
+ * Overhang + bed-contact stats for one bed-oriented tri list ({pts:[[x,y,z]…]}).
+ * Split out of overhangReport so the measurement can be exercised directly —
+ * bedFrameTris always finds SOME flat-ish orientation for a single solid, so
+ * a real cantilever can only be proven by feeding it pre-oriented tris.
+ */
+function overhangTrisStats(tris) {
+  let maxDim = 0
+  for (const t of tris) for (const p of t.pts) {
+    maxDim = Math.max(maxDim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
+  }
+  const cell = Math.min(10, Math.max(1.5, maxDim / 90))
+  // XY footprint for the brim check — bed contact vs the area it could
+  // plausibly cover. A tower on 20% contact wants a brim, not optimism.
+  let fx0 = Infinity, fx1 = -Infinity, fy0 = Infinity, fy1 = -Infinity
+  for (const t of tris) for (const p of t.pts) {
+    fx0 = Math.min(fx0, p[0]); fx1 = Math.max(fx1, p[0])
+    fy0 = Math.min(fy0, p[1]); fy1 = Math.max(fy1, p[1])
+  }
+  const footprint = Math.max(1, (fx1 - fx0) * (fy1 - fy0))
+  const cols = new Map() // "ix,iy" -> lowest surface z in that column
+  const colMin = (x, y) => {
+    const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+    return cols.has(k) ? cols.get(k) : Infinity
+  }
+  const colSet = (x, y, z) => {
+    const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+    if (!cols.has(k) || z < cols.get(k)) cols.set(k, z)
+  }
+  const normal = (t) => {
+    const [a, b, c] = t.pts
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+  }
+  // pass 1: rasterize every near-horizontal surface into the columns it
+  // actually covers — cell centre inside the tri's XY projection, height
+  // interpolated on the tri plane. Bbox stamping would let a big plate
+  // face claim columns it never touches and hide real overhangs.
+  for (const t of tris) {
+    const n = normal(t)
+    const nl = Math.hypot(n[0], n[1], n[2]) || 1
+    if (Math.abs(n[2]) / nl < 0.4) continue
+    const [a, b, c] = t.pts
+    const minx = Math.min(a[0], b[0], c[0]), maxx = Math.max(a[0], b[0], c[0])
+    const miny = Math.min(a[1], b[1], c[1]), maxy = Math.max(a[1], b[1], c[1])
+    // plane: n·p = d → z = (d - nx*x - ny*y) / nz
+    const d = n[0] * a[0] + n[1] * a[1] + n[2] * a[2]
+    const den = n[2] || 1e-9
+    for (let ix = Math.floor(minx / cell); ix <= Math.floor(maxx / cell); ix++) {
+      for (let iy = Math.floor(miny / cell); iy <= Math.floor(maxy / cell); iy++) {
+        const px = ix * cell + cell / 2, py = iy * cell + cell / 2
+        // barycentric in XY — inside the projected tri?
+        const v0x = b[0] - a[0], v0y = b[1] - a[1]
+        const v1x = c[0] - a[0], v1y = c[1] - a[1]
+        const v2x = px - a[0], v2y = py - a[1]
+        const den2 = v0x * v1y - v1x * v0y
+        if (Math.abs(den2) < 1e-9) continue
+        const u = (v2x * v1y - v1x * v2y) / den2
+        const v = (v0x * v2y - v2x * v0y) / den2
+        if (u < -0.02 || v < -0.02 || u + v > 1.02) continue
+        colSet(px, py, (d - n[0] * px - n[1] * py) / den)
+      }
+    }
+  }
+  // pass 2: downward faces that are their column's floor, above bed level
+  let unsupported = 0, steep = 0, bed = 0
+  for (const t of tris) {
+    const n = normal(t)
+    const nl = Math.hypot(n[0], n[1], n[2]) || 1
+    const nz = n[2] / nl
+    if (nz > -0.35) continue // not a downward face worth judging
+    const [a, b, c] = t.pts
+    const area = 0.5 * Math.hypot(
+      (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
+      (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
+      (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
+    )
+    const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3
+    const zc = (a[2] + b[2] + c[2]) / 3
+    if (zc < 0.8) { bed += area; continue }
+    // strict column test only for overhangs steeper than ~48° — a 45°
+    // chamfer (nz≈-0.71) is the FDM self-support limit, not a failure
+    if (nz < -0.75) {
+      if (zc <= colMin(cx, cy) + 0.6) unsupported += area
+    } else {
+      steep += area
+    }
+  }
+  // Shell parts carry inner+outer bottom faces, so `bed` can exceed the
+  // footprint — coverage can't, so cap at 1. brim only cares about the low end.
+  const contact = Math.min(1, bed / footprint)
+  return {
+    unsupported: Math.round(unsupported * 10) / 10,
+    steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
+    footprint: Math.round(footprint), contact: Math.round(contact * 100) / 100,
+    brim: contact < 0.3,
+  }
+}
+
 function overhangReport(design) {
   const parts = []
-  let unsupportedMm2 = 0, steepMm2 = 0
   for (const node of design.nodes) {
     if (!node.print) continue
     let tris = nodeTriangles({ ...design, joints: [] }, node, null, null)
     if (CONVEX_KINDS.has(node.kind)) tris = orientConvex(tris)
     tris = bedFrameTris(tris)
     if (!tris.length) continue
-    let maxDim = 0
-    for (const t of tris) for (const p of t.pts) {
-      maxDim = Math.max(maxDim, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
-    }
-    const cell = Math.min(10, Math.max(1.5, maxDim / 90))
-    // XY footprint for the brim check — bed contact vs the area it could
-    // plausibly cover. A tower on 20% contact wants a brim, not optimism.
-    let fx0 = Infinity, fx1 = -Infinity, fy0 = Infinity, fy1 = -Infinity
-    for (const t of tris) for (const p of t.pts) {
-      fx0 = Math.min(fx0, p[0]); fx1 = Math.max(fx1, p[0])
-      fy0 = Math.min(fy0, p[1]); fy1 = Math.max(fy1, p[1])
-    }
-    const footprint = Math.max(1, (fx1 - fx0) * (fy1 - fy0))
-    const cols = new Map() // "ix,iy" -> lowest surface z in that column
-    const colMin = (x, y) => {
-      const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
-      return cols.has(k) ? cols.get(k) : Infinity
-    }
-    const colSet = (x, y, z) => {
-      const k = `${Math.floor(x / cell)},${Math.floor(y / cell)}`
-      if (!cols.has(k) || z < cols.get(k)) cols.set(k, z)
-    }
-    const normal = (t) => {
-      const [a, b, c] = t.pts
-      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-      const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
-      return [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-    }
-    // pass 1: rasterize every near-horizontal surface into the columns it
-    // actually covers — cell centre inside the tri's XY projection, height
-    // interpolated on the tri plane. Bbox stamping would let a big plate
-    // face claim columns it never touches and hide real overhangs.
-    for (const t of tris) {
-      const n = normal(t)
-      const nl = Math.hypot(n[0], n[1], n[2]) || 1
-      if (Math.abs(n[2]) / nl < 0.4) continue
-      const [a, b, c] = t.pts
-      const minx = Math.min(a[0], b[0], c[0]), maxx = Math.max(a[0], b[0], c[0])
-      const miny = Math.min(a[1], b[1], c[1]), maxy = Math.max(a[1], b[1], c[1])
-      // plane: n·p = d → z = (d - nx*x - ny*y) / nz
-      const d = n[0] * a[0] + n[1] * a[1] + n[2] * a[2]
-      const den = n[2] || 1e-9
-      for (let ix = Math.floor(minx / cell); ix <= Math.floor(maxx / cell); ix++) {
-        for (let iy = Math.floor(miny / cell); iy <= Math.floor(maxy / cell); iy++) {
-          const px = ix * cell + cell / 2, py = iy * cell + cell / 2
-          // barycentric in XY — inside the projected tri?
-          const v0x = b[0] - a[0], v0y = b[1] - a[1]
-          const v1x = c[0] - a[0], v1y = c[1] - a[1]
-          const v2x = px - a[0], v2y = py - a[1]
-          const den2 = v0x * v1y - v1x * v0y
-          if (Math.abs(den2) < 1e-9) continue
-          const u = (v2x * v1y - v1x * v2y) / den2
-          const v = (v0x * v2y - v2x * v0y) / den2
-          if (u < -0.02 || v < -0.02 || u + v > 1.02) continue
-          colSet(px, py, (d - n[0] * px - n[1] * py) / den)
-        }
-      }
-    }
-    // pass 2: downward faces that are their column's floor, above bed level
-    let unsupported = 0, steep = 0, bed = 0
-    for (const t of tris) {
-      const n = normal(t)
-      const nl = Math.hypot(n[0], n[1], n[2]) || 1
-      const nz = n[2] / nl
-      if (nz > -0.35) continue // not a downward face worth judging
-      const [a, b, c] = t.pts
-      const area = 0.5 * Math.hypot(
-        (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
-        (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
-        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
-      )
-      const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3
-      const zc = (a[2] + b[2] + c[2]) / 3
-      if (zc < 0.8) { bed += area; continue }
-      // strict column test only for overhangs steeper than ~48° — a 45°
-      // chamfer (nz≈-0.71) is the FDM self-support limit, not a failure
-      if (nz < -0.75) {
-        if (zc <= colMin(cx, cy) + 0.6) unsupported += area
-      } else {
-        steep += area
-      }
-    }
-    unsupportedMm2 += unsupported; steepMm2 += steep
-    // Shell parts carry inner+outer bottom faces, so `bed` can exceed the
-    // footprint — coverage can't, so cap at 1. brim only cares about the low end.
-    const contact = Math.min(1, bed / footprint)
-    parts.push({
-      id: node.id, unsupported: Math.round(unsupported * 10) / 10,
-      steep: Math.round(steep * 10) / 10, bed: Math.round(bed * 10) / 10,
-      footprint: Math.round(footprint), contact: Math.round(contact * 100) / 100,
-      brim: contact < 0.3,
-    })
+    parts.push({ id: node.id, ...overhangTrisStats(tris) })
   }
   parts.sort((a, b) => b.unsupported - a.unsupported)
+  const unsupportedMm2 = Math.round(parts.reduce((s, p) => s + p.unsupported, 0))
+  const steepMm2 = Math.round(parts.reduce((s, p) => s + p.steep, 0))
   return {
-    parts, unsupportedMm2: Math.round(unsupportedMm2), steepMm2: Math.round(steepMm2),
+    parts, unsupportedMm2, steepMm2,
     worst: parts.find((p) => p.unsupported > 0) || null,
     brim: parts.filter((p) => p.brim),
   }
@@ -15061,10 +15100,13 @@ const plugin = {
 
 export default plugin
 
-// bracket — real CAD mesh converted from Sand3D (zero-to-cad-00067abe-82be-040d-2058-6de874f1559f.usda)
-// 790 triangles in, 233 kept. Quantised int16, 20mm radius.
-// Regenerate with: node tools/sand3d-fetch.mjs <usda-url> bracket
+// BRACKET — gantry corner brace. Rebuilt as a watertight L-profile
+// extrusion by tools/gen-bracket.mjs (the Sand3D conversion it replaces was
+// broken source data: degenerate tris, edges shared by up to 8 faces).
 globalThis.__RF_PARTS = Object.assign(globalThis.__RF_PARTS || {}, {
-  BRACKET: { name: "bracket", scale: 20, tris: [-12288,0,-12288,-4096,0,-12288,-4096,0,-8192,-12288,0,-12288,-4096,0,-8192,-12288,0,-8192,-12288,0,-8192,-4096,0,-8192,-4096,0,-4096,-12288,0,-8192,-4096,0,-4096,-12288,0,-4096,-12288,0,-4096,-4096,0,-4096,-4096,0,0,-12288,0,-4096,-4096,0,0,-12288,0,0,-12288,0,0,-4096,0,0,-4096,0,4096,-12288,0,0,-4096,0,4096,-12288,0,4096,-12288,0,4096,-4096,0,4096,-4096,0,8192,-12288,0,4096,-4096,0,8192,-12288,0,8192,-12288,0,12288,-4096,0,12288,-4096,0,16384,-12288,0,12288,-4096,0,16384,-12288,0,16384,-12288,0,16384,-4096,0,16384,-4096,0,16384,-12288,0,16384,-4096,0,16384,-12288,0,16384,-12288,0,16384,-4096,0,16384,-4096,0,20479,-12288,0,16384,-4096,0,20479,-12288,0,20479,-12288,0,20479,-4096,0,20479,-4096,0,24575,-12288,0,20479,-4096,0,24575,-12288,0,24575,-12288,0,24575,-4096,0,24575,-4096,0,28671,-12288,0,24575,-4096,0,28671,-12288,0,28671,-12288,0,28671,-4096,0,28671,-4096,0,32767,-12288,0,28671,-4096,0,32767,-12288,0,32767,-12288,0,4096,0,0,4096,0,0,4096,-12288,0,4096,0,0,4096,-12288,0,4096,-12288,0,20479,-4096,0,20479,-4096,0,20479,-12288,0,20479,-4096,0,20479,-12288,0,20479,-12288,0,4096,-12288,0,8192,-12288,0,8192,-12288,0,4096,-12288,0,4096,-12288,0,8192,-12288,0,16384,-12288,0,16384,-12288,0,16384,-12288,0,-12288,-12288,0,-12288,-12288,0,-8192,-12288,0,-12288,-12288,0,-8192,-12288,0,-8192,-12288,0,-12288,-12288,0,-12288,-8192,0,-12288,-8192,0,-12288,-4096,0,-12288,-4096,0,-12288,-4096,0,-12288,-12288,0,-12288,-8192,0,-12288,-12288,0,-8192,-12288,0,-8192,-12288,0,-4096,-12288,0,-8192,-12288,0,-4096,-12288,0,-4096,-12288,0,-4096,-12288,0,-4096,-12288,0,0,-12288,0,-4096,-12288,0,0,-12288,0,0,-12288,0,12288,-12288,0,12288,-12288,0,16384,-12288,0,12288,-12288,0,16384,-12288,0,16384,-12288,0,20479,-12288,0,20479,-12288,0,24575,-12288,0,20479,-12288,0,24575,-12288,0,24575,-12288,0,24575,-12288,0,24575,-12288,0,28671,-12288,0,24575,-12288,0,28671,-12288,0,28671,-12288,0,28671,-12288,0,28671,-12288,0,32767,-12288,0,28671,-12288,0,32767,-12288,0,32767,-8192,0,-12288,-12288,0,-12288,-12288,0,-8192,-8192,0,-12288,-12288,0,-8192,-8192,0,-8192,-8192,0,-4096,-12288,0,-4096,-12288,0,0,-8192,0,-4096,-12288,0,0,-8192,0,0,-8192,0,0,-12288,0,0,-12288,0,4096,-8192,0,0,-12288,0,4096,-8192,0,4096,-8192,0,4096,-12288,0,4096,-12288,0,8192,-8192,0,4096,-12288,0,8192,-8192,0,8192,-8192,0,12288,-12288,0,12288,-12288,0,16384,-8192,0,12288,-12288,0,16384,-8192,0,16384,-8192,0,16384,-12288,0,16384,-12288,0,20479,-8192,0,16384,-12288,0,20479,-8192,0,20479,-8192,0,20479,-12288,0,20479,-12288,0,24575,-8192,0,20479,-12288,0,24575,-8192,0,24575,-8192,0,24575,-12288,0,24575,-12288,0,28671,-8192,0,24575,-12288,0,28671,-8192,0,28671,-8192,0,32767,-12288,0,32767,-12288,0,32767,-8192,0,32767,-12288,0,32767,-4096,0,32767,0,0,32767,-8192,0,32767,-4096,0,32767,8192,0,32767,8192,0,32767,4096,0,32767,4096,0,32767,0,0,32767,-4096,0,32767,4096,0,32767,8192,0,32767,4096,0,32767,-4096,0,32767,4096,0,32767,4096,0,32767,-8192,0,-8192,-12288,0,-8192,-12288,0,-4096,-8192,0,-8192,-12288,0,-4096,-8192,0,-4096,-8192,0,16384,-12288,0,16384,-12288,0,16384,-8192,0,16384,-12288,0,16384,-8192,0,16384,-8192,0,28671,-12288,0,28671,-12288,0,32767,-8192,0,28671,-12288,0,32767,-8192,0,32767,-4096,0,28671,4096,0,28671,4096,0,32767,-4096,0,28671,4096,0,32767,-4096,0,32767,-4096,0,24575,4096,0,24575,4096,0,28671,-4096,0,24575,4096,0,28671,-4096,0,28671,-4096,0,20479,4096,0,20479,4096,0,24575,-4096,0,20479,4096,0,24575,-4096,0,24575,-4096,-8192,-32767,0,-8192,-32767,0,-8192,12288,-4096,-8192,-32767,0,-8192,12288,-4096,-8192,12288,-4096,-8192,-32767,-4096,-8192,12288,-4096,0,12288,-4096,0,8192,-4096,8192,12288,-4096,8192,-32767,-4096,0,4096,-4096,0,8192,-4096,8192,-32767,-4096,-8192,-32767,-4096,0,8192,-4096,0,4096,-4096,-8192,-32767,-4096,0,4096,-4096,0,0,-4096,0,0,-4096,0,4096,-4096,8192,-32767,-4096,0,-4096,-4096,0,0,-4096,8192,-32767,-4096,-8192,-32767,-4096,0,0,-4096,0,-4096,-4096,-8192,-32767,-4096,0,-4096,-4096,0,-8192,-4096,0,-8192,-4096,0,-4096,-4096,8192,-32767,-4096,0,-12288,-4096,0,-8192,-4096,8192,-32767,-4096,-8192,-32767,-4096,0,-8192,-4096,0,-12288,-4096,0,-12288,-4096,0,-12288,-4096,8192,-32767,-4096,0,-12288,-4096,8192,-32767,-4096,-8192,-32767,-4096,0,12288,-4096,-8192,12288,0,-8192,12288,-4096,0,12288,0,-8192,12288,0,0,12288,-4096,0,16384,-4096,0,16384,4096,0,16384,4096,0,16384,4096,0,16384,-4096,0,16384,-4096,0,20479,-4096,0,20479,12288,0,20479,12288,0,20479,12288,0,20479,4096,0,20479,12288,0,20479,4096,0,20479,-4096,0,20479,12288,0,16384,4096,0,16384,0,0,16384,-4096,0,16384,12288,0,16384,0,0,16384,-4096,0,-12288,-8192,0,-12288,-8192,0,-8192,-4096,0,-12288,-8192,0,-8192,-4096,0,-8192,-4096,0,-8192,-8192,0,-8192,-8192,0,-4096,-4096,0,-8192,-8192,0,-4096,-4096,0,-4096,-4096,0,-4096,-8192,0,-4096,-8192,0,0,-4096,0,-4096,-8192,0,0,-4096,0,0,-4096,0,0,-8192,0,0,-8192,0,4096,-4096,0,0,-8192,0,4096,-4096,0,4096,-4096,0,4096,-8192,0,4096,-8192,0,8192,-4096,0,4096,-8192,0,8192,-4096,0,8192,-8192,0,16384,-8192,0,20479,0,0,20479,-8192,0,16384,0,0,20479,-4096,0,20479,-4096,0,20479,-4096,0,20479,-8192,0,16384,-4096,8192,-32767,0,8192,-32767,0,-8192,-32767,-4096,8192,-32767,0,-8192,-32767,-4096,-8192,-32767,0,8192,12288,-4096,8192,12288,-4096,0,12288,0,8192,12288,-4096,0,12288,0,0,12288,0,0,4096,12288,0,4096,12288,0,4096,0,0,4096,12288,0,4096,4096,0,4096,0,0,4096,4096,0,4096,0,0,4096,12288,0,0,4096,0,0,0,0,0,0,0,16384,0,0,12288,-4096,0,12288,-4096,0,12288,-8192,0,12288,-8192,0,16384,-4096,0,12288,-8192,0,16384,0,0,16384,0,0,16384,0,0,16384,-8192,0,16384,-8192,0,16384,-8192,0,16384,-4096,0,16384,-4096,0,16384,0,0,16384,-8192,0,16384,0,0,20479,-8192,0,20479,-8192,0,24575,0,0,20479,-8192,0,24575,0,0,24575,0,0,24575,-8192,0,24575,-8192,0,28671,0,0,24575,-8192,0,28671,0,0,28671,0,0,28671,-8192,0,28671,-8192,0,32767,0,0,28671,-8192,0,32767,0,0,32767,0,0,-12288,4096,0,-12288,4096,0,-8192,0,0,-12288,4096,0,-8192,0,0,-8192,0,0,-8192,4096,0,-8192,4096,0,-4096,0,0,-8192,4096,0,-4096,0,0,-4096,0,0,-4096,4096,0,-4096,4096,0,0,0,0,-4096,4096,0,0,0,0,0,0,0,0,0,0,-4096,0,0,-8192,0,0,0,0,0,-8192,0,0,-12288,0,-8192,-32767,0,8192,-32767,0,8192,12288,0,0,12288,0,-8192,12288,0,-8192,-32767,0,8192,12288,0,0,8192,0,0,4096,0,-4096,4096,0,0,8192,0,-8192,-32767,0,-4096,4096,0,-4096,4096,0,-8192,-32767,0,8192,12288,0,4096,4096,0,4096,4096,0,8192,12288,0,4096,4096,0,0,-12288,0,-8192,-32767,0,8192,12288,0,0,-12288,0,0,-4096,0,0,0,0,-8192,-32767,0,0,-8192,0,0,-4096,0,-8192,-32767,0,-8192,-32767,0,0,-12288,0,0,-12288,0,0,-12288,0,0,-8192,0,-8192,-32767,0,0,8192,4096,0,8192,4096,0,4096,0,0,8192,4096,0,4096,0,0,4096,0,8192,-32767,-4096,8192,-32767,-4096,8192,12288,0,8192,-32767,-4096,8192,12288,0,8192,12288,4096,0,-12288,0,0,-12288,0,0,-12288,4096,0,-12288,0,0,-12288,4096,0,-12288,8192,0,-12288,8192,0,-12288,4096,0,-12288,4096,0,-12288,4096,0,-12288,8192,0,-12288,4096,0,-12288,8192,0,-12288,8192,0,-8192,4096,0,-12288,8192,0,-8192,4096,0,-8192,4096,0,-8192,8192,0,-8192,8192,0,-4096,4096,0,-8192,8192,0,-4096,4096,0,-4096,4096,0,28671,8192,0,28671,8192,0,32767,4096,0,28671,8192,0,32767,4096,0,32767,4096,0,-4096,8192,0,-4096,12288,0,0,4096,0,-4096,12288,0,0,4096,0,0,4096,0,24575,8192,0,24575,8192,0,28671,4096,0,24575,8192,0,28671,4096,0,28671,4096,0,20479,12288,0,20479,8192,0,24575,4096,0,20479,8192,0,24575,4096,0,24575,4096,0,16384,4096,0,16384,12288,0,16384,4096,0,16384,12288,0,16384,12288,0,16384,0,0,12288,4096,0,12288,4096,0,16384,4096,0,16384,-4096,0,16384,-4096,0,12288,-4096,0,12288,0,0,12288,4096,0,16384,4096,0,12288,12288,0,12288,12288,0,16384,4096,0,12288,12288,0,16384,4096,0,16384,0,0,12288,0,0,16384,4096,0,16384,4096,0,16384,0,0,16384,0,0,16384,4096,0,16384,0,0,16384,4096,0,16384,4096,0,20479,0,0,20479,0,0,24575,4096,0,20479,0,0,24575,4096,0,24575,4096,0,24575,0,0,24575,0,0,28671,4096,0,24575,0,0,28671,4096,0,28671,4096,0,28671,0,0,28671,0,0,32767,4096,0,28671,0,0,32767,4096,0,32767,-4096,0,20479,0,0,20479,4096,0,20479,4096,0,8192,12288,0,8192,12288,0,4096,4096,0,8192,12288,0,4096,4096,0,4096,8192,0,-12288,8192,0,-12288,8192,0,-8192,8192,0,-12288,8192,0,-8192,8192,0,-8192,8192,0,-12288,4096,0,-12288,4096,0,-8192,8192,0,-12288,4096,0,-8192,8192,0,-8192,8192,0,-8192,8192,0,-8192,8192,0,-4096,8192,0,-8192,8192,0,-4096,8192,0,-4096,8192,0,28671,8192,0,28671,8192,0,32767,8192,0,28671,8192,0,32767,8192,0,32767,8192,0,-8192,4096,0,-8192,4096,0,-4096,8192,0,-8192,4096,0,-4096,8192,0,-4096,8192,0,28671,4096,0,28671,4096,0,32767,8192,0,28671,4096,0,32767,8192,0,32767,8192,0,-4096,8192,0,-4096,12288,0,0,8192,0,-4096,12288,0,0,12288,0,0,8192,0,24575,8192,0,24575,8192,0,28671,8192,0,24575,8192,0,28671,8192,0,28671,8192,0,-4096,4096,0,-4096,4096,0,0,8192,0,-4096,4096,0,0,12288,0,0,8192,0,24575,4096,0,24575,4096,0,28671,8192,0,24575,4096,0,28671,8192,0,28671,12288,0,20479,12288,0,20479,8192,0,24575,12288,0,20479,8192,0,24575,8192,0,24575,12288,0,20479,4096,0,20479,4096,0,24575,12288,0,20479,4096,0,24575,8192,0,24575,4096,0,0,12288,0,0,12288,0,0,12288,0,0,0,0,0,0,0,0,12288,0,16384,-4096,0,16384,-4096,0,16384,12288,0,16384,-4096,0,16384,4096,0,16384,12288,0,16384,12288,0,16384,12288,0,16384,12288,0,8192,12288,0,8192,12288,0,4096,12288,0,8192,12288,0,4096,12288,0,4096,12288,0,12288,12288,0,12288,12288,0,16384,12288,0,12288,12288,0,16384,12288,0,16384,12288,0,12288,4096,0,12288,4096,0,16384,12288,0,12288,4096,0,16384,12288,0,16384] },
+  BRACKET: { name: "bracket", scale: 20, tris: [
+    -32767,-32767,-32767,32767,-32767,-32767,32767,-32767,32767,-32767,-32767,-32767,32767,-32767,32767,-32767,-32767,32767,32767,-32767,-32767,32767,-13107,-32767,32767,-13107,32767,32767,-32767,-32767,32767,-13107,32767,32767,-32767,32767,32767,-13107,-32767,-13107,-13107,-32767,-13107,-13107,32767,32767,-13107,-32767,-13107,-13107,32767,32767,-13107,32767,-13107,-13107,-32767,-13107,32767,-32767,-13107,32767,32767,-13107,-13107,-32767,-13107,32767,32767,-13107,-13107,32767,-13107,32767,-32767,-32767,32767,-32767,-32767,32767,32767,-13107,32767,-32767,-32767,32767,32767,-13107,32767,32767,-32767,32767,-32767,-32767,-32767,-32767,-32767,-32767,32767,-32767,
+    32767,-32767,-32767,-32767,32767,-32767,32767,32767,-32767,-32767,-32767,32767,-32767,-32767,32767,-13107,-32767,-32767,-32767,32767,32767,-13107,32767,32767,-32767,32767,-32767,-32767,-32767,32767,-13107,-32767,-13107,-13107,-32767,-32767,-32767,32767,-13107,-13107,32767,32767,-13107,32767,-32767,-32767,-32767,-13107,-13107,-32767,-13107,32767,-32767,-32767,-32767,32767,-13107,32767,32767,-13107,-13107,32767,-32767,-32767,-32767,-13107,32767,-32767,-32767,32767,-32767,-32767,-32767,32767,-32767,32767,32767,-13107,32767,32767
+  ] },
 })
 
