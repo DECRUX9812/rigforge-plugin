@@ -10,7 +10,7 @@
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -30,6 +30,7 @@ const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0
 function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
+    cone: 'cone', pyramid: 'cone',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -61,6 +62,13 @@ function specEmit(d, raw, idx, warn) {
       if (Number.isFinite(Number(raw.r2 ?? raw.radius2))) e.radius2 = Number(raw.r2 ?? raw.radius2)
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       cyl(d, id, r, h, at, axis, mat, e); break
+    }
+    case 'cone': {
+      const r = CUSTOM_NUM(raw.r ?? raw.radius, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
+      if (!(r > 0) || !(h > 0)) return warn(`node ${id}: cone needs r>0 and h>0`)
+      const e = { ...extra }
+      if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
+      cone(d, id, r, h, at, axis, mat, e); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)

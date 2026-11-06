@@ -51,7 +51,7 @@ function benchCoM(design, mat) {
 
 /** Rough "how far below centre is the bottom of this node" for contact tests. */
 function benchNodeDrop(node) {
-  if (node.kind === 'cyl' || node.kind === 'ring') {
+  if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
   }
   if (node.kind === 'box' || node.kind === 'rbox' || node.kind === 'wedge') return (node.size?.[2] || 10) / 2

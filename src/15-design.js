@@ -3,8 +3,9 @@
 // export never branch on archetype:
 //
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
-//              box, rbox (chamfered), cyl (segs/radius2 → hex, cone, taper),
-//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
+//              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
+//              cone (pointed taper), ring (hollow cyl), torus, wedge
+//              (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -262,6 +263,12 @@ function ring(d, id, outer, inner, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'ring', outer, inner, height, pos, axis, mat, ...extra })
 }
 
+/** Cone — base radius `radius` at -h/2, apex on the +axis end. For a frustum
+ *  use cyl with radius2 instead. */
+function cone(d, id, radius, height, pos, axis, mat, extra) {
+  d.nodes.push({ id, kind: 'cone', radius, height, pos, axis, mat, ...extra })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -322,6 +329,7 @@ function nodeVolume(node) {
       const r2 = node.radius2 != null ? node.radius2 : node.radius
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
+    case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
     case 'ring': return Math.PI * (node.outer ** 2 - node.inner ** 2) * node.height
     case 'torus': return 2 * Math.PI * Math.PI * node.R * node.r ** 2
     case 'sphere': return (4 / 3) * Math.PI * node.radius ** 3
@@ -350,7 +358,7 @@ function shellVolume(n) {
   // Rings are already the shell — wall thickness IS the part.
   if (n.kind === 'ring' || n.kind === 'bend' || n.kind === 'torus') return nodeVolume(n)
   const solid = nodeVolume(n)
-  if (n.kind === 'cyl' || n.kind === 'sphere' || n.kind === 'gear') {
+  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'sphere' || n.kind === 'gear') {
     const r = n.radius || n.outer || ((n.module * n.teeth) / 4)
     if (r <= WALL * 1.6) return solid
     const h = n.height || n.width || r * 2
