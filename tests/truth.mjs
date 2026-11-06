@@ -812,7 +812,12 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
   // self-intersecting profiles must be refused, not meshed into garbage
   const bowtie = A.composeDesign({ archetype: 'custom', nodes: [{ id: 'b', kind: 'prism', profile: [[-6, -6], [6, 6], [-6, 6], [6, -6]], depth: 5, pos: [0, 0, 0] }], joints: [] })
   assert(!bowtie.design.nodes.length, 'bowtie prism profile was not rejected')
-  return '55 kind×axis cases: watertight, consistently oriented, positive volume; bowtie refused'
+  // involute gears: a 12T module-1 outline samples ~16 pts/tooth → ~770 tris;
+  // the old 4-pt trapezoid produced ~190 — density proves curved flanks
+  const { design: gd } = A.composeDesign({ archetype: 'custom', nodes: [{ id: 'g', kind: 'gear', module: 1, teeth: 12, width: 10, pos: [0, 0, 0], mat: 'pla', axis: 'z' }], joints: [] })
+  const gtris = A.buildMesh(gd).filter((t) => t.node === 'g')
+  assert(gtris.length > 500, `gear mesh has ${gtris.length} tris — involute flanks expected >500`)
+  return '55 kind×axis cases: watertight, consistently oriented, positive volume; bowtie refused; gears involute'
 })
 
 // ── 23d. buried parts: no internals hidden inside printed solids ────────────

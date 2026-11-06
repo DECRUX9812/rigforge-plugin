@@ -4918,6 +4918,61 @@ function sphereTris(r) {
 /** Spur gear: trapezoid-tooth profile extruded — one clean solid. The old
  *  build fused a root disc with penetrating tooth boxes: intersecting
  *  surfaces, non-manifold edges, BRepCheck-invalid solids. */
+// Involute gear outline: tooth flanks follow the true involute curve so meshing
+// pairs actually look like gears, not trapezoids. θ(ρ) is the standard tooth
+// half-thickness at radius ρ: π/2T at pitch, thinner toward the tip, thicker
+// toward the root — falls back to the old 4-pt trapezoid when the space between
+// teeth gets too thin for an involute (very high tooth counts).
+function gearOutline(T, pitchR, rootR, tipR) {
+  const aPitch = Math.PI / (2 * T)
+  const ALPHA = 0.34906585 // 20° pressure angle
+  const rb = pitchR * Math.cos(ALPHA)
+  const inv = (x) => Math.tan(x) - x
+  const invA = inv(ALPHA)
+  const halfThick = (rho) => {
+    const r = Math.max(rho, rb * 1.000001)
+    return aPitch + invA - inv(Math.acos(Math.min(1, rb / r)))
+  }
+  const flankBot = Math.max(rootR, rb)
+  const thRoot = halfThick(flankBot)
+  const space = Math.PI / T
+  if (space - thRoot < space * 0.08) {
+    // tooth gap nearly closed — trapezoid fallback
+    const aRoot = Math.min(aPitch * pitchR / rootR, space * 0.42)
+    const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
+    const out = []
+    for (let i = 0; i < T; i += 1) {
+      const a = (i / T) * Math.PI * 2
+      out.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
+      out.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
+      out.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
+      out.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
+    }
+    return out
+  }
+  const FLANK = 5
+  const out = []
+  for (let i = 0; i < T; i += 1) {
+    const a = (i / T) * Math.PI * 2
+    const pt = (rho, ang) => [Math.cos(ang) * rho, Math.sin(ang) * rho]
+    out.push(pt(rootR, a - space))                    // root-land midpoint
+    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a - thRoot)) // back root
+    for (let k = 0; k <= FLANK; k += 1) {             // back flank, root→tip
+      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
+      out.push(pt(rho, a - halfThick(rho)))
+    }
+    const thTip = halfThick(tipR)
+    for (let k = 1; k <= 2; k += 1)                   // tip land arc
+      out.push(pt(tipR, a - thTip + (2 * thTip * k) / 3))
+    for (let k = FLANK; k >= 0; k -= 1) {             // front flank, tip→root
+      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
+      out.push(pt(rho, a + halfThick(rho)))
+    }
+    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a + thRoot)) // front root
+  }
+  return out
+}
+
 function gearTris(m, teeth, width, axis) {
   const T = Math.max(3, Math.round(teeth))
   const pitchR = (m * T) / 2
@@ -4925,19 +4980,7 @@ function gearTris(m, teeth, width, axis) {
   const tipR = pitchR + 0.85 * m
   const hh = width / 2
   const mm = Math.max(0.2, m)
-  // outline: 4 pts per tooth — root/tip flanks at angular half-widths scaled
-  // by radius so tooth thickness stays credible at root and tip
-  const aPitch = Math.PI / (2 * T)              // half-thickness angle at pitch
-  const aRoot = Math.min(aPitch * pitchR / rootR, (Math.PI / T) * 0.42)
-  const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
-  const outline = []
-  for (let i = 0; i < T; i += 1) {
-    const a = (i / T) * Math.PI * 2
-    outline.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
-    outline.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
-    outline.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
-    outline.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
-  }
+  const outline = gearOutline(T, pitchR, rootR, tipR)
   const N = outline.length
   // proper rotations only (det=+1) — a mirrored map flips every face inward
   const map = (x, y, z) => axis === 'z' ? [x, y, z] : axis === 'y' ? [x, z, -y] : [z, x, y]
