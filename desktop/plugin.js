@@ -4673,7 +4673,8 @@ function nodeTriangles(design, node, chain, shift) {
     m[3] * p[0] + m[4] * p[1] + m[5] * p[2] + t[1],
     m[6] * p[0] + m[7] * p[1] + m[8] * p[2] + t[2],
   ]
-  const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat })
+  // `node` rides along so the viewport can pick a part by clicking it
+  const push = (a, b, c) => tris.push({ pts: [world(a), world(b), world(c)], mat: node.mat, node: node.id })
 
   let local = []
   switch (node.kind) {
@@ -10400,6 +10401,25 @@ function dwgNo(design) {
   return `DWG ${cls}-${String(h).padStart(3, '0')}`
 }
 
+/** `coxa-fl` → `Coxa FL`: an id an engineer can read back in the parts table. */
+// Ids are machine names ('upper-arm', 'jaw-b', 'pcb-mount'). Uppercasing every
+// short word produced 'Upper ARM' and 'JAW B', which reads like shouting; only
+// real acronyms and single letters stay upper.
+const ACRONYMS = new Set(['pcb', 'led', 'ic', 'usb', 'imu', 'esc', 'stl', 'mcu', 'iot', 'rfid',
+  'gpio', 'pwm', 'uart', 'spi', 'dof', 'psu', 'lipo', 'bldc', 'cnc', 'pla', 'petg', 'abs', 'soc', 'som'])
+function humanNode(id) {
+  const words = String(id).split(/[-_]/).filter(Boolean)
+  if (!words.length) return String(id)
+  return words
+    .map((w) => {
+      const low = w.toLowerCase()
+      if (w.length === 1) return w.toUpperCase()
+      if (ACRONYMS.has(low)) return low === 'dof' ? 'DoF' : low.toUpperCase()
+      return w[0].toUpperCase() + w.slice(1)
+    })
+    .join(' ')
+}
+
 /** Model bounds in mm, for the GPU camera and the light frustum. */
 function boundsOfMesh(mesh) {
   if (!mesh || !mesh.length) return { min: [-100, 0, -100], max: [100, 200, 100] }
@@ -10464,6 +10484,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
           globalThis.__rfTints = tints ? tints.size : -1
           const matOf = (t) => {
             const m = MAT[t.mat] || MAT.shell
+            if (picked && picked.node && t.node === picked.node) {
+              return {
+                alb: [Math.min(1, m.alb[0] * 1.25 + 0.10), Math.min(1, m.alb[1] * 1.2 + 0.08), Math.min(1, m.alb[2] * 1.15 + 0.06)],
+                rough: m.rough, metal: m.metal, glow: 0.16, printed: true,
+              }
+            }
             const tint = tints && t.mat === 'shell' ? tints.get(t.node) : null
             if (!tint) return m
             const k = 0.82
@@ -10527,9 +10553,10 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
   }, [mesh])
 
   const drag = useRef(null)
+  const [picked, setPicked] = useState(null)
 
   const onDown = (e) => {
-    drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch }
+    drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, moved: 0, cx: e.clientX, cy: e.clientY }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const onMove = (e) => {
@@ -10537,19 +10564,54 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
     if (!d) return
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
+    d.moved = Math.max(d.moved, Math.hypot(e.clientX - d.cx, e.clientY - d.cy))
     setCam({
       ...cam,
       yaw: d.yaw - dx * 0.008,
       pitch: clamp(d.pitch + dy * 0.006, -0.2, 1.45),
     })
   }
-  const onUp = () => {
+  const onUp = (e) => {
+    const d = drag.current
     drag.current = null
+    // a click, not a drag: pick the part under the pointer
+    if (!d || d.moved > 5 || !glRef.current || !glRef.current.pick) return
+    const cv = ref.current
+    if (!cv) return
+    const rect = cv.getBoundingClientRect()
+    const scaleX = cv.width / rect.width
+    const scaleY = cv.height / rect.height
+    const px = (e.clientX - rect.left) * scaleX
+    const py = (e.clientY - rect.top) * scaleY
+    const hit = glRef.current.pick(mesh, px, py)
+    if (!hit) { setPicked(null); return }
+    // clicking the same part again closes the inspector
+    if (picked && picked.node && picked.node === hit.node) { setPicked(null); return }
+    const node = design.nodes.find((n) => n.id === hit.node) || null
+    if (!node) { setPicked({ label: hit.mat, sub: 'material', x: e.clientX - rect.left, y: e.clientY - rect.top }); return }
+    const material = (analysis && analysis.print && analysis.print.material) || { name: 'PETG', density: 1.27 }
+    // shellVolume is mm³; grams wants cm³ at the material density
+    const grams = node.print ? Math.round((shellVolume(node) / 1000) * material.density) : 0
+    setPicked({
+      node: node.id,
+      label: humanNode(node.id),
+      sub: node.print ? `printed · ${material.name} · ${grams} g` : `modelled · ${node.mat}`,
+      joint: node.joint || null,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    })
   }
   const onWheel = (e) => {
     e.preventDefault()
     setCam({ ...cam, dist: clamp(cam.dist * (1 + Math.sign(e.deltaY) * 0.12), 180, 4200) })
   }
+
+  useEffect(() => {
+    if (!picked) return undefined
+    const onKey = (ev) => { if (ev.key === 'Escape') setPicked(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picked])
 
   const dims = analysis ? analysis.dims.map((d) => Math.round(d)) : [0, 0, 0]
 
@@ -10582,6 +10644,15 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
         padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
       },
     }, `${design.subtitle}. Drag to orbit, scroll to zoom. Pose it with the joint sliders below the view.`),
+    picked ? h('div', {
+      style: { ...S.partChip, left: `${Math.min(picked.x + 14, 9999)}px`, top: `${Math.min(picked.y + 14, 9999)}px` },
+      'data-rf': 'partchip',
+    },
+      h('div', { style: S.chipTitle }, picked.label),
+      h('div', {}, picked.sub),
+      picked.joint ? h('div', {}, `on joint ${picked.joint}`) : null,
+      h('div', { style: S.chipHint }, 'click the part again to clear'),
+    ) : null,
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
@@ -11218,6 +11289,7 @@ function createGLRenderer(canvas) {
 
   let aoMesh = null
   let aoData = null
+  let lastFrame = null
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -11511,6 +11583,7 @@ function createGLRenderer(canvas) {
         if (probe[i] + probe[i + 1] + probe[i + 2] > 0) nz += 1
         maxv = Math.max(maxv, probe[i], probe[i + 1], probe[i + 2])
       }
+      lastFrame = { eye, viewProj, invViewProj: M4.inverse(viewProj), w, h, dist }
       globalThis.__rfGLStats = {
         draws: ((globalThis.__rfGLStats || {}).draws || 0) + 1,
         tris: count / 3, eye, dist, size, stripNonZero: nz, stripMax: maxv,
@@ -11520,6 +11593,51 @@ function createGLRenderer(canvas) {
     },
     /** Hand the renderer a finished bake for a specific mesh. */
     setAO(mesh, data) { aoMesh = mesh; aoData = data },
+    /**
+     * Ray pick in screen pixels. Unprojects the pointer back to a world ray and
+     * tests every triangle the STL would contain, so what you click is exactly
+     * what you would print. Returns the nearest hit and the triangle index.
+     */
+    pick(mesh, px, py) {
+      if (!lastFrame || !mesh || !mesh.length) return null
+      const { invViewProj, w, h } = lastFrame
+      const ndcX = (px / w) * 2 - 1
+      const ndcY = 1 - (py / h) * 2
+      const unproject = (z) => {
+        const v = [
+          invViewProj[0] * ndcX + invViewProj[4] * ndcY + invViewProj[8] * z + invViewProj[12],
+          invViewProj[1] * ndcX + invViewProj[5] * ndcY + invViewProj[9] * z + invViewProj[13],
+          invViewProj[2] * ndcX + invViewProj[6] * ndcY + invViewProj[10] * z + invViewProj[14],
+          invViewProj[3] * ndcX + invViewProj[7] * ndcY + invViewProj[11] * z + invViewProj[15],
+        ]
+        return [v[0] / v[3], v[1] / v[3], v[2] / v[3]]
+      }
+      const near = unproject(0)
+      const far = unproject(1)
+      const dir = norm(sub(far, near))
+
+      let best = null
+      for (let i = 0; i < mesh.length; i += 1) {
+        const t = mesh[i]
+        const [a, b, c] = t.pts
+        const e1 = sub(b, a)
+        const e2 = sub(c, a)
+        const pvec = cross(dir, e2)
+        const det = dot(e1, pvec)
+        if (Math.abs(det) < 1e-9) continue
+        const inv = 1 / det
+        const tvec = sub(near, a)
+        const u = dot(tvec, pvec) * inv
+        if (u < 0 || u > 1) continue
+        const qvec = cross(tvec, e1)
+        const vv = dot(dir, qvec) * inv
+        if (vv < 0 || u + vv > 1) continue
+        const dist = dot(e2, qvec) * inv
+        if (dist <= 0) continue
+        if (!best || dist < best.dist) best = { index: i, dist, node: t.node || null, mat: t.mat }
+      }
+      return best
+    },
     dispose() {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)
@@ -11836,6 +11954,17 @@ const S = {
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   viewSub: { color: C.faint },
+  // The inspector that opens when you click a part: it appears where the
+  // pointer left off, so the label sits next to the thing it describes.
+  partChip: {
+    position: 'absolute', zIndex: 4, minWidth: '168px', maxWidth: '240px',
+    padding: '8px 10px', borderRadius: '9px', border: `1px solid ${C.line}`,
+    background: 'rgba(11,16,21,0.94)', boxShadow: '0 8px 22px rgba(0,0,0,0.45)',
+    backdropFilter: 'blur(6px)', fontFamily: C.mono, fontSize: '9.5px',
+    letterSpacing: '0.03em', color: C.dim, lineHeight: 1.6, pointerEvents: 'none',
+  },
+  chipTitle: { color: C.text, fontFamily: C.sans, fontSize: '12px', marginBottom: '3px', letterSpacing: '0' },
+  chipHint: { color: C.faint, marginTop: '4px', fontSize: '8.5px', letterSpacing: '0.06em', textTransform: 'uppercase' },
   viewTools: {
     position: 'absolute', top: '46px', right: '16px', display: 'flex', flexDirection: 'column',
     gap: '5px',

@@ -612,6 +612,7 @@ function createGLRenderer(canvas) {
 
   let aoMesh = null
   let aoData = null
+  let lastFrame = null
   let baseDist = 0
   let uniqueAlbedos = 0
   let floorReady = false
@@ -905,6 +906,7 @@ function createGLRenderer(canvas) {
         if (probe[i] + probe[i + 1] + probe[i + 2] > 0) nz += 1
         maxv = Math.max(maxv, probe[i], probe[i + 1], probe[i + 2])
       }
+      lastFrame = { eye, viewProj, invViewProj: M4.inverse(viewProj), w, h, dist }
       globalThis.__rfGLStats = {
         draws: ((globalThis.__rfGLStats || {}).draws || 0) + 1,
         tris: count / 3, eye, dist, size, stripNonZero: nz, stripMax: maxv,
@@ -914,6 +916,51 @@ function createGLRenderer(canvas) {
     },
     /** Hand the renderer a finished bake for a specific mesh. */
     setAO(mesh, data) { aoMesh = mesh; aoData = data },
+    /**
+     * Ray pick in screen pixels. Unprojects the pointer back to a world ray and
+     * tests every triangle the STL would contain, so what you click is exactly
+     * what you would print. Returns the nearest hit and the triangle index.
+     */
+    pick(mesh, px, py) {
+      if (!lastFrame || !mesh || !mesh.length) return null
+      const { invViewProj, w, h } = lastFrame
+      const ndcX = (px / w) * 2 - 1
+      const ndcY = 1 - (py / h) * 2
+      const unproject = (z) => {
+        const v = [
+          invViewProj[0] * ndcX + invViewProj[4] * ndcY + invViewProj[8] * z + invViewProj[12],
+          invViewProj[1] * ndcX + invViewProj[5] * ndcY + invViewProj[9] * z + invViewProj[13],
+          invViewProj[2] * ndcX + invViewProj[6] * ndcY + invViewProj[10] * z + invViewProj[14],
+          invViewProj[3] * ndcX + invViewProj[7] * ndcY + invViewProj[11] * z + invViewProj[15],
+        ]
+        return [v[0] / v[3], v[1] / v[3], v[2] / v[3]]
+      }
+      const near = unproject(0)
+      const far = unproject(1)
+      const dir = norm(sub(far, near))
+
+      let best = null
+      for (let i = 0; i < mesh.length; i += 1) {
+        const t = mesh[i]
+        const [a, b, c] = t.pts
+        const e1 = sub(b, a)
+        const e2 = sub(c, a)
+        const pvec = cross(dir, e2)
+        const det = dot(e1, pvec)
+        if (Math.abs(det) < 1e-9) continue
+        const inv = 1 / det
+        const tvec = sub(near, a)
+        const u = dot(tvec, pvec) * inv
+        if (u < 0 || u > 1) continue
+        const qvec = cross(tvec, e1)
+        const vv = dot(dir, qvec) * inv
+        if (vv < 0 || u + vv > 1) continue
+        const dist = dot(e2, qvec) * inv
+        if (dist <= 0) continue
+        if (!best || dist < best.dist) best = { index: i, dist, node: t.node || null, mat: t.mat }
+      }
+      return best
+    },
     dispose() {
       try {
         gl.deleteBuffer(vbo); gl.deleteBuffer(ibo); gl.deleteTexture(shadowTex)
