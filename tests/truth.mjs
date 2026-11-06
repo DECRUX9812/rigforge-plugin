@@ -415,6 +415,38 @@ check('URDF/MJCF: one link per joint, real limits, an actuator per driven joint'
       assert(new Set(diags.map((d) => d.toPrecision(4))).size > 1,
         `${p.id}: every link shares one inertia — that is the placeholder, not physics`)
     }
+    // origins are parent-relative and pitch axes carry the studio's sign flip —
+    // raw model pivots would stack every hinge at its absolute position
+    const jById = new Map(design.joints.map((j) => [j.id, j]))
+    const num = (s) => s.trim().split(/\s+/).map(Number)
+    for (const m of urdf.matchAll(/<joint name="([^"]+)"[\s\S]*?<origin xyz="([^"]+)"[\s\S]*?<axis xyz="([^"]+)"/g)) {
+      const j = jById.get(m[1])
+      if (!j) continue
+      const pj = j.parent ? jById.get(j.parent) : null
+      const pp = pj && pj.pivot ? pj.pivot : [0, 0, 0]
+      const want = [(j.pivot[0] - pp[0]) / 1000, (j.pivot[1] - pp[1]) / 1000, (j.pivot[2] - pp[2]) / 1000]
+      const got = num(m[2])
+      for (let k = 0; k < 3; k++) {
+        assert(Math.abs(got[k] - want[k]) < 0.002, `${p.id}/${j.id}: URDF origin ${m[2]} ≠ parent-relative ${want.map((v) => v.toFixed(3))}`)
+      }
+      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+      const wantAx = (j.axis === 'x' ? [1, 0, 0] : j.axis === 'y' ? [0, 1, 0] : [0, 0, 1]).map((v) => v * sgn)
+      const gotAx = num(m[3])
+      for (let k = 0; k < 3; k++) {
+        assert(Math.abs(gotAx[k] - wantAx[k]) < 1e-6, `${p.id}/${j.id}: URDF axis ${m[3]} ≠ ${wantAx}`)
+      }
+    }
+    for (const m of mjcf.matchAll(/<body name="b_([^"]+)" pos="([^"]+)"/g)) {
+      const j = jById.get(m[1])
+      if (!j) continue
+      const pj = j.parent ? jById.get(j.parent) : null
+      const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
+      const want = [(j.pivot[0] - pp[0]) / 1000, (j.pivot[1] - pp[1]) / 1000, (j.pivot[2] - pp[2]) / 1000]
+      const got = num(m[2])
+      for (let k = 0; k < 3; k++) {
+        assert(Math.abs(got[k] - want[k]) < 0.002, `${p.id}/${j.id}: MJCF body pos ${m[2]} ≠ parent-relative ${want.map((v) => v.toFixed(3))}`)
+      }
+    }
     checked += 1
   })
   return `${checked} machines exported with matching topology`
@@ -465,8 +497,10 @@ check('IK reach: end-effector converges <5mm, joints stay in limits', () => {
   assert(ik, 'arm offers no IK teleop')
   let actual = design.joints.map(() => 0)
   ik.step({ x: 0, y: 0, z: 0 }, 1 / 60, actual) // anchor at the rest tip
-  for (let i = 0; i < 48; i++) { const d = ik.step({ x: 0.3, y: 0, z: -0.2 }, 1 / 60, actual); if (d) actual = d }
-  for (let i = 0; i < 240; i++) { const d = ik.step({ x: 0.13, y: 0, z: -0.13 }, 1 / 60, actual); if (d) actual = d }
+  // The rest pose is a fully-extended arm — the reachable workspace sits
+  // INBOARD and BELOW the tip, so the stick pulls back and down, never out.
+  for (let i = 0; i < 48; i++) { const d = ik.step({ x: -0.3, y: 0, z: -0.2 }, 1 / 60, actual); if (d) actual = d }
+  for (let i = 0; i < 240; i++) { const d = ik.step({ x: -0.13, y: 0, z: -0.13 }, 1 / 60, actual); if (d) actual = d }
   assert(ik.state.err < 5, `IK error ${ik.state.err.toFixed(1)}mm — should settle under 5mm`)
   design.joints.forEach((j, i) => assert(actual[i] >= j.min - 1 && actual[i] <= j.max + 1, `${j.id} at ${actual[i].toFixed(1)}° outside [${j.min},${j.max}]`))
   return `err ${ik.state.err.toFixed(1)}mm on target ${ik.state.tx.toFixed(0)},${ik.state.ty.toFixed(0)},${ik.state.tz.toFixed(0)}`

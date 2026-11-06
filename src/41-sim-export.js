@@ -96,6 +96,15 @@ function toURDF(design, analysis) {
 
   const linkOf = (jid) => (jid ? `link_${jid}` : 'base_link')
   const r6 = (v) => Number(v).toFixed(6)
+  const byId = new Map(joints.map((j) => [j.id, j]))
+  // Joint origins are PARENT-relative: the parent link's frame sits at its own
+  // pivot, so origin = pivot_child − pivot_parent (root joints measure from the
+  // base link at the model origin). Emitting raw model pivots would stack every
+  // hinge at its absolute position and the tree would assemble wrong.
+  const parentPivot = (j) => {
+    const p = j.parent ? byId.get(j.parent) : null
+    return p && p.pivot ? p.pivot : [0, 0, 0]
+  }
 
   const L = []
   L.push('<?xml version="1.0"?>')
@@ -118,7 +127,6 @@ function toURDF(design, analysis) {
     const bi2 = boxInertia(acc.g, acc.dims)
     const parent = linkOf(j.parent)
     const child = linkOf(j.id)
-    const axis = axisVec(j.axis)
     const type = j.slide ? 'prismatic' : (j.max - j.min >= 359 ? 'continuous' : 'revolute')
     L.push(`  <link name="${child}">`)
     L.push(`    <inertial>`)
@@ -130,13 +138,22 @@ function toURDF(design, analysis) {
     L.push(`    <parent link="${parent}"/>`)
     L.push(`    <child link="${child}"/>`)
     const pivot = j.pivot || [0, 0, 0]
-    L.push(`    <origin xyz="${pivot.map((v) => r6(v / 1000)).join(' ')}" rpy="0 0 0"/>`)
-    L.push(`    <axis xyz="${axis.join(' ')}"/>`)
+    const pp = parentPivot(j)
+    const rel = [pivot[0] - pp[0], pivot[1] - pp[1], pivot[2] - pp[2]]
+    L.push(`    <origin xyz="${rel.map((v) => r6(v / 1000)).join(' ')}" rpy="0 0 0"/>`)
+    // studio pitch joints read positive = UP, i.e. they rotate by −angle about
+    // +y; URDF has no sign convention, so the axis itself carries the flip.
+    // Slides keep their raw axis — linear displacement has no pitch inversion.
+    const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+    const axU = axisVec(j.axis).map((v) => v * sgn)
+    L.push(`    <axis xyz="${axU.map((v) => r6(v)).join(' ')}"/>`)
     // effort and velocity must be real: a zero effort limit means the joint
     // cannot move in Gazebo, RViz's fake controllers or Isaac
     const drive = servoFor(design, j)
     const effort = drive ? drive.torque : 1
-    const velocity = j.slide ? 0.2 : 6.0
+    // real slew speed when the servo is known: speed is s/60°, so ω = (π/3)/s
+    const spd = drive && PARTS[drive.servo] ? PARTS[drive.servo].speed : 0
+    const velocity = j.slide ? 0.2 : (spd > 0 && spd < 10 ? Math.min(30, (Math.PI / 3) / spd) : 6.0)
     if (type !== 'continuous') {
       const lo = j.slide ? j.min / 1000 : j.min * SIM_D2R
       const hi = j.slide ? j.max / 1000 : j.max * SIM_D2R
@@ -169,7 +186,9 @@ function toMJCF(design, analysis) {
     acc.dims = [Math.max(acc.dims[0], d[0]), Math.max(acc.dims[1], d[1]), Math.max(acc.dims[2], d[2])]
   }
   const childOf = new Map()
+  const jById = new Map()
   for (const j of joints) {
+    jById.set(j.id, j)
     const p = j.parent || '_base'
     if (!childOf.has(p)) childOf.set(p, [])
     childOf.get(p).push(j)
@@ -205,14 +224,22 @@ function toMJCF(design, analysis) {
       const g = Math.max(0.001, (byJoint.get(j.id) || { g: 0, dims: [24, 24, 24] }).g / 1000)
       const jd = (byJoint.get(j.id) || { dims: [24, 24, 24] }).dims
       const ji = boxInertia(g * 1000, jd)
-      const pivot = (j.pivot || [0, 0, 0]).map((v) => r4(v / 1000)).join(' ')
-      const axis = axisVec(j.axis).join(' ')
+      // body pos is relative to the PARENT body frame, whose origin sits at the
+      // parent joint's pivot — root joints measure from the base body at z=50mm
+      const pv = j.pivot || [0, 0, 0]
+      const pj = j.parent ? jById.get(j.parent) : null
+      const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
+      const pos = [pv[0] - pp[0], pv[1] - pp[1], pv[2] - pp[2]].map((v) => r4(v / 1000)).join(' ')
+      // same pitch inversion as URDF: studio +angle is −rotation about +y
+      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+      const axis = axisVec(j.axis).map((v) => v * sgn)
+      const axisStr = axis.map((v) => r4(v)).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
       const kind = j.slide ? 'slide' : 'hinge'
-      L.push(`${pad}<body name="b_${j.id}" pos="${pivot}">`)
+      L.push(`${pad}<body name="b_${j.id}" pos="${pos}">`)
       L.push(`${pad}  <inertial pos="0 0 0" mass="${r4(g)}" diaginertia="${ri(ji.ixx)} ${ri(ji.iyy)} ${ri(ji.izz)}"/>`)
-      L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axis}" range="${range}" damping="0.4"/>`)
-      L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.split(' ').map((v) => r4(Number(v) * 0.06)).join(' ')}" size="0.012"/>`)
+      L.push(`${pad}  <joint name="${j.id}" type="${kind}" axis="${axisStr}" range="${range}" damping="0.4"/>`)
+      L.push(`${pad}  <geom type="capsule" fromto="0 0 0 ${axis.map((v) => r4(v * 0.06)).join(' ')}" size="0.012"/>`)
       emit(j.id, depth + 1)
       L.push(`${pad}</body>`)
     }

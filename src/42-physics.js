@@ -28,6 +28,11 @@ function jointLoadNm(design, mat, poseAngles) {
       return out
     }
     const load = {}
+    const frameCache = new Map()
+    const frameOf = (jid) => {
+      if (!frameCache.has(jid)) frameCache.set(jid, jointFrameWorld(chains, jid))
+      return frameCache.get(jid)
+    }
     for (const n of design.nodes) {
       const nj = n.joint ? byId.get(n.joint) : null
       if (!nj) continue
@@ -36,11 +41,11 @@ function jointLoadNm(design, mat, poseAngles) {
       if (g <= 0) continue
       for (const j of ancestorsOf(nj.id)) {
         if (j.slide || j.axis === 'z') continue
-        const ax = j.axis === 'x' ? 1 : 0
-        const ay = j.axis === 'y' ? 1 : 0
-        const r = [w[0] - j.pivot[0], w[1] - j.pivot[1], w[2] - j.pivot[2]]
+        const fr = frameOf(j.id)
+        if (!fr) continue
+        const r = [w[0] - fr.pivotW[0], w[1] - fr.pivotW[1], w[2] - fr.pivotW[2]]
         // τ = r × F with F = (0,0,-g): τx = -ry·g, τy = rx·g → along axis, N·mm → N·m
-        const tau = (-r[1] * g * ax + r[0] * g * ay) / 1000
+        const tau = (-r[1] * g * fr.axisW[0] + r[0] * g * fr.axisW[1]) / 1000
         load[j.id] = (load[j.id] || 0) + tau
       }
     }
