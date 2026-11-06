@@ -550,7 +550,7 @@ function h(tag, props, ...kids) {
   const key = p.key != null ? p.key : undefined
   delete p.key
   if (kids.length === 1) p.children = kids[0]
-  else if (kids.length > 1) p.children = kids.map((k, i) => (k && k.$$el && k.key == null ? { ...k, key: 'k' + i } : k))
+  else if (kids.length > 1) p.children = kids.map((k, i) => (k && k.$$typeof && k.key == null ? { ...k, key: 'k' + i } : k))
   return key === undefined ? jsx(tag, p) : jsx(tag, p, key)
 }
 
