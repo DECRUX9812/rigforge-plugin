@@ -1,0 +1,16 @@
+{
+  "product": "RigForge",
+  "audience": "Hermes Agent Plugin Hackathon judges + developers",
+  "goal": "sub-90s demo proving RigForge is an engineering studio, not a toy configurator",
+  "narrative": "Build → Plug In → Drive → Break → Fix → Export",
+  "mustShow": [
+    "real UI, real computed numbers (no mocks)",
+    "sentence-to-machine via palette",
+    "bench verdicts + AUTO certification",
+    "honest failure (stairs) + APPLY FIX rebuild",
+    "gantry 3-axis teleop + custom spec editor",
+    "export surface (spec .md / build code)"
+  ],
+  "tag": "@NousResearch",
+  "style": "clean developer-tool launch: real screen capture, minimal motion graphics, mono accents"
+}
