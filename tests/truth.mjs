@@ -335,6 +335,31 @@ check('GLB: container, JSON chunk, per-part POSITION accessors in metres', () =>
   return `${meshes} GLB part-meshes, ${verts} verts across presets`
 })
 
+// ── 9g. STEP: AP214 faceted B-rep — one PRODUCT per node, real mm units ──────
+// Structure is asserted here; kernel-level validity (solids, volume, bounds)
+// was verified against OpenCascade during development — see PR notes.
+check('STEP: AP214 structure, one faceted solid per part, mm units, deterministic', () => {
+  let products = 0
+  eachPreset((p, { design }) => {
+    const step = A.toSTEP(design)
+    assert(step.startsWith('ISO-10303-21;'), `${p.id} STEP missing header`)
+    assert(step.trimEnd().endsWith('END-ISO-10303-21;'), `${p.id} STEP missing footer`)
+    assert(step.includes("FILE_SCHEMA(('AUTOMOTIVE_DESIGN"), `${p.id} STEP schema`)
+    assert(step.includes('SI_UNIT(.MILLI.,.METRE.)'), `${p.id} STEP not mm`)
+    const want = new Set(A.buildMesh(design).map((t) => t.node || '_')).size
+    const nProd = (step.match(/PRODUCT_DEFINITION_SHAPE/g) || []).length
+    const nBrep = (step.match(/FACETED_BREP\(/g) || []).length
+    const nShell = (step.match(/CLOSED_SHELL\(/g) || []).length
+    assert(nProd === want && nBrep === want && nShell === want,
+      `${p.id}: STEP products ${nProd}/breps ${nBrep}/shells ${nShell} vs ${want} parts`)
+    const badLines = step.split('\n').filter((l) => l.startsWith('#') && !l.trimEnd().endsWith(';'))
+    assert(!badLines.length, `${p.id}: ${badLines.length} entities missing ';'`)
+    assert(A.toSTEP(design) === step, `${p.id}: STEP not deterministic`)
+    products += nProd
+  })
+  return `${products} STEP products across presets`
+})
+
 // ── 9b. DFM overhang: bed orientation uses real contact area ─────────────────
 // The dims heuristic used to stand wedges and ring towers on edge — the
 // overhang check caught it, bestBedPerm fixed it. These presets must stay

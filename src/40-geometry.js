@@ -1301,6 +1301,124 @@ function toGLB(tris) {
   return buf
 }
 
+/**
+ * STEP (ISO 10303-21, AP214) — the neutral CAD format a fab shop, CNC
+ * programmer or SolidWorks/Fusion seat actually opens. Every node becomes a
+ * PRODUCT whose shape is a FACETED_BREP: polygonal faces on explicit planes,
+ * one shell per part, world-millimetre coordinates — the same posed geometry
+ * the STL/GLB exporters ship, in the format CAD kernels validate.
+ *
+ * Faceted B-rep is the honest representation for a triangle mesh: the
+ * triangles ARE the surface, so nothing is smoothed or invented. Parts whose
+ * winding runs inward get flipped per-part (signed-volume check) so every
+ * solid reads positive in a CAD kernel.
+ */
+function toSTEP(design) {
+  const q = (v) => Math.round(v * 10000) / 10000
+  const num = (v) => { const r = q(v); return Object.is(r, -0) ? '0' : String(r) }
+  const pt = (p) => `(${num(p[0])},${num(p[1])},${num(p[2])})`
+  const lines = []
+  let n = 1
+  const push = (body) => { const id = n; n += 1; lines.push(`#${id} = ${body};`); return id }
+  // header + protocol, then the shared unit/uncertainty context every rep
+  // points at — same block real CAD kernels emit, millimetres declared
+  lines.push("ISO-10303-21;", "HEADER;",
+    "FILE_DESCRIPTION(('RigForge STEP export — faceted B-rep, millimetres'),'2;1');",
+    `FILE_NAME('${String(design.title || 'rigforge').replace(/'/g, '')}.step','2026-01-01T00:00:00',('RigForge'),('RigForge'),'STEP processor','RigForge','');`,
+    "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));",
+    "ENDSEC;", "DATA;")
+  n = 1
+  push(`APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,#2)`)
+  push(`APPLICATION_CONTEXT('core data for automotive mechanical design processes')`)
+  const uLen = push(`( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )`)
+  const uAng = push(`( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.) )`)
+  const uSol = push(`( NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT() )`)
+  const uUnc = push(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-7),#${uLen},'distance_accuracy_value','')`)
+  const ctx = push(`( GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#${uUnc})) GLOBAL_UNIT_ASSIGNED_CONTEXT((#${uLen},#${uAng},#${uSol})) REPRESENTATION_CONTEXT('','') )`)
+  const pointIds = new Map()   // "x,y,z" → CARTESIAN_POINT id (shared across parts)
+  const planeIds = new Map()   // quantised normal+offset → PLANE id
+  const dirIds = new Map()     // "x,y,z" → DIRECTION id
+  const P = (p) => {
+    const k = `${q(p[0])},${q(p[1])},${q(p[2])}`
+    if (!pointIds.has(k)) pointIds.set(k, push(`CARTESIAN_POINT('',${pt(p)})`))
+    return pointIds.get(k)
+  }
+  const DIR = (v) => {
+    const k = `${q(v[0])},${q(v[1])},${q(v[2])}`
+    if (!dirIds.has(k)) dirIds.set(k, push(`DIRECTION('',${pt(v)})`))
+    return dirIds.get(k)
+  }
+  const PLANE = (normal, origin) => {
+    const d = normal[0] * origin[0] + normal[1] * origin[1] + normal[2] * origin[2]
+    const k = `${q(normal[0])},${q(normal[1])},${q(normal[2])}|${q(d)}`
+    if (planeIds.has(k)) return planeIds.get(k)
+    // placement ref must be ⊥ the normal: cross with the least-parallel axis
+    const h = Math.abs(normal[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+    let rx = h[1] * normal[2] - h[2] * normal[1]
+    let ry = h[2] * normal[0] - h[0] * normal[2]
+    let rz = h[0] * normal[1] - h[1] * normal[0]
+    const rl = Math.hypot(rx, ry, rz) || 1
+    rx /= rl; ry /= rl; rz /= rl
+    const axisId = DIR(normal), refId = DIR([rx, ry, rz]), orgId = P(origin)
+    const plc = push(`AXIS2_PLACEMENT_3D('',#${orgId},#${axisId},#${refId})`)
+    const pl = push(`PLANE('',#${plc})`)
+    planeIds.set(k, pl)
+    return pl
+  }
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+  const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
+  const signedVol = (list) => {
+    let v = 0
+    for (const t of list) {
+      const [a, b, c] = t.pts
+      v += a[0] * (b[1] * c[2] - b[2] * c[1])
+        + a[1] * (b[2] * c[0] - b[0] * c[2])
+        + a[2] * (b[0] * c[1] - b[1] * c[0])
+    }
+    return v / 6
+  }
+
+  const byNode = new Map()
+  for (const t of buildMesh(design)) {
+    if (!t.pts || t.pts.length !== 3) continue
+    const e1 = sub(t.pts[1], t.pts[0]); const e2 = sub(t.pts[2], t.pts[0])
+    if (Math.hypot(...cross(e1, e2)) < 1e-6) continue // degenerate — no face
+    const k = t.node || '_'
+    if (!byNode.has(k)) byNode.set(k, [])
+    byNode.get(k).push(t)
+  }
+  for (const [name, list] of byNode) {
+    // inward-wound parts get flipped so the solid's volume reads positive
+    const flip = signedVol(list) < 0
+    const safe = String(name).replace(/'/g, '')
+    const faceIds = []
+    for (const t of list) {
+      const p = flip ? [t.pts[0], t.pts[2], t.pts[1]] : t.pts
+      const e1 = sub(p[1], p[0]); const e2 = sub(p[2], p[0])
+      const normal = norm(cross(e1, e2))
+      const a = P(p[0]); const b = P(p[1]); const c = P(p[2])
+      const loop = push(`POLY_LOOP('',(#${a},#${b},#${c}))`)
+      const bound = push(`FACE_OUTER_BOUND('',#${loop},.T.)`)
+      const plane = PLANE(normal, p[0])
+      faceIds.push(push(`FACE_SURFACE('',(#${bound}),#${plane},.T.)`))
+    }
+    const shell = push(`CLOSED_SHELL('',(${faceIds.map((f) => `#${f}`).join(',')}))`)
+    const brep = push(`FACETED_BREP('${safe}',#${shell})`)
+    const rep = push(`FACETED_BREP_SHAPE_REPRESENTATION('${safe}',(#${brep}),#${ctx})`)
+    // product chain — one PRODUCT per node, positioned in world mm
+    const pctx = push(`PRODUCT_CONTEXT('',#2,'mechanical')`)
+    const prod = push(`PRODUCT('${safe}','${safe}','',(#${pctx}))`)
+    const pdf = push(`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#${prod},.NOT_KNOWN.)`)
+    const pdc = push(`PRODUCT_DEFINITION_CONTEXT('part definition',#2,'design')`)
+    const pd = push(`PRODUCT_DEFINITION('design','',#${pdf},#${pdc})`)
+    const pds = push(`PRODUCT_DEFINITION_SHAPE('','',#${pd})`)
+    push(`SHAPE_DEFINITION_REPRESENTATION(#${pds},#${rep})`)
+  }
+  lines.push("ENDSEC;", "END-ISO-10303-21;")
+  return lines.join('\n') + '\n'
+}
+
 // Minimal ZIP (store-only): what a slicer folder wants, no compression library.
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
