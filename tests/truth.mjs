@@ -859,9 +859,12 @@ check('load overlay: crosshair per joint, colour tracks load/stall honestly', ()
     if (g > r && g > b) green += 1
     if (r > g && r > b) red += 1
   }
-  // joints 0,3,4 green (3×6=18), joints 1,2 red (2×6=12)
+  // joints 0,3,4 green (3×6=18), joints 1,2 red-family (2×6=12)
   assert(green === 18 && red === 12, `expected 18 green / 12 red verts, got ${green}/${red}`)
-  return `load overlay: ${n} joints → ${green} green / ${red} red verts`
+  // stalled must read white-hot, not the same red as merely-near-stall
+  const j1g = ov.data[6 * 6 + 4], j2g = ov.data[2 * 6 * 6 + 4]
+  assert(j2g > 0.85 && j1g < 0.6, `stalled joint should glow white-hot (g=${j2g.toFixed(2)}), near-stall stays red (g=${j1g.toFixed(2)})`)
+  return `load overlay: ${n} joints → ${green} green / ${red} red verts, stall=white-hot`
 })
 
 // ── 29c. reach overlay: workspace sphere contains every reachable tip ────────

@@ -5446,10 +5446,12 @@ function loadOverlay(design, loadNm, stallNm, stalled) {
     const p = fr.pivotW
     const s = stallNm && stallNm[i] > 0 ? stallNm[i] : 0
     const ratio = s > 0 ? (loadNm[i] || 0) / s : 0
-    const col = (stalled && stalled[i]) || ratio >= 1
-      ? [1.0, 0.25, 0.22]
-      : ratio > 0.9 ? [1.0, 0.32, 0.28]
-      : ratio > 0.5 ? [1.0, 0.72, 0.18]
+    // heat scale: green <50% · amber 50–90% · red ≥90% of stall ·
+    // white-hot = actually stalled or thermally cut — must read at a glance
+    const col = (stalled && stalled[i])
+      ? [1.0, 0.95, 0.9]
+      : ratio >= 0.9 ? [1.0, 0.4, 0.2]
+      : ratio >= 0.5 ? [1.0, 0.72, 0.18]
       : [0.35, 0.90, 0.55]
     const r = 9
     seg([p[0] - r, p[1], p[2]], [p[0] + r, p[1], p[2]], col)
@@ -13283,7 +13285,9 @@ function Studio() {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
-              title: `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
+              title: key === 'heat'
+                ? 'joint load heat — green <50% stall · amber 50–90% · red ≥90% · white-hot = stalled/thermal cutoff'
+                : `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
               onClick: () => setOpts((o) => ({ ...o, [key]: !o[key] })),
             }, label))),
           opts.explode

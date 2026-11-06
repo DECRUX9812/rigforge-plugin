@@ -2038,7 +2038,9 @@ function Studio() {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
-              title: `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
+              title: key === 'heat'
+                ? 'joint load heat — green <50% stall · amber 50–90% · red ≥90% · white-hot = stalled/thermal cutoff'
+                : `${label.toLowerCase()} ${opts[key] ? 'on' : 'off'}`,
               onClick: () => setOpts((o) => ({ ...o, [key]: !o[key] })),
             }, label))),
           opts.explode
