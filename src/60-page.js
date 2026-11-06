@@ -508,11 +508,16 @@ function Studio() {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
       if (sim.step(dt, now)) setDispPose([...sim.state.angles])
-      // joint telemetry: actual angles ~10Hz, ring of 80 (~8s) for the scope
+      // joint telemetry: actual angles + gravity-load ratio ~10Hz, ring of
+      // 80 (~8s) — the scope shows motion AND where torque peaks
       telemetryRef.current.n += 1
       if (telemetryRef.current.n % 6 === 0) {
         const ts = telemetryRef.current
-        ts.samples.push(sim.state.angles.slice())
+        const st = sim.state
+        ts.samples.push({
+          a: st.angles.slice(),
+          l: st.stallNm.map((s, i) => (s > 0 ? Math.min(1.2, st.loadNm[i] / s) : 0)),
+        })
         if (ts.samples.length > 80) ts.samples.shift()
       }
       // endurance: drain the pack, heat the servos, feed thermal cutoffs back
@@ -2135,19 +2140,28 @@ function Studio() {
             // stalls and limit riding are visible as shapes, not just numbers
             telemetryRef.current.samples.length > 2
               ? h('div', { style: { marginTop: '10px' } },
-                h('div', { style: { ...S.sectionLabel, marginBottom: '4px' } }, `telemetry · last ${((telemetryRef.current.samples.length / 10) | 0)}s`),
+                h('div', { style: { ...S.sectionLabel, marginBottom: '4px' } },
+                  `telemetry · last ${((telemetryRef.current.samples.length / 10) | 0)}s — cyan angle · amber %stall`),
                 design.joints.slice(0, 10).map((j, i) => {
                   const ns = telemetryRef.current.samples.length - 1 || 1
-                  const pts = telemetryRef.current.samples
+                  const angPts = telemetryRef.current.samples
                     .map((s, k) => {
-                      const a = s[i] || 0
+                      const a = (s.a ? s.a[i] : s[i]) || 0
                       const n = j.max !== j.min ? (a - j.min) / (j.max - j.min) : 0.5
                       return `${((k / ns) * 100).toFixed(1)},${(22 - Math.max(0, Math.min(1, n)) * 20).toFixed(1)}`
+                    }).join(' ')
+                  // load trace: 0–100% stall on the same 24px rail, amber —
+                  // spikes here are the joints about to stall
+                  const loadPts = telemetryRef.current.samples
+                    .map((s, k) => {
+                      const lr = (s.l ? s.l[i] : 0) || 0
+                      return `${((k / ns) * 100).toFixed(1)},${(22 - Math.max(0, Math.min(1, lr)) * 20).toFixed(1)}`
                     }).join(' ')
                   return h('div', { key: j.id, style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' } },
                     h('span', { style: { width: '86px', flex: '0 0 auto', fontSize: '9px', color: C.faint, fontFamily: C.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, j.label),
                     h('svg', { viewBox: '0 0 100 24', preserveAspectRatio: 'none', style: { flex: '1 1 auto', height: '18px', display: 'block' } },
-                      h('polyline', { points: pts, fill: 'none', stroke: C.cyan, strokeWidth: '1.2', vectorEffect: 'non-scaling-stroke' })))
+                      h('polyline', { points: angPts, fill: 'none', stroke: C.cyan, strokeWidth: '1.2', vectorEffect: 'non-scaling-stroke' }),
+                      h('polyline', { points: loadPts, fill: 'none', stroke: C.amber, strokeWidth: '0.9', strokeDasharray: '2 1.5', vectorEffect: 'non-scaling-stroke', opacity: '0.9' })))
                 }),
                 design.joints.length > 10
                   ? h('div', { style: { fontSize: '9px', color: C.faint, marginTop: '2px' } }, `+${design.joints.length - 10} more joints — scope shows the first ten`)
