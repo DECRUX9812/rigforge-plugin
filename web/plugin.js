@@ -561,7 +561,7 @@ const PARTS = {
   },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
-    conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
+    dims: [20, 15, 12], conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
     note: 'The pack interface. Solder the battery side first, one lead at a time.',
   },
   xt30: {
@@ -713,10 +713,10 @@ function box(d, id, size, pos, mat, extra) {
  *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
  *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
  *  [2,0,1] stands a board on edge). Defaults to lying flat. */
-function elec(d, id, key, pos, axes) {
+function elec(d, id, key, pos, axes, extra) {
   const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
   const m = axes || [0, 1, 2]
-  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb')
+  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb', extra)
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
@@ -1387,7 +1387,7 @@ function buildArm(brief) {
   elec(d, 'buck5a', 'buck5a', [0, 64, 18])
   // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
   // beside it — the $3 part between a short and a lithium fire
-  elec(d, 'fuse', 'fuse', [-40, 64, 19])
+  elec(d, 'fuse', 'fuse', [-40, 64, 21])
   elec(d, 'cap1000', 'cap1000', [40, 64, 20])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
@@ -1610,8 +1610,10 @@ function buildRover(brief) {
   // power path on the open deck: ATO fuse at the pack feed, rail cap at the
   // drivers, rocker on the deck edge — all catalog dims
   elec(d, 'fuse', 'fuse', [-wheelbase * 0.178, 0, deckTop + 9])
-  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, 0, deckTop + 8])
+  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, track * 0.05, deckTop + 8])
   elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
+  // XT60 at the pack feed, between the fuse and the drivers
+  elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
   cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
@@ -1909,7 +1911,8 @@ function buildGripper(brief) {
   // clear of keepers (y≤29.5) and the cheek (z≤46)
   elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
   elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
-  elec(d, 'rocker', 'rocker', [-deckL / 2 + 42, deckW / 2 - 8, deckZ + 9])
+  // rocker stays BOM-only: the jaw sweeps every deck/plate face at OPEN —
+  // there is no honest place for a panel switch on this machine
   cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
@@ -2097,6 +2100,8 @@ function buildFullRobot(brief) {
   elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
   elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
   elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
+  // XT60 on the pack lid, clear of the avionics row — the lead's first stop
+  elec(d, 'xt60', 'xt60', [px + 28, -20, deckZ + 40])
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
@@ -3167,6 +3172,8 @@ function buildGantry(brief) {
     elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
     elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
     elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
+    // XT60 at the cage mouth — pack lead lands on the fuse first
+    elec(d, 'xt60', 'xt60', [cb[0], cb[1] + 12, cb[2] - 34])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
@@ -3221,7 +3228,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
+    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the

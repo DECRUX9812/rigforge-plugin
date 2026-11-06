@@ -78,6 +78,8 @@ function buildGantry(brief) {
     elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
     elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
     elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
+    // XT60 at the cage mouth — pack lead lands on the fuse first
+    elec(d, 'xt60', 'xt60', [cb[0], cb[1] + 12, cb[2] - 34])
   }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
@@ -132,7 +134,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
+    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the

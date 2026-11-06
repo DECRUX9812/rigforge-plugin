@@ -115,7 +115,7 @@ function buildArm(brief) {
   elec(d, 'buck5a', 'buck5a', [0, 64, 18])
   // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
   // beside it — the $3 part between a short and a lithium fire
-  elec(d, 'fuse', 'fuse', [-40, 64, 19])
+  elec(d, 'fuse', 'fuse', [-40, 64, 21])
   elec(d, 'cap1000', 'cap1000', [40, 64, 20])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')

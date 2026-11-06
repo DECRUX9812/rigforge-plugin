@@ -527,7 +527,7 @@ const PARTS = {
   },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
-    conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
+    dims: [20, 15, 12], conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
     note: 'The pack interface. Solder the battery side first, one lead at a time.',
   },
   xt30: {
