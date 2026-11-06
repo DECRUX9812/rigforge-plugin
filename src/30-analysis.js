@@ -475,6 +475,14 @@ function analyze(design) {
   } else if (wall.parts.length) {
     checks.push({ level: 'ok', msg: `Wall check: every printed part holds ≥${wall.minWall}mm walls — thinnest reads ~${wall.thinnest}mm.` })
   }
+  const interference = interferenceReport(design)
+  if (interference.count) {
+    const names = interference.pairs.slice(0, 3).map((p) => `${prettyPart(p.a)} × ${prettyPart(p.b)}`).join(', ')
+    checks.push({
+      level: 'warn',
+      msg: `${interference.count} printed part pair(s) occupy the same space at rest pose — deepest ~${interference.pairs[0].depth}mm (${names}${interference.count > 3 ? '…' : ''}). Each STL prints fine alone, but they can't be assembled as modeled — trim the overlap, pocket one part, or offset the joint.`,
+    })
+  }
   if (harness && harness.needExt) {
     checks.push({
       level: 'warn',
@@ -508,7 +516,7 @@ function analyze(design) {
     costBuy,
     costShop: cost - costBuy,
     spoolCost,
-    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall },
+    print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
     dims,
     checks,
