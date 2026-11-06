@@ -50,6 +50,107 @@ function buildPcb(brief) {
   rbox(d, 'keepout', [14, 9, 0.25], [W / 2 - 9, H / 2 - 7, T / 2 + 0.2], 1, 'steel')
 
   // ── placed parts: modules, then the passives ───────────────────────────
+  const rotPt = (dx, dy, deg) => {
+    const r = (deg * Math.PI) / 180
+    const c = Math.cos(r)
+    const sn = Math.sin(r)
+    return [dx * c - dy * sn, dx * sn + dy * c]
+  }
+  const at = (x, y, rot) => (dx, dy) => {
+    const [rx, ry] = rotPt(dx, dy, rot)
+    return [x + rx, y + ry]
+  }
+
+  // ── components that look like the thing you would actually buy ────────────
+  // A devkit is a board with a shield can, a USB-C shell and two rows of 2.54mm
+  // pins. An OLED is glass in a frame with a four-pin header. A rocker is a
+  // black box with a lever. None of that is a rounded cuboid, and the rounded
+  // cuboid is exactly why the board read as clay.
+  const pinHeader = (d, id, x, y, rot, n, pitch, z0, along) => {
+    const P = at(x, y, rot)
+    const span = (n - 1) * pitch
+    const rail = along === 'x' ? [span + 2.2, 2.54, 1.3] : [2.54, span + 2.2, 1.3]
+    box(d, `${id}-rail`, rail, [x, y, z0 + 0.65], 'rubber')
+    for (let i = 0; i < n; i += 1) {
+      const t = i * pitch - span / 2
+      const [px, py] = along === 'x' ? P(t, 0) : P(0, t)
+      box(d, `${id}-p${i}`, [0.9, 0.9, 2.6], [px, py, z0 + 1.3], 'brass')
+    }
+  }
+
+  const component = (d, des, key, x, y, rot, sx, sy, h, T) => {
+    const z0 = T / 2
+    const P = at(x, y, rot)
+    switch (key) {
+      case 'esp32s3': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.6], [x, y, z0 + 0.8], 0.6, 'pcbblue')
+        box(d, `${des}-can`, [sx * 0.42, sy * 0.55, 1.4], [x - sx * 0.06, y, z0 + 2.3], 'metal')
+        box(d, `${des}-usbc`, [7.5, 4.2, 2.8], [x + sx / 2 - 2.6, y, z0 + 1.7], 'metal')
+        box(d, `${des}-usbc-in`, [4, 2.2, 1.8], [x + sx / 2 - 1.2, y, z0 + 1.7], 'rubber')
+        const n = 15
+        const pitch = (sy - 4) / (n + 1)
+        for (const s of [-1, 1]) {
+          const [rx, ry] = P(0, s * (sy / 2 - 2.4))
+          pinHeader(d, `${des}-hdr${s > 0 ? 'a' : 'b'}`, rx, ry, rot, n, pitch, z0, 'y')
+        }
+        for (const s of [-1, 1]) {
+          const [bx, by] = P(-sx * 0.2, s * sy * 0.34)
+          box(d, `${des}-btn${s > 0 ? 'a' : 'b'}`, [3.2, 3.2, 1.8], [bx, by, z0 + 1.7], 'rubber')
+        }
+        break
+      }
+      case 'ssd1306': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.4], [x, y, z0 + 0.7], 0.5, 'rubber')
+        box(d, `${des}-glass`, [sx * 0.86, sy * 0.62, 0.7], [x, y + sy * 0.06, z0 + 1.7], 'glass')
+        box(d, `${des}-bezel`, [sx * 0.92, sy * 0.10, 0.9], [x, y - sy * 0.36, z0 + 1.7], 'rubber')
+        const [hx, hy] = P(0, -sy / 2 + 1.6)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'x')
+        break
+      }
+      case 'bme280': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcb')
+        const [hx, hy] = P(-sx / 2 + 1.5, 0)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
+        box(d, `${des}-chip`, [3.2, 3.2, 1.1], [P(sx * 0.1, 0)[0], P(sx * 0.1, 0)[1], z0 + 1.2], 'metal')
+        break
+      }
+      case 'ina219': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcbblue')
+        box(d, `${des}-shunt`, [6.5, 4, 1.4], [P(-sx * 0.1, -sy * 0.12)[0], P(-sx * 0.1, -sy * 0.12)[1], z0 + 1.3], 'rubber')
+        box(d, `${des}-ic`, [4, 4, 1.0], [P(sx * 0.22, sy * 0.2)[0], P(sx * 0.22, sy * 0.2)[1], z0 + 1.1], 'rubber')
+        const [hx, hy] = P(-sx / 2 + 1.5, 0)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
+        break
+      }
+      case 'jst_kit': {
+        box(d, `${des}-body`, [14, 8.5, 6], [x, y, z0 + 3], 'shell')
+        for (let i = 0; i < 4; i += 1) {
+          const [px, py] = P((i - 1.5) * 2.5, 0)
+          box(d, `${des}-pin${i}`, [0.8, 0.8, 1.2], [px, py, z0 + 6.4], 'brass')
+        }
+        const col = ['accent', 'rubber', 'brass']
+        for (let i = 0; i < 3; i += 1) {
+          const yoff = (i - 1) * 2.5
+          for (let sgi = 0; sgi < 3; sgi += 1) {
+            const len = 9
+            const [px, py] = P(sx / 2 + 2 + sgi * len, yoff)
+            box(d, `${des}-lead${i}-${sgi}`, [len, 1.1, 1.1], [px, py, z0 + 3 - sgi * 0.6], col[i])
+          }
+        }
+        break
+      }
+      case 'rocker': {
+        box(d, `${des}-shell`, [sx, sy, h * 0.7], [x, y, z0 + h * 0.35], 'rubber')
+        box(d, `${des}-lever`, [sx * 0.62, sy * 0.5, 3.2], [x, y, z0 + h * 0.7 + 1.4], 'metal')
+        box(d, `${des}-rim`, [sx * 0.9, sy * 0.12, 1.2], [x, y - sy * 0.4, z0 + h * 0.7], 'rubber')
+        break
+      }
+      default: {
+        rbox(d, `${des}-body`, [sx, sy, Math.max(2, h)], [x, y, z0 + Math.max(2, h) / 2], 0.4, 'rubber')
+      }
+    }
+  }
+
   const placed = []
   for (const [des, key, fx, fy, rot, pkg] of PCB_PARTS) {
     const x = Math.round(fx * (W / 2 - 12))
@@ -59,9 +160,7 @@ function buildPcb(brief) {
     const [l, w, h] = part.dims || [10, 10, 3]
     const sx = Math.max(3, l * 0.86)
     const sy = Math.max(3, w * 0.86)
-    rbox(d, `part-${des}`, [sx, sy, Math.max(2, h)], [x, y, T / 2 + Math.max(2, h) / 2], 0.4, 'pcb', {
-      rot: [0, 0, (rot * Math.PI) / 180],
-    })
+    component(d, `part-${des}`, key, x, y, rot, sx, sy, Math.max(2, h), T)
     // a pin-1 marker: the one detail that says "this is a real footprint"
     box(d, `pin1-${des}`, [1.2, 1.2, 0.6], [x - sx / 2 + 1.5, y - sy / 2 + 1.5, T / 2 + Math.max(2, h) + 0.3], 'brass')
     placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
