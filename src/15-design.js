@@ -5,7 +5,8 @@
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
 //              cone (pointed taper), lathe (revolved [r,z] profile),
-//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
+//              prism (extruded convex [u,v] profile), ring (hollow cyl),
+//              torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -288,6 +289,22 @@ function lathe(d, id, profile, pos, axis, mat, extra) {
   })
 }
 
+/** Prism — extrude a closed convex [u,v] polygon `depth` mm along the axis,
+ *  centred on pos (the polygon's bbox centre lands on the node). Depth is
+ *  symmetric ±depth/2. Convex only — cap fans need an interior centroid. */
+function prism(d, id, profile, depth, pos, axis, mat, extra) {
+  const us = profile.map((p) => p[0]); const vs = profile.map((p) => p[1])
+  const cu = (Math.min(...us) + Math.max(...us)) / 2
+  const cv = (Math.min(...vs) + Math.max(...vs)) / 2
+  const hu = (Math.max(...us) - Math.min(...us)) / 2
+  const hv = (Math.max(...vs) - Math.min(...vs)) / 2
+  d.nodes.push({
+    id, kind: 'prism',
+    profile: profile.map(([u, v]) => [u - cu, v - cv]),
+    radius: Math.max(hu, hv), height: depth, pos: [...pos], axis, mat, ...extra,
+  })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -349,6 +366,16 @@ function nodeVolume(node) {
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
     case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
+    case 'prism': {
+      // shoelace area × depth — exact for any simple polygon
+      const p = node.profile || []
+      let a = 0
+      for (let i = 0; i < p.length; i += 1) {
+        const [u1, v1] = p[i]; const [u2, v2] = p[(i + 1) % p.length]
+        a += u1 * v2 - u2 * v1
+      }
+      return (Math.abs(a) / 2) * (node.height || 0)
+    }
     case 'lathe': {
       // exact solid-of-revolution volume: signed frustum sum around the loop
       const p = node.profile || []
@@ -394,6 +421,21 @@ function shellVolume(n) {
     const tube = Math.PI * (r * r - (r - WALL) * (r - WALL)) * h
     const caps = 2 * Math.PI * r * r * WALL * LIGHTENING
     return Math.min(solid * LIGHTENING, tube + caps)
+  }
+  if (n.kind === 'prism') {
+    // shell of the extruded outline: 2 caps + perimeter walls
+    const p = n.profile || []
+    let per = 0; let area = 0; let hu = 0; let hv = 0
+    const us = p.map((q) => q[0]); const vs = p.map((q) => q[1])
+    hu = (Math.max(...us) - Math.min(...us)) / 2; hv = (Math.max(...vs) - Math.min(...vs)) / 2
+    for (let i = 0; i < p.length; i += 1) {
+      const [u1, v1] = p[i]; const [u2, v2] = p[(i + 1) % p.length]
+      per += Math.hypot(u2 - u1, v2 - v1); area += u1 * v2 - u2 * v1
+    }
+    const thin = Math.min(hu * 2, hv * 2, n.height || 0) <= WALL * 2.2
+    if (thin) return solid * LIGHTENING
+    const surface = 2 * Math.abs(area) + per * (n.height || 0)
+    return Math.min(solid * LIGHTENING, surface * WALL)
   }
   // box, rbox, wedge, rack — shell of the bounding shape
   const [x, y, z] = n.size

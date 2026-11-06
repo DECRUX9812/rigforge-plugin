@@ -253,7 +253,7 @@ function SpecDialog({ open, brief, onApply, onClose }) {
       err
         ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
         : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
-          'Kinds: box rbox cyl cone lathe ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
+          'Kinds: box rbox cyl cone lathe prism ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
       h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
       h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'BUILD IT'))))

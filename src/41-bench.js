@@ -54,7 +54,7 @@ function benchNodeDrop(node) {
   if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
   }
-  if (node.kind === 'lathe') {
+  if (node.kind === 'lathe' || node.kind === 'prism') {
     // centred profile: bottom is span/2 on-axis, maxR off-axis
     return node.axis === 'z' ? (node.height || 0) / 2 : Math.max(node.radius || 0, (node.height || 0) / 2)
   }

@@ -666,7 +666,8 @@ const money = (n) => '$' + (n >= 100 ? Math.round(n) : Number(n).toFixed(2))
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
 //              cone (pointed taper), lathe (revolved [r,z] profile),
-//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
+//              prism (extruded convex [u,v] profile), ring (hollow cyl),
+//              torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -949,6 +950,22 @@ function lathe(d, id, profile, pos, axis, mat, extra) {
   })
 }
 
+/** Prism — extrude a closed convex [u,v] polygon `depth` mm along the axis,
+ *  centred on pos (the polygon's bbox centre lands on the node). Depth is
+ *  symmetric ±depth/2. Convex only — cap fans need an interior centroid. */
+function prism(d, id, profile, depth, pos, axis, mat, extra) {
+  const us = profile.map((p) => p[0]); const vs = profile.map((p) => p[1])
+  const cu = (Math.min(...us) + Math.max(...us)) / 2
+  const cv = (Math.min(...vs) + Math.max(...vs)) / 2
+  const hu = (Math.max(...us) - Math.min(...us)) / 2
+  const hv = (Math.max(...vs) - Math.min(...vs)) / 2
+  d.nodes.push({
+    id, kind: 'prism',
+    profile: profile.map(([u, v]) => [u - cu, v - cv]),
+    radius: Math.max(hu, hv), height: depth, pos: [...pos], axis, mat, ...extra,
+  })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -1010,6 +1027,16 @@ function nodeVolume(node) {
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
     case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
+    case 'prism': {
+      // shoelace area × depth — exact for any simple polygon
+      const p = node.profile || []
+      let a = 0
+      for (let i = 0; i < p.length; i += 1) {
+        const [u1, v1] = p[i]; const [u2, v2] = p[(i + 1) % p.length]
+        a += u1 * v2 - u2 * v1
+      }
+      return (Math.abs(a) / 2) * (node.height || 0)
+    }
     case 'lathe': {
       // exact solid-of-revolution volume: signed frustum sum around the loop
       const p = node.profile || []
@@ -1055,6 +1082,21 @@ function shellVolume(n) {
     const tube = Math.PI * (r * r - (r - WALL) * (r - WALL)) * h
     const caps = 2 * Math.PI * r * r * WALL * LIGHTENING
     return Math.min(solid * LIGHTENING, tube + caps)
+  }
+  if (n.kind === 'prism') {
+    // shell of the extruded outline: 2 caps + perimeter walls
+    const p = n.profile || []
+    let per = 0; let area = 0; let hu = 0; let hv = 0
+    const us = p.map((q) => q[0]); const vs = p.map((q) => q[1])
+    hu = (Math.max(...us) - Math.min(...us)) / 2; hv = (Math.max(...vs) - Math.min(...vs)) / 2
+    for (let i = 0; i < p.length; i += 1) {
+      const [u1, v1] = p[i]; const [u2, v2] = p[(i + 1) % p.length]
+      per += Math.hypot(u2 - u1, v2 - v1); area += u1 * v2 - u2 * v1
+    }
+    const thin = Math.min(hu * 2, hv * 2, n.height || 0) <= WALL * 2.2
+    if (thin) return solid * LIGHTENING
+    const surface = 2 * Math.abs(area) + per * (n.height || 0)
+    return Math.min(solid * LIGHTENING, surface * WALL)
   }
   // box, rbox, wedge, rack — shell of the bounding shape
   const [x, y, z] = n.size
@@ -2487,7 +2529,7 @@ void loop() {
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|lathe|prism|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -2498,18 +2540,34 @@ void loop() {
 // cyl takes r,h,axis,r2(taper),segs; ring takes ro,ri (RADII),h,axis;
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
 // bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
-// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre).
+// lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre);
+// prism takes profile:[[u,v],...] (convex) + depth.
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
 const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0, n).every((x) => Number.isFinite(Number(x)))
   ? v.slice(0, n).map(Number) : null)
 
+/** Strict convexity: every consecutive edge cross-product keeps one sign. */
+function specConvex(pts) {
+  let sign = 0
+  for (let i = 0; i < pts.length; i += 1) {
+    const [x1, y1] = pts[i]; const [x2, y2] = pts[(i + 1) % pts.length]; const [x3, y3] = pts[(i + 2) % pts.length]
+    const cr = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
+    if (Math.abs(cr) < 1e-9) continue
+    const s = Math.sign(cr)
+    if (sign && s !== sign) return false
+    sign = s
+  }
+  return sign !== 0
+}
+
 function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
     cone: 'cone', pyramid: 'cone',
     lathe: 'lathe', revolve: 'lathe', spin: 'lathe',
+    prism: 'prism', extrude: 'prism',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -2558,6 +2616,18 @@ function specEmit(d, raw, idx, warn) {
       const e = { ...extra }
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       lathe(d, id, prof.map((p) => [+p[0], +p[1]]), at, axis, mat, e); break
+    }
+    case 'prism': {
+      const prof = raw.profile || raw.points || raw.outline
+      const ok = Array.isArray(prof) && prof.length >= 3
+        && prof.every((p) => Array.isArray(p) && p.length >= 2
+          && Number.isFinite(+p[0]) && Number.isFinite(+p[1]))
+      if (!ok) return warn(`node ${id}: prism needs profile:[[u,v],...] with >=3 points`)
+      const pts = prof.map((p) => [+p[0], +p[1]])
+      if (!specConvex(pts)) return warn(`node ${id}: prism profile must be convex — cap fans need an interior centroid`)
+      const dep = CUSTOM_NUM(raw.depth ?? raw.d ?? raw.height, 0)
+      if (!(dep > 0)) return warn(`node ${id}: prism needs depth>0`)
+      prism(d, id, pts, dep, at, axis, mat, extra); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
@@ -4527,6 +4597,47 @@ function latheTris(profile, segs, axis) {
   return tris
 }
 
+/** Prism: extrude a closed convex (u,v) polygon `depth` along the axis,
+ *  centred on the node. profile coords are centred by the helper, so the
+ *  polygon's bbox centre sits at pos. Convex-only — caps fan-triangulate
+ *  from the centroid, which is only interior for convex outlines. Axis
+ *  maps are proper rotations; winding enforced by signed volume. */
+function prismTris(profile, depth, axis) {
+  const n = profile.length
+  const map = (u, v, z) => {
+    if (axis === 'z') return [u, v, z]
+    if (axis === 'y') return [u, z, -v]
+    return [z, u, v]
+  }
+  const h = depth / 2
+  let cu = 0; let cv = 0
+  for (const p of profile) { cu += p[0]; cv += p[1] }
+  cu /= n; cv /= n
+  const tris = []
+  const area2 = (a, b, c) => {
+    const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]
+    const vx = c[0] - a[0]; const vy = c[1] - a[1]; const vz = c[2] - a[2]
+    const cx = uy * vz - uz * vy; const cy = uz * vx - ux * vz; const cz = ux * vy - uy * vx
+    return cx * cx + cy * cy + cz * cz
+  }
+  for (let i = 0; i < n; i += 1) {
+    const [u1, v1] = profile[i]; const [u2, v2] = profile[(i + 1) % n]
+    if (u1 === u2 && v1 === v2) continue
+    const b1 = map(u1, v1, -h); const b2 = map(u2, v2, -h)
+    const t1 = map(u1, v1, h); const t2 = map(u2, v2, h)
+    const cB = map(cu, cv, -h); const cT = map(cu, cv, h)
+    tris.push([b1, b2, t2], [b1, t2, t1])   // side wall
+    tris.push([cB, b2, b1], [cT, t1, t2])   // bottom + top cap fans
+  }
+  let vol = 0
+  for (const [a, b, c] of tris) {
+    vol += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+  }
+  const out = tris.filter((t) => area2(...t) > 1e-9)
+  if (vol < 0) for (const t of out) t.reverse()
+  return out
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -4805,6 +4916,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
     case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'lathe': local = latheTris(node.profile || [], node.segs || CYL_SEGS, node.axis || 'z'); break
+    case 'prism': local = prismTris(node.profile || [], node.height || 10, node.axis || 'z'); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -5915,6 +6027,9 @@ function toOpenSCAD(design) {
     } else if (n.kind === 'lathe') {
       const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
       prim = `${wrap}rotate_extrude() polygon([${pts}]); /* lathe */`
+    } else if (n.kind === 'prism') {
+      const pts = (n.profile || []).map((p) => `[${(+p[0]).toFixed(1)}, ${(+p[1]).toFixed(1)}]`).join(', ')
+      prim = `${wrap}linear_extrude(height=${(+n.height).toFixed(1)}, center=true) polygon([${pts}]); /* prism */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -6122,7 +6237,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': case 'cone': case 'lathe': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': case 'lathe': case 'prism': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -6138,6 +6253,14 @@ function boundsOf(nodes) {
     let half
     if (n.kind === 'box' || n.kind === 'rbox' || n.kind === 'wedge' || n.kind === 'rack') {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
+    } else if (n.kind === 'prism') {
+      // profile bbox in the (u,v) plane × depth along the axis
+      const p = n.profile || []
+      const us = p.map((q) => q[0]); const vs = p.map((q) => q[1])
+      const hu = (Math.max(...us) - Math.min(...us)) / 2
+      const hv = (Math.max(...vs) - Math.min(...vs)) / 2
+      const along = (n.height || 0) / 2
+      half = n.axis === 'x' ? [along, hu, hv] : n.axis === 'y' ? [hu, along, hv] : [hu, hv, along]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
       const r = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'lathe' ? Math.max(n.radius, n.radius2 || 0)
@@ -6220,7 +6343,7 @@ function benchNodeDrop(node) {
   if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
   }
-  if (node.kind === 'lathe') {
+  if (node.kind === 'lathe' || node.kind === 'prism') {
     // centred profile: bottom is span/2 on-axis, maxR off-axis
     return node.axis === 'z' ? (node.height || 0) / 2 : Math.max(node.radius || 0, (node.height || 0) / 2)
   }
@@ -13431,7 +13554,7 @@ function SpecDialog({ open, brief, onApply, onClose }) {
       err
         ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
         : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
-          'Kinds: box rbox cyl cone lathe ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
+          'Kinds: box rbox cyl cone lathe prism ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
       h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
       h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'BUILD IT'))))
