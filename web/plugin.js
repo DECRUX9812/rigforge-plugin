@@ -666,7 +666,7 @@ const money = (n) => '$' + (n >= 100 ? Math.round(n) : Number(n).toFixed(2))
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
 //              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
 //              cone (pointed taper), lathe (revolved [r,z] profile),
-//              prism (extruded convex [u,v] profile), ring (hollow cyl),
+//              prism (extruded simple [u,v] profile), ring (hollow cyl),
 //              torus, wedge (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
@@ -950,9 +950,9 @@ function lathe(d, id, profile, pos, axis, mat, extra) {
   })
 }
 
-/** Prism — extrude a closed convex [u,v] polygon `depth` mm along the axis,
+/** Prism — extrude a closed simple [u,v] polygon `depth` mm along the axis,
  *  centred on pos (the polygon's bbox centre lands on the node). Depth is
- *  symmetric ±depth/2. Convex only — cap fans need an interior centroid. */
+ *  symmetric ±depth/2. Simple polygons — caps ear-clip, concave OK. */
 function prism(d, id, profile, depth, pos, axis, mat, extra) {
   const us = profile.map((p) => p[0]); const vs = profile.map((p) => p[1])
   const cu = (Math.min(...us) + Math.max(...us)) / 2
@@ -2549,25 +2549,36 @@ void loop() {
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
 // bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
 // lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre);
-// prism takes profile:[[u,v],...] (convex) + depth.
+// prism takes profile:[[u,v],...] (simple polygon) + depth.
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
 const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0, n).every((x) => Number.isFinite(Number(x)))
   ? v.slice(0, n).map(Number) : null)
 
-/** Strict convexity: every consecutive edge cross-product keeps one sign. */
-function specConvex(pts) {
-  let sign = 0
-  for (let i = 0; i < pts.length; i += 1) {
-    const [x1, y1] = pts[i]; const [x2, y2] = pts[(i + 1) % pts.length]; const [x3, y3] = pts[(i + 2) % pts.length]
-    const cr = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
-    if (Math.abs(cr) < 1e-9) continue
-    const s = Math.sign(cr)
-    if (sign && s !== sign) return false
-    sign = s
+/** Simple polygon: no two non-adjacent edges properly cross. */
+function specSimple(pts) {
+  const n = pts.length
+  const cr = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+  const cross = (p1, p2, p3, p4) => {
+    const d1 = cr(p3, p4, p1); const d2 = cr(p3, p4, p2); const d3 = cr(p1, p2, p3); const d4 = cr(p1, p2, p4)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
   }
-  return sign !== 0
+  for (let i = 0; i < n; i += 1) for (let j = i + 1; j < n; j += 1) {
+    if (j === i + 1 || (i === 0 && j === n - 1)) continue
+    if (cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return false
+  }
+  return true
+}
+
+/** Shoelace area — degenerate (zero-area) profiles make open shells. */
+function specArea(pts) {
+  let a = 0
+  for (let i = 0; i < pts.length; i += 1) {
+    const [u1, v1] = pts[i]; const [u2, v2] = pts[(i + 1) % pts.length]
+    a += u1 * v2 - u2 * v1
+  }
+  return Math.abs(a) / 2
 }
 
 function specKind(node) {
@@ -2632,7 +2643,8 @@ function specEmit(d, raw, idx, warn) {
           && Number.isFinite(+p[0]) && Number.isFinite(+p[1]))
       if (!ok) return warn(`node ${id}: prism needs profile:[[u,v],...] with >=3 points`)
       const pts = prof.map((p) => [+p[0], +p[1]])
-      if (!specConvex(pts)) return warn(`node ${id}: prism profile must be convex — cap fans need an interior centroid`)
+      if (!specSimple(pts)) return warn(`node ${id}: prism profile edges cross — needs a simple (non-self-intersecting) polygon`)
+      if (specArea(pts) < 1) return warn(`node ${id}: prism profile has ~zero area — degenerate outline`)
       const dep = CUSTOM_NUM(raw.depth ?? raw.d ?? raw.height, 0)
       if (!(dep > 0)) return warn(`node ${id}: prism needs depth>0`)
       prism(d, id, pts, dep, at, axis, mat, extra); break
@@ -4611,22 +4623,82 @@ function latheTris(profile, segs, axis) {
   return tris
 }
 
-/** Prism: extrude a closed convex (u,v) polygon `depth` along the axis,
+/** Drop consecutive duplicates, closing-point repeats and near-collinear
+ *  vertices — walls and caps must iterate the SAME vertex list or shared
+ *  edges become T-junctions (a wall vertex mid-cap-edge pairs with nothing). */
+function cleanPoly(pts) {
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const clean = []
+  for (const p of pts) {
+    const last = clean[clean.length - 1]
+    if (!last || Math.abs(p[0] - last[0]) > 1e-6 || Math.abs(p[1] - last[1]) > 1e-6) clean.push(p)
+  }
+  if (clean.length > 1 && clean[0][0] === clean[clean.length - 1][0] && clean[0][1] === clean[clean.length - 1][1]) clean.pop()
+  const out = []
+  for (let i = 0; i < clean.length; i += 1) {
+    const a = clean[(i + clean.length - 1) % clean.length]; const b = clean[i]; const c = clean[(i + 1) % clean.length]
+    if (Math.abs(cross(a, b, c)) > 1e-6 || clean.length <= 3) out.push(b)
+  }
+  return out.length >= 3 ? out : clean
+}
+
+/** Ear-clipping triangulation of a simple polygon — returns point triples.
+ *  Handles concave outlines (L-brackets, U-channels, arrows); degenerate
+ *  input falls back to a fan so the caller always gets *some* caps. */
+function earClip(pts) {
+  const poly = cleanPoly(pts)
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const n = poly.length
+  let area2 = 0
+  for (let i = 0; i < n; i += 1) { const a = poly[i]; const b = poly[(i + 1) % n]; area2 += a[0] * b[1] - b[0] * a[1] }
+  const ccw = area2 > 0
+  const inside = (q, a, b, c) => {
+    const d1 = cross(a, b, q); const d2 = cross(b, c, q); const d3 = cross(c, a, q)
+    return ccw ? (d1 > 1e-6 && d2 > 1e-6 && d3 > 1e-6) : (d1 < -1e-6 && d2 < -1e-6 && d3 < -1e-6)
+  }
+  const idx = poly.map((_, i) => i)
+  const tris = []
+  let guard = 0
+  while (idx.length > 3 && guard++ < 10000) {
+    const m = idx.length
+    // smallest-area valid ear first: big greedy ears can swallow boundary
+    // edges and strand reflex vertices in a degenerate remainder (T-junctions)
+    let best = -1; let bestArea = Infinity
+    for (let i = 0; i < m; i += 1) {
+      const i0 = idx[(i + m - 1) % m]; const i1 = idx[i]; const i2 = idx[(i + 1) % m]
+      const a = poly[i0]; const b = poly[i1]; const c = poly[i2]
+      const cr = cross(a, b, c)
+      if (ccw ? cr <= 1e-6 : cr >= -1e-6) continue
+      let ok = true
+      for (const j of idx) {
+        if (j !== i0 && j !== i1 && j !== i2 && inside(poly[j], a, b, c)) { ok = false; break }
+      }
+      if (!ok) continue
+      const ar = Math.abs(cr)
+      if (ar < bestArea) { bestArea = ar; best = i }
+    }
+    if (best < 0) break
+    const i0 = idx[(best + m - 1) % m]; const i1 = idx[best]; const i2 = idx[(best + 1) % m]
+    tris.push([i0, i1, i2])
+    idx.splice(best, 1)
+  }
+  if (idx.length === 3) tris.push([idx[0], idx[1], idx[2]])
+  else for (let i = 1; i < idx.length - 1; i += 1) tris.push([idx[0], idx[i], idx[i + 1]])
+  return tris.map(([a, b, c]) => [poly[a], poly[b], poly[c]])
+}
+
+/** Prism: extrude a closed simple (u,v) polygon `depth` along the axis,
  *  centred on the node. profile coords are centred by the helper, so the
- *  polygon's bbox centre sits at pos. Convex-only — caps fan-triangulate
- *  from the centroid, which is only interior for convex outlines. Axis
- *  maps are proper rotations; winding enforced by signed volume. */
+ *  polygon's bbox centre sits at pos. Concave outlines work — caps are
+ *  ear-clipped, not centroid fans. Axis maps are proper rotations;
+ *  winding enforced by signed volume. */
 function prismTris(profile, depth, axis) {
-  const n = profile.length
   const map = (u, v, z) => {
     if (axis === 'z') return [u, v, z]
     if (axis === 'y') return [u, z, -v]
     return [z, u, v]
   }
   const h = depth / 2
-  let cu = 0; let cv = 0
-  for (const p of profile) { cu += p[0]; cv += p[1] }
-  cu /= n; cv /= n
   const tris = []
   const area2 = (a, b, c) => {
     const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]
@@ -4634,14 +4706,21 @@ function prismTris(profile, depth, axis) {
     const cx = uy * vz - uz * vy; const cy = uz * vx - ux * vz; const cz = ux * vy - uy * vx
     return cx * cx + cy * cy + cz * cz
   }
-  for (let i = 0; i < n; i += 1) {
-    const [u1, v1] = profile[i]; const [u2, v2] = profile[(i + 1) % n]
+  // walls iterate the cleaned polygon so every wall edge coincides with a
+  // cap edge — a collinear profile vertex would otherwise T-junction the cap
+  const poly = cleanPoly(profile)
+  for (let i = 0; i < poly.length; i += 1) {
+    const [u1, v1] = poly[i]; const [u2, v2] = poly[(i + 1) % poly.length]
     if (u1 === u2 && v1 === v2) continue
     const b1 = map(u1, v1, -h); const b2 = map(u2, v2, -h)
     const t1 = map(u1, v1, h); const t2 = map(u2, v2, h)
-    const cB = map(cu, cv, -h); const cT = map(cu, cv, h)
     tris.push([b1, b2, t2], [b1, t2, t1])   // side wall
-    tris.push([cB, b2, b1], [cT, t1, t2])   // bottom + top cap fans
+  }
+  for (const [a, b, c] of earClip(profile)) {
+    // top cap in polygon order, bottom reversed — opposite windings so the
+    // pair agrees with the walls for either polygon direction
+    tris.push([map(a[0], a[1], h), map(b[0], b[1], h), map(c[0], c[1], h)])
+    tris.push([map(a[0], a[1], -h), map(c[0], c[1], -h), map(b[0], b[1], -h)])
   }
   let vol = 0
   for (const [a, b, c] of tris) {

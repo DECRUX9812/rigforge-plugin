@@ -768,6 +768,10 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
     ['prism', { profile: [[-7, -5], [7, -5], [7, 5], [-7, 5]], depth: 10 }, ['z', 'y', 'x']],
     ['prism', { profile: [[-6, -6], [6, -6], [6, 0], [0, 8], [-6, 0]], depth: 8 }, ['z', 'y', 'x']],
     ['prism', { profile: [[-6, -6], [6, -6], [0, 6]], depth: 12 }, ['z', 'y', 'x']],
+    ['prism', { profile: [[-8, -8], [8, -8], [8, 0], [0, 0], [0, 8], [-8, 8]], depth: 6 }, ['z', 'y', 'x']],
+    ['prism', { profile: [[-8, -6], [8, -6], [8, 2], [4, 2], [4, 8], [-4, 8], [-4, 2], [-8, 2]], depth: 5 }, ['z', 'y', 'x']],
+    ['prism', { profile: [[-6, -6], [6, -6], [6, 0], [0, 3], [-6, 0]], depth: 7 }, ['z', 'y', 'x']],
+    ['prism', { profile: [[-8, -8], [0, -8], [8, -8], [8, 8], [-8, 8]], depth: 4 }, ['z', 'y', 'x']],
     ['ring', { outer: 10, inner: 5, height: 8 }, ['z', 'y', 'x']],
     ['torus', { R: 15, r: 5 }, ['z', 'y', 'x']],
     ['bend', { R: 15, r: 5, arc: 270 }, ['z', 'y', 'x']],
@@ -805,7 +809,10 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
     }
   }
   assert(!bad.length, `non-manifold or inside-out meshes: ${bad.join(' · ')}`)
-  return '43 kind×axis cases: watertight, consistently oriented, positive volume'
+  // self-intersecting profiles must be refused, not meshed into garbage
+  const bowtie = A.composeDesign({ archetype: 'custom', nodes: [{ id: 'b', kind: 'prism', profile: [[-6, -6], [6, 6], [-6, 6], [6, -6]], depth: 5, pos: [0, 0, 0] }], joints: [] })
+  assert(!bowtie.design.nodes.length, 'bowtie prism profile was not rejected')
+  return '55 kind×axis cases: watertight, consistently oriented, positive volume; bowtie refused'
 })
 
 // ── 23d. buried parts: no internals hidden inside printed solids ────────────

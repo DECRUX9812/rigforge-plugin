@@ -22,25 +22,36 @@
 // torus takes R,r,axis; sphere takes r; gear takes m(module),z(teeth),w(axis);
 // bend takes R,r,arc(deg),rot aims it; mesh takes part,size;
 // lathe takes profile:[[r,z],...] (closed polygon, r>=0, z from centre);
-// prism takes profile:[[u,v],...] (convex) + depth.
+// prism takes profile:[[u,v],...] (simple polygon) + depth.
 
 const CUSTOM_MATS = ['shell', 'accent', 'metal', 'steel', 'brass', 'pcb', 'rubber', 'glass', 'servo', 'belt']
 const CUSTOM_NUM = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d)
 const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0, n).every((x) => Number.isFinite(Number(x)))
   ? v.slice(0, n).map(Number) : null)
 
-/** Strict convexity: every consecutive edge cross-product keeps one sign. */
-function specConvex(pts) {
-  let sign = 0
-  for (let i = 0; i < pts.length; i += 1) {
-    const [x1, y1] = pts[i]; const [x2, y2] = pts[(i + 1) % pts.length]; const [x3, y3] = pts[(i + 2) % pts.length]
-    const cr = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2)
-    if (Math.abs(cr) < 1e-9) continue
-    const s = Math.sign(cr)
-    if (sign && s !== sign) return false
-    sign = s
+/** Simple polygon: no two non-adjacent edges properly cross. */
+function specSimple(pts) {
+  const n = pts.length
+  const cr = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+  const cross = (p1, p2, p3, p4) => {
+    const d1 = cr(p3, p4, p1); const d2 = cr(p3, p4, p2); const d3 = cr(p1, p2, p3); const d4 = cr(p1, p2, p4)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
   }
-  return sign !== 0
+  for (let i = 0; i < n; i += 1) for (let j = i + 1; j < n; j += 1) {
+    if (j === i + 1 || (i === 0 && j === n - 1)) continue
+    if (cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return false
+  }
+  return true
+}
+
+/** Shoelace area — degenerate (zero-area) profiles make open shells. */
+function specArea(pts) {
+  let a = 0
+  for (let i = 0; i < pts.length; i += 1) {
+    const [u1, v1] = pts[i]; const [u2, v2] = pts[(i + 1) % pts.length]
+    a += u1 * v2 - u2 * v1
+  }
+  return Math.abs(a) / 2
 }
 
 function specKind(node) {
@@ -105,7 +116,8 @@ function specEmit(d, raw, idx, warn) {
           && Number.isFinite(+p[0]) && Number.isFinite(+p[1]))
       if (!ok) return warn(`node ${id}: prism needs profile:[[u,v],...] with >=3 points`)
       const pts = prof.map((p) => [+p[0], +p[1]])
-      if (!specConvex(pts)) return warn(`node ${id}: prism profile must be convex — cap fans need an interior centroid`)
+      if (!specSimple(pts)) return warn(`node ${id}: prism profile edges cross — needs a simple (non-self-intersecting) polygon`)
+      if (specArea(pts) < 1) return warn(`node ${id}: prism profile has ~zero area — degenerate outline`)
       const dep = CUSTOM_NUM(raw.depth ?? raw.d ?? raw.height, 0)
       if (!(dep > 0)) return warn(`node ${id}: prism needs depth>0`)
       prism(d, id, pts, dep, at, axis, mat, extra); break
