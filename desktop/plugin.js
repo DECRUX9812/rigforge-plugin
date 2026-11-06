@@ -10901,6 +10901,11 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
+    // the fly-through drives the camera object in place and repaints directly:
+    // pushing a React state update at 60Hz re-rendered the whole studio and cost
+    // us 46 of the 60 frames a second
+    globalThis.__rfPaint = () => { cam._basis = null; schedule() }
+    globalThis.__rfCam = () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist })
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -12386,6 +12391,11 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
+  viewPlay: {
+    padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
+    background: 'rgba(255,106,26,0.10)', color: C.accent,
+    fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
+  },
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
@@ -13469,6 +13479,42 @@ const CAM_FOR = (dims) => {
   return { ...CAM0, dist: clamp(diag * 1.06, 300, 5200) }
 }
 
+// ── the fly-through ────────────────────────────────────────────────────────
+// The first thing you should be able to do with a design is *look at it like a
+// thing*, not like a drawing. Seven camera keys: close on a detail, pull out,
+// drop through the machine, rise, settle on the iso the app opens with. Distance
+// is a multiple of the fitted distance so it works at 90mm and at 3 metres.
+const FLY_KEYS = [
+  [0.00, { yaw: 1.62, pitch: 0.05, d: 0.26 }],
+  [0.16, { yaw: 1.15, pitch: 0.14, d: 0.58 }],
+  [0.32, { yaw: 0.62, pitch: 0.26, d: 0.92 }],
+  [0.46, { yaw: 0.18, pitch: 0.10, d: 0.14 }],
+  [0.58, { yaw: -0.34, pitch: 0.52, d: 0.72 }],
+  [0.78, { yaw: -0.86, pitch: 0.68, d: 1.22 }],
+  [1.00, { yaw: CAM0.yaw, pitch: CAM0.pitch, d: 1.00 }],
+]
+const FLY_MS = 11000
+const ease = (t) => t * t * (3 - 2 * t)
+
+function flyAt(t, base) {
+  const k = FLY_KEYS
+  let i = 0
+  while (i < k.length - 2 && t > k[i + 1][0]) i += 1
+  const [t0, a] = k[i]
+  const [t1, b] = k[i + 1]
+  const u = ease(Math.max(0, Math.min(1, (t - t0) / (t1 - t0 || 1))))
+  // shortest way round, so the orbit never whips backwards through a full turn
+  let dy = b.yaw - a.yaw
+  while (dy > Math.PI) dy -= Math.PI * 2
+  while (dy < -Math.PI) dy += Math.PI * 2
+  return {
+    yaw: a.yaw + dy * u,
+    pitch: a.pitch + (b.pitch - a.pitch) * u,
+    dist: base.dist * (a.d + (b.d - a.d) * u),
+    ortho: false,
+  }
+}
+
 function StatChip({ k, v, color, title }) {
   return h('div', { style: S.statChip, title },
     h('span', { style: S.statKey }, k),
@@ -13999,6 +14045,50 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
+  const [flyOn, setFlyOn] = useState(false)
+  const flyRaf = useRef(0)
+  const camRef = useRef(null)
+  useEffect(() => { camRef.current = cam }, [cam])
+  const stopFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    flyRaf.current = 0
+    setFlyOn(false)
+  }, [])
+  const startFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    const base = CAM_FOR(analysis.dims)
+    const t0 = performance.now()
+    setFlyOn(true)
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLY_MS)
+      const f = flyAt(t, base)
+      const live = camRef.current
+      if (live) {
+        live.yaw = f.yaw
+        live.pitch = f.pitch
+        live.dist = f.dist
+        live.ortho = false
+        if (globalThis.__rfPaint) globalThis.__rfPaint()
+      }
+      if (t < 1) flyRaf.current = requestAnimationFrame(step)
+      else { flyRaf.current = 0; setCam({ ...f }); setFlyOn(false) }
+    }
+    flyRaf.current = requestAnimationFrame(step)
+  }, [analysis.dims])
+  // any deliberate camera move cancels the flight: the flight is a suggestion
+  useEffect(() => () => cancelAnimationFrame(flyRaf.current), [])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        flyOn ? stopFly() : startFly()
+      }
+      if (e.key === 'Escape' && flyOn) stopFly()
+    }
+    window.addEventListener('keydown', onKey)
+    globalThis.__rfFly = () => startFly()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [flyOn, startFly, stopFly])
   const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
@@ -15612,6 +15702,13 @@ function Studio() {
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+          h('button', {
+            style: flyOn ? S.viewChipOn : S.viewPlay,
+            'aria-pressed': flyOn,
+            title: 'fly-through — close on a detail, through the machine, out to iso (F)',
+            onClick: () => (flyOn ? stopFly() : startFly()),
+          }, flyOn ? 'MOVE' : 'FLY'),
+          h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
             VIEWS.map(([label, yaw, pitch]) => {
               const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
