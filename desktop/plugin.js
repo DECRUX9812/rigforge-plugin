@@ -13532,7 +13532,19 @@ function Studio() {
                     return li >= 0 ? p[li] : v
                   })),
                 }, 'MIRROR')
-                : null)),
+                : null,
+              // named presets share the row — zero added height, the bar
+              // scrolls sideways if a phone squeezes them
+              ...(POSE_PRESETS[design.archetype] || []).map((p) => h('button', {
+                key: `preset-${p.name}`,
+                style: S.poseTab,
+                title: `pose preset: ${p.name}`,
+                onClick: () => {
+                  const live = simRef.current && simRef.current.state ? simRef.current.state.angles : null
+                  const a = applyPosePreset(design, p.name, live)
+                  if (a) setPose(a)
+                },
+              }, p.name)))),
             bookmarks.some((b) => b.n === design.joints.length)
               ? h('div', { style: { display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' } },
                 bookmarks.map((b, i) => (b.n === design.joints.length
