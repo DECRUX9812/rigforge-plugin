@@ -11579,25 +11579,31 @@ function Studio() {
     () => (opts.cables && analysis.harness ? wireOverlay(posedDesign, analysis.harness) : null),
     [posedDesign, analysis.harness, opts.cables],
   )
-  // Reach envelope: workspace sphere at the arm's base + live tip crosshair.
-  // Pose-aware only through the tip — the sphere itself is a fixed bound.
+  // Reach envelope: workspace sphere at the arm's base + live tip crosshair
+  // when teleop is running. The sphere itself is pose-independent — it
+  // renders for arm designs even before DRIVE mode is engaged.
+  const designReach = useMemo(() => {
+    const tip = armTipChain(design)
+    return tip ? armReachBound(tip) : null
+  }, [design])
   const reachOv = useMemo(() => {
+    if (!opts.reach || !designReach) return null
     const t = teleopKind === 'ik' ? ikRef.current : null
-    if (!opts.reach || !t || !t.reachSphere) return null
-    return reachOverlay(t.reachSphere, t.tipPos(dispPose))
-  }, [opts.reach, teleopKind, design, dispPose])
+    return reachOverlay(designReach, t ? t.tipPos(dispPose) : null)
+  }, [opts.reach, teleopKind, designReach, design, dispPose])
   // Sampled workspace: the sphere is the bound; the cloud is what IK actually
   // reaches — cyan reachable, green also-liftable at the payload rating.
   const wsMap = useMemo(
-    () => (opts.reach && teleopKind === 'ik' ? workspaceMap(design, analysis) : null),
-    [opts.reach, teleopKind, design, analysis],
+    () => (opts.reach ? workspaceMap(design, analysis) : null),
+    [opts.reach, design, analysis],
   )
   const wsOv = useMemo(() => workspaceOverlay(wsMap), [wsMap])
   // Legged machines get the same honest sampling per foot — where each leg
   // can actually plant, colour-coded FL/FR/RL/RR (or L/R on the humanoid).
+  // Pose-independent: the clouds render whenever REACH is on, teleop or not.
   const legWsMap = useMemo(
-    () => (opts.reach && teleopKind === 'gait' ? legWorkspaceMap(design) : null),
-    [opts.reach, teleopKind, design],
+    () => (opts.reach ? legWorkspaceMap(design) : null),
+    [opts.reach, design],
   )
   const legWsOv = useMemo(() => legWorkspaceOverlay(legWsMap), [legWsMap])
   const rawOv = useMemo(() => {
