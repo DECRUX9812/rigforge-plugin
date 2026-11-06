@@ -385,6 +385,27 @@ function cylTris(r, h, axis, segs, r2) {
   return tris
 }
 
+/** Cone: base disc at -h, apex on the +axis end. cylTris(r2=0) would leave
+ *  `segs` degenerate wall triangles — this emits one clean triangle per face. */
+function coneTris(r, h, axis, segs) {
+  const tris = []
+  const pt = (t) => {
+    const a = (t / segs) * Math.PI * 2
+    const u = Math.cos(a) * r; const v = Math.sin(a) * r
+    if (axis === 'z') return [u, v, -h]
+    if (axis === 'y') return [u, -h, v]
+    return [-h, u, v]
+  }
+  const apex = axis === 'z' ? [0, 0, h] : axis === 'y' ? [0, h, 0] : [h, 0, 0]
+  const c0 = axis === 'z' ? [0, 0, -h] : axis === 'y' ? [0, -h, 0] : [-h, 0, 0]
+  for (let i = 0; i < segs; i += 1) {
+    const t0 = i; const t1 = i + 1
+    tris.push([apex, pt(t0), pt(t1)])
+    tris.push([pt(t0), pt(t1), c0])
+  }
+  return tris
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -661,6 +682,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'wedge': local = wedgeTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.dir); break
     case 'rack': local = rackTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.teeth); break
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
+    case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -1764,6 +1786,8 @@ function toOpenSCAD(design) {
       // imported CAD mesh: OpenSCAD gets its bounding box, because the STL is
       // the authoritative geometry and this is a worked-in-space placeholder
       prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
+    } else if (n.kind === 'cone') {
+      prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r1=${n.radius.toFixed(1)}, r2=0, center=true); /* cone */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -1971,7 +1995,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -1989,10 +2013,10 @@ function boundsOf(nodes) {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
-      const r = n.kind === 'cyl' ? Math.max(n.radius, n.radius2 || 0)
+      const r = n.kind === 'cyl' || n.kind === 'cone' ? Math.max(n.radius, n.radius2 || 0)
         : n.kind === 'ring' ? n.outer
           : boundRadius(n)
-      const along = n.kind === 'cyl' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
+      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
       half = n.axis === 'x' ? [along, r, r] : n.axis === 'y' ? [r, along, r] : [r, r, along]
       if (n.kind === 'torus' || n.kind === 'bend' || n.kind === 'sphere') half = [r, r, r]
     }

@@ -761,6 +761,7 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
   }, 0) / 6
   const cases = [
     ['cyl', { radius: 8, height: 12, segs: 18 }, ['z', 'y', 'x']],
+    ['cone', { radius: 8, height: 12, segs: 18 }, ['z', 'y', 'x']],
     ['ring', { outer: 10, inner: 5, height: 8 }, ['z', 'y', 'x']],
     ['torus', { R: 15, r: 5 }, ['z', 'y', 'x']],
     ['bend', { R: 15, r: 5, arc: 270 }, ['z', 'y', 'x']],
@@ -798,7 +799,7 @@ check('mesh integrity: primitives are watertight, outward-wound, positive-volume
     }
   }
   assert(!bad.length, `non-manifold or inside-out meshes: ${bad.join(' · ')}`)
-  return '22 kind×axis cases: watertight, consistently oriented, positive volume'
+  return '25 kind×axis cases: watertight, consistently oriented, positive volume'
 })
 
 // ── 24. IK reach converges on a reachable target, inside joint limits ───────

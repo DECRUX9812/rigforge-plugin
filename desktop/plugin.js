@@ -664,8 +664,9 @@ const money = (n) => '$' + (n >= 100 ? Math.round(n) : Number(n).toFixed(2))
 // export never branch on archetype:
 //
 //   nodes[]  — geometry in mm, rest pose, tagged by joint. Node kinds:
-//              box, rbox (chamfered), cyl (segs/radius2 → hex, cone, taper),
-//              ring (hollow cyl), torus, wedge (triangular prism), sphere,
+//              box, rbox (chamfered), cyl (segs/radius2 → hex, frustum),
+//              cone (pointed taper), ring (hollow cyl), torus, wedge
+//              (triangular prism), sphere,
 //              gear (module+teeth), rack (toothed bar), bend (tube elbow).
 //              `rot:[rx,ry,rz]` orients any of them around their centre.
 //   joints[] — revolute chain (axis + deg limits) OR linear slides (mm travel,
@@ -923,6 +924,12 @@ function ring(d, id, outer, inner, height, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'ring', outer, inner, height, pos, axis, mat, ...extra })
 }
 
+/** Cone — base radius `radius` at -h/2, apex on the +axis end. For a frustum
+ *  use cyl with radius2 instead. */
+function cone(d, id, radius, height, pos, axis, mat, extra) {
+  d.nodes.push({ id, kind: 'cone', radius, height, pos, axis, mat, ...extra })
+}
+
 /** Torus — tyre profiles, O-rings, rounded rims. `R` major, `r` minor. */
 function torus(d, id, R, r, pos, axis, mat, extra) {
   d.nodes.push({ id, kind: 'torus', R, r, pos, axis, mat, ...extra })
@@ -983,6 +990,7 @@ function nodeVolume(node) {
       const r2 = node.radius2 != null ? node.radius2 : node.radius
       return (Math.PI * node.height / 3) * (node.radius ** 2 + node.radius * r2 + r2 ** 2)
     }
+    case 'cone': return (Math.PI * node.radius ** 2 * node.height) / 3
     case 'ring': return Math.PI * (node.outer ** 2 - node.inner ** 2) * node.height
     case 'torus': return 2 * Math.PI * Math.PI * node.R * node.r ** 2
     case 'sphere': return (4 / 3) * Math.PI * node.radius ** 3
@@ -1011,7 +1019,7 @@ function shellVolume(n) {
   // Rings are already the shell — wall thickness IS the part.
   if (n.kind === 'ring' || n.kind === 'bend' || n.kind === 'torus') return nodeVolume(n)
   const solid = nodeVolume(n)
-  if (n.kind === 'cyl' || n.kind === 'sphere' || n.kind === 'gear') {
+  if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'sphere' || n.kind === 'gear') {
     const r = n.radius || n.outer || ((n.module * n.teeth) / 4)
     if (r <= WALL * 1.6) return solid
     const h = n.height || n.width || r * 2
@@ -2450,7 +2458,7 @@ void loop() {
 //
 // Spec shapes (all mm, joint angles in degrees, node `rot` in DEGREES —
 // converted to the radians node.rot stores):
-//   nodes[]  { kind:'box|rbox|cyl|ring|torus|wedge|sphere|gear|rack|bend|mesh',
+//   nodes[]  { kind:'box|rbox|cyl|cone|ring|torus|wedge|sphere|gear|rack|bend|mesh',
 //              at:[x,y,z] centre, rot:[rx,ry,rz]?, joint:'jid'?, slide:'jid'|{joint,sign}?,
 //              print:true?, mat:'shell|accent|metal|steel|brass|pcb|rubber|glass|servo|belt'?, ... }
 //   joints[] { id, label?, axis:'x'|'y'|'z'|[x,y,z], pivot:[x,y,z], min, max,
@@ -2470,6 +2478,7 @@ const CUSTOM_VEC = (v, n = 3) => (Array.isArray(v) && v.length >= n && v.slice(0
 function specKind(node) {
   const k = String(node.kind || node.shape || '').toLowerCase()
   return { box: 'box', rbox: 'rbox', cyl: 'cyl', cylinder: 'cyl', tube: 'cyl',
+    cone: 'cone', pyramid: 'cone',
     ring: 'ring', torus: 'torus', wedge: 'wedge', sphere: 'sphere', ball: 'sphere',
     gear: 'gear', rack: 'rack', bend: 'bend', elbow: 'bend', mesh: 'mesh' }[k] || null
 }
@@ -2501,6 +2510,13 @@ function specEmit(d, raw, idx, warn) {
       if (Number.isFinite(Number(raw.r2 ?? raw.radius2))) e.radius2 = Number(raw.r2 ?? raw.radius2)
       if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
       cyl(d, id, r, h, at, axis, mat, e); break
+    }
+    case 'cone': {
+      const r = CUSTOM_NUM(raw.r ?? raw.radius, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
+      if (!(r > 0) || !(h > 0)) return warn(`node ${id}: cone needs r>0 and h>0`)
+      const e = { ...extra }
+      if (Number.isFinite(Number(raw.segs))) e.segs = Math.round(Number(raw.segs))
+      cone(d, id, r, h, at, axis, mat, e); break
     }
     case 'ring': {
       const ro = CUSTOM_NUM(raw.ro ?? raw.outer, 0), ri = CUSTOM_NUM(raw.ri ?? raw.inner, 0), h = CUSTOM_NUM(raw.h ?? raw.height, 0)
@@ -4407,6 +4423,27 @@ function cylTris(r, h, axis, segs, r2) {
   return tris
 }
 
+/** Cone: base disc at -h, apex on the +axis end. cylTris(r2=0) would leave
+ *  `segs` degenerate wall triangles — this emits one clean triangle per face. */
+function coneTris(r, h, axis, segs) {
+  const tris = []
+  const pt = (t) => {
+    const a = (t / segs) * Math.PI * 2
+    const u = Math.cos(a) * r; const v = Math.sin(a) * r
+    if (axis === 'z') return [u, v, -h]
+    if (axis === 'y') return [u, -h, v]
+    return [-h, u, v]
+  }
+  const apex = axis === 'z' ? [0, 0, h] : axis === 'y' ? [0, h, 0] : [h, 0, 0]
+  const c0 = axis === 'z' ? [0, 0, -h] : axis === 'y' ? [0, -h, 0] : [-h, 0, 0]
+  for (let i = 0; i < segs; i += 1) {
+    const t0 = i; const t1 = i + 1
+    tris.push([apex, pt(t0), pt(t1)])
+    tris.push([pt(t0), pt(t1), c0])
+  }
+  return tris
+}
+
 function ringTris(outer, inner, h, axis, segs) {
   const tris = []
   const pt = (r, t, side) => {
@@ -4683,6 +4720,7 @@ function nodeTriangles(design, node, chain, shift) {
     case 'wedge': local = wedgeTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.dir); break
     case 'rack': local = rackTris(node.size[0] / 2, node.size[1] / 2, node.size[2] / 2, node.teeth); break
     case 'cyl': local = cylTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS, node.radius2); break
+    case 'cone': local = coneTris(node.radius, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'ring': local = ringTris(node.outer, node.inner, node.height / 2, node.axis || 'z', node.segs || CYL_SEGS); break
     case 'torus': local = torusTris(node.R, node.r, node.axis || 'z', 360); break
     case 'bend': local = torusTris(node.R, node.r, node.axis || 'z', node.arc || 90); break
@@ -5786,6 +5824,8 @@ function toOpenSCAD(design) {
       // imported CAD mesh: OpenSCAD gets its bounding box, because the STL is
       // the authoritative geometry and this is a worked-in-space placeholder
       prim = `${wrap}cube([${n.size.map((v) => v.toFixed(1)).join(', ')}], center=true); /* imported mesh (${n.part || 'part'}) */`
+    } else if (n.kind === 'cone') {
+      prim = `${wrap}cylinder(h=${n.height.toFixed(1)}, r1=${n.radius.toFixed(1)}, r2=0, center=true); /* cone */`
     } else if (n.radius == null) {
       prim = `${wrap}cube([${(n.size || [10, 10, 10]).map((v) => v.toFixed(1)).join(', ')}], center=true); /* ${n.kind || 'node'} */`
     } else {
@@ -5993,7 +6033,7 @@ function printPackReadme(design, a, fileBase) {
 
 function boundRadius(n) {
   switch (n.kind) {
-    case 'cyl': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
+    case 'cyl': case 'cone': return Math.max(n.radius, n.radius2 || 0, n.height / 2)
     case 'ring': return Math.max(n.outer, n.height / 2)
     case 'torus': case 'bend': return n.R + n.r
     case 'sphere': return n.radius
@@ -6011,10 +6051,10 @@ function boundsOf(nodes) {
       half = [n.size[0] / 2, n.size[1] / 2, n.size[2] / 2]
     } else {
       // radial extent, NOT boundRadius: a 123mm rail is 6mm Ø, not 123 in y
-      const r = n.kind === 'cyl' ? Math.max(n.radius, n.radius2 || 0)
+      const r = n.kind === 'cyl' || n.kind === 'cone' ? Math.max(n.radius, n.radius2 || 0)
         : n.kind === 'ring' ? n.outer
           : boundRadius(n)
-      const along = n.kind === 'cyl' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
+      const along = n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring' ? n.height / 2 : n.kind === 'gear' ? n.width / 2 : r
       half = n.axis === 'x' ? [along, r, r] : n.axis === 'y' ? [r, along, r] : [r, r, along]
       if (n.kind === 'torus' || n.kind === 'bend' || n.kind === 'sphere') half = [r, r, r]
     }
@@ -6088,7 +6128,7 @@ function benchCoM(design, mat) {
 
 /** Rough "how far below centre is the bottom of this node" for contact tests. */
 function benchNodeDrop(node) {
-  if (node.kind === 'cyl' || node.kind === 'ring') {
+  if (node.kind === 'cyl' || node.kind === 'cone' || node.kind === 'ring') {
     return node.axis === 'z' ? (node.height || node.outer || 0) / 2 : (node.radius || node.outer || 10)
   }
   if (node.kind === 'box' || node.kind === 'rbox' || node.kind === 'wedge') return (node.size?.[2] || 10) / 2
@@ -13298,7 +13338,7 @@ function SpecDialog({ open, brief, onApply, onClose }) {
       err
         ? h('div', { style: { color: C.red, fontSize: '11.5px', lineHeight: 1.4 } }, err)
         : h('div', { style: { color: C.faint, fontSize: '11px', lineHeight: 1.4 } },
-          'Kinds: box rbox cyl ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
+          'Kinds: box rbox cyl cone ring torus wedge sphere gear rack bend mesh. Node rot is in degrees.')),
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', padding: '12px 18px 16px' } },
       h('button', { style: { ...S.btn, height: '32px', padding: '0 14px' }, onClick: onClose }, 'Cancel'),
       h('button', { style: { ...S.btnPrimary, width: 'auto', height: '32px', padding: '0 18px', fontSize: '12px' }, onClick: submit }, 'BUILD IT'))))
