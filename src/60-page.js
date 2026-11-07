@@ -549,7 +549,7 @@ function plainVerdict(checks, brief) {
   if (brief && brief.archetypeMatched === false) {
     return {
       icon: '!', color: C.amber,
-      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind — rover, arm, quadruped, humanoid, gripper, drone, board, gantry, a whole lineup — and the numbers will mean something.',
     }
   }
   const fails = checks.filter((c) => c.level === 'fail').length
