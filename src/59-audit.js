@@ -10,13 +10,31 @@ function pct(part, whole) {
 }
 
 /** Top contributors by line cost, biggest first. */
-function costContributors(design, limit = 5) {
+// money() deliberately drops cents above $100 so summary chips read "$234".
+// In a panel whose whole promise is "check the sum", that rounding invents 40
+// cents the rows cannot account for — so this dialog prints exact cents.
+const exactMoney = (n) => '$' + Number(n).toFixed(2)
+
+function costContributors(design) {
   return design.parts
     .map(({ key, qty }) => ({ key, qty, part: PARTS[key] }))
     .filter((r) => r.part)
     .map((r) => ({ name: r.part.name, qty: r.qty, line: r.part.price * r.qty, unit: r.part.price, shop: !!r.part.shop }))
     .sort((a, b) => b.line - a.line)
-    .slice(0, limit)
+}
+
+/**
+ * Show the top N, then account for everything else in one row. A panel whose
+ * promise is "you can check the sum" must not print five numbers that do not
+ * add up to the total — the first thing a reader does is add them.
+ */
+function withRemainder(rows, limit, whole, label, unitFmt) {
+  if (rows.length <= limit) return rows
+  const shown = rows.slice(0, limit)
+  const shownSum = shown.reduce((s, r) => s + r.line, 0)
+  const rest = whole - shownSum
+  const count = rows.length - limit
+  return [...shown, { name: `${count} more line item${count > 1 ? 's' : ''}`, line: rest, remainder: true, qty: rows.slice(limit).reduce((s, r) => s + (r.qty || 0), 0) }]
 }
 
 function massContributors(design, limit = 4) {
@@ -76,22 +94,22 @@ function AuditDialog({ open, onClose, design, analysis }) {
 
     section('COST', 'Σ (unit price × qty) + filament used',
       h('div', {},
-        contrib(costContributors(design), analysis.cost, (r) => money(r.line)),
+        contrib(withRemainder(costContributors(design), 5, analysis.cost - spoolCost, 'cost'), analysis.cost, (r) => exactMoney(r.line)),
         printGrams > 0.5
           ? h('div', { style: { display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', padding: '3px 0' } },
             h('span', { style: { fontSize: '11px', color: C.dim } }, `filament used · ${Math.round(printGrams)} g of ${mat.name}`),
             h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint } }, pct(spoolCost, analysis.cost)),
-            h('span', { style: { fontFamily: C.mono, fontSize: '11px', color: C.text, textAlign: 'right', minWidth: '58px' } }, money(spoolCost)))
+            h('span', { style: { fontFamily: C.mono, fontSize: '11px', color: C.text, textAlign: 'right', minWidth: '58px' } }, exactMoney(spoolCost)))
           : null,
         shopTotal > 0.5
           ? h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, marginTop: '6px' } },
-            `${money(shopTotal)} of this is shop stock — wire, screw kits, standoffs you buy once and reuse. It is counted here so the list is complete; it is not all burned by this build.`)
+            `${exactMoney(shopTotal)} of this is shop stock — wire, screw kits, standoffs you buy once and reuse. It is counted here so the list is complete; it is not all burned by this build.`)
           : null),
-      [`${design.parts.length} line items · ${units} units`, money(analysis.cost)]),
+      [`${design.parts.length} line items · ${units} units`, exactMoney(analysis.cost)]),
 
     section('MASS', 'Σ (part mass × qty) + printed volume × density',
       h('div', {},
-        contrib(massContributors(design), analysis.mass.totalG, (r) => `${Math.round(r.line)} g`),
+        contrib(withRemainder(massContributors(design), 4, analysis.mass.partsG ?? analysis.mass.totalG - printGrams, 'mass'), analysis.mass.totalG, (r) => `${Math.round(r.line)} g`),
         h('div', { style: { display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '10px', padding: '3px 0' } },
           h('span', { style: { fontSize: '11px', color: C.dim } }, `${printed.length} printed parts · ${fmt(volCm3, 0)} cm³ of ${mat.name}`),
           h('span', { style: { fontFamily: C.mono, fontSize: '10px', color: C.faint } }, pct(printGrams, analysis.mass.totalG)),
