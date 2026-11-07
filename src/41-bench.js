@@ -243,8 +243,25 @@ function benchReport(design, analysis, opts = {}) {
   const worst = torques.reduce((a, b) => (b.needNm / Math.max(b.stallNm, 1e-6)) > (a.needNm / Math.max(a.stallNm, 1e-6)) ? b : a, torques[0] || { needNm: 0, stallNm: 1, label: '—', joint: '—' })
   const verdicts = []
   const status = (ok, warn, label, detail) => verdicts.push({ label, status: ok ? 'pass' : warn ? 'warn' : 'fail', detail })
-  status(flatMm > 15, flatMm > 0, 'Stability (flat)', `${Math.round(flatMm)}mm CoM margin inside the ${hull.length}-point support polygon · ${Math.round(massG)}g`)
-  status(slopeMm > 0, slopeMm > -10, `Stability @ ${slopeDeg}° slope`, `${Math.round(slopeMm)}mm margin on the ramp plane`)
+  // A fixed-base machine is bolted to the bench, so "does the CoM sit inside the
+  // foot print" is the wrong question — a serial arm's CoM leaves the plate the
+  // moment it extends. The real question is whether the fixings can carry the
+  // overturning moment, and the clamps are in the BOM when they can.
+  const fixed = !!design.fixedBase
+  if (fixed) {
+    const clamps = (design.parts || []).filter((p) => p.key === 'clamp_m6').reduce((n, p) => n + p.qty, 0)
+    const overhangMm = Math.max(0, -flatMm)
+    // holding moment of two M6 clamps on a 150mm plate, derated 2×: ~120 N·m
+    const holdingNm = clamps * 60
+    const tipNm = (massG / 1000) * 9.81 * (overhangMm / 1000 + 0.05)
+    const ok = clamps >= 2 && holdingNm > tipNm * 2
+    status(ok, ok, 'Base stability (bolted)', clamps
+      ? `${clamps}× M6 clamps hold ${Math.round(holdingNm)} N·m against a ${tipNm.toFixed(1)} N·m overturning moment; CoM sits ${Math.round(overhangMm)}mm past the plate, which is normal for a fixed-base arm at rest.`
+      : `CoM sits ${Math.round(overhangMm)}mm outside the base plate and nothing holds it down — clamp or bolt the base, or the arm lifts off the bench at full extension.`)
+  } else {
+    status(flatMm > 15, flatMm > 0, 'Stability (flat)', `${Math.round(flatMm)}mm CoM margin inside the ${hull.length}-point support polygon · ${Math.round(massG)}g`)
+    status(slopeMm > 0, slopeMm > -10, `Stability @ ${slopeDeg}° slope`, `${Math.round(slopeMm)}mm margin on the ramp plane`)
+  }
   const tj = torques.length ? torques.reduce((a, b) => (a.margin < b.margin ? a : b)) : null
   if (tj) status(tj.margin > 1.5, tj.margin > 1.0, 'Worst joint torque', `${tj.label}: needs ${tj.needNm.toFixed(2)} N·m, stall ${tj.stallNm.toFixed(2)} N·m → ${tj.margin.toFixed(1)}× margin`)
   else status(true, true, 'Actuators', 'no gravity-loaded revolute joints')
