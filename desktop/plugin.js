@@ -13124,8 +13124,12 @@ const S = {
 
   // ── spec rail ───────────────────────────────────────────────────────────
   tabs: {
-    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
-    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+    // nine tabs do not fit a 376px column: measured 490px of labels, so CODE and
+    // STEPS used to render past the edge with no affordance that they existed.
+    // Wrapping to two rows keeps every tab visible; scrolling hid a fifth of the
+    // product behind a gesture nobody performs.
+    display: 'flex', flexWrap: 'wrap', gap: '1px 2px', padding: '0 4px 2px',
+    borderBottom: `1px solid ${C.line}`, background: C.panel,
   },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
