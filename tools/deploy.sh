@@ -45,10 +45,26 @@ ln -s "$PWD/node_modules" "$WORK/node_modules"
 node "$WORK/build.mjs"
 BUILT=$(sha256sum "$WORK/desktop/plugin.js" | cut -c1-12)
 
-for dest in "$HOME/.hermes/desktop-plugins/rigforge" "$HOME/.hermes-webapp/desktop-plugins/rigforge"; do
+# Every root a Hermes surface has been observed to read plugins from. This is a
+# list, not a guess: the packaged desktop app was found reading
+# /home/<launch-user>/.hermes/desktop-plugins while the web UI read
+# ~/.hermes-webapp/desktop-plugins, so a deploy to one of them shipped to a
+# surface nobody was looking at for two days.
+ROOTS=(
+  "$HOME/.hermes/desktop-plugins/rigforge"
+  "$HOME/.hermes-webapp/desktop-plugins/rigforge"
+  "$HOME/.hermes-webapp/plugins/rigforge/desktop"
+  "/home/streamuser/.hermes/desktop-plugins/rigforge"
+)
+for dest in "${ROOTS[@]}"; do
+  parent=$(dirname "$dest")
+  # only touch roots that already exist: creating a new one invents a surface
+  [ -d "$parent" ] || { echo "skip (no such root) $parent"; continue; }
   mkdir -p "$dest"
   cp "$WORK/desktop/plugin.js" "$dest/plugin.js"
   echo "deployed $SHORT ($BUILT) -> $dest"
 done
 
 echo "restart the app, or reload the web UI, to pick it up"
+echo "note: a packaged desktop build that was updated in place runs from a"
+echo "      deleted binary until relaunched, and cannot see any of this."
