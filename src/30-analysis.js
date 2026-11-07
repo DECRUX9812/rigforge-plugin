@@ -582,6 +582,9 @@ function analyze(design) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
 
+  // hand the reviewed total back to the design object, so the bench and any
+  // later CoM pass can agree with the BOM instead of summing geometry
+  design.massTotalG = totalMassG
   return {
     printFit: fit,
     pins,
