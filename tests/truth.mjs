@@ -1889,6 +1889,54 @@ check('baked AO: an enclosed corner is darker than open sky, and the bake is det
   return `open ${mOpen.toFixed(2)} vs crevice ${mCorner.toFixed(2)}`
 })
 
+check('drone: lift-to-weight and hover endurance recompute from the geometry, not from the display', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  assert(p, 'no drone preset')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const d = analysis.drone
+  assert(d, 'drone analysis missing')
+  // recompute both numbers the way a physics text would, from published constants
+  const RHO = 1.225
+  const D = design.drone.propMm / 1000
+  const area = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = design.drone.cells * 3.7 * 0.9
+  const rpm = design.drone.kv * vPack * 0.85
+  const vExit = (rpm / 60) * pitch * 0.72
+  const thrustG = (4 * 0.5 * RHO * area * vExit * vExit * 1000) / 9.81
+  const twr = thrustG / analysis.mass.totalG
+  assert(Math.abs(twr - d.twr) < 0.02, `twr recompute ${twr.toFixed(3)} vs claimed ${d.twr.toFixed(3)}`)
+  assert(Math.abs(thrustG - d.thrustG) < 2, `thrust ${thrustG.toFixed(1)}g vs claimed ${d.thrustG.toFixed(1)}g`)
+  // endurance is capacity over current, with 80% usable
+  const minutes = ((design.drone.mah / 1000) * 0.8 * 60) / d.hoverAmps
+  assert(Math.abs(minutes - d.minutes) < 0.02, `endurance ${minutes.toFixed(2)} vs claimed ${d.minutes.toFixed(2)}`)
+  // hover current must be the power the discs need, at the pack voltage
+  const tHover = (analysis.mass.totalG / 1000) * 9.81 / 4
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * RHO * area)
+  const amps = ((4 * pHover) / 0.55) / vPack
+  assert(Math.abs(amps - d.hoverAmps) < 0.02, `hover amps ${amps.toFixed(2)} vs ${d.hoverAmps.toFixed(2)}`)
+  return `${Math.round(thrustG)}g thrust · ${twr.toFixed(1)}:1 · ${minutes.toFixed(1)} min`
+})
+
+check('drone: the props clear the frame and each other', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  const { design } = A.composeDesign({ ...p.brief })
+  const motors = design.nodes.filter((n) => /-motor$/.test(n.id))
+  assert(motors.length === 4, `expected 4 motors, got ${motors.length}`)
+  // nearest pair of motor axes must be wider than one prop, or the blades hit
+  let closest = Infinity
+  for (let i = 0; i < motors.length; i += 1) {
+    for (let j = i + 1; j < motors.length; j += 1) {
+      const dx = motors[i].pos[0] - motors[j].pos[0]
+      const dy = motors[i].pos[1] - motors[j].pos[1]
+      closest = Math.min(closest, Math.hypot(dx, dy))
+    }
+  }
+  const propMm = design.drone.propMm
+  assert(closest > propMm + 4, `closest motor spacing ${closest.toFixed(1)}mm vs prop Ø${propMm}mm — blades would intersect`)
+  return `closest pair ${closest.toFixed(0)}mm apart, prop Ø${propMm}mm`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

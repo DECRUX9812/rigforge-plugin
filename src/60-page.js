@@ -409,9 +409,14 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     },
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
         benchOk ? 'BENCH ✓' : 'BENCH !'),
-      h('span', {}, benchOk
-        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
-        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
+      h('span', {}, design.archetype === 'drone'
+        // a quad does not climb ramps: it either has thrust margin or it does not
+        ? (analysis.drone
+          ? `Hovers at ${Math.round(analysis.drone.hoverThrottle * 100)}% throttle with ${analysis.drone.twr.toFixed(1)}:1 lift-to-weight, ${analysis.drone.minutes.toFixed(1)} min of hover on the pack.`
+          : 'Flight report unavailable for this design.')
+        : benchOk
+          ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+          : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
