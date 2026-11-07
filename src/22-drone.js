@@ -40,7 +40,10 @@ function droneReport(params, massG) {
   // rising drag: τs(1 − ω/ω0) = kp·ω². This is the whole fix: the old model ran
   // the disc at geometric pitch speed, which assumes the motor is never loaded
   // and made big props look free.
-  const tauStall = DRONE_TAU_REF * (params.motorMassG / 32) // N·m, scaled by motor mass
+  // Stall torque is a property of the motor, not of its mass. Scaling by grams
+  // made a 2806 look like a 2207 with more copper — it is a different motor with
+  // a different torque curve, and the 7-inch class came out 40% optimistic.
+  const tauStall = params.stallNm > 0 ? params.stallNm : DRONE_TAU_REF * (params.motorMassG / 32)
   const a = kp
   const b = tauStall / omega0
   const c = -tauStall
@@ -176,6 +179,7 @@ function buildDrone(brief) {
   d.drone = {
     propMm, kv, cells, mah: batt.mah, motors: 4, propKey, motorKey, battery: battKey, payloadKg: payload,
     motorMassG: (PARTS[motorKey] && PARTS[motorKey].mass) || 32,
+    stallNm: (PARTS[motorKey] && PARTS[motorKey].stallNm) || DRONE_TAU_REF,
   }
   return d
 }

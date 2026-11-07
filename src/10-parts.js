@@ -277,14 +277,14 @@ const PARTS = {
   },
   motor2207: {
     name: '2207 2450KV brushless motor',
-    cat: 'actuator', price: 14, mass: 32, volts: 14.8,
+    cat: 'actuator', price: 14, mass: 32, volts: 14.8, stallNm: 1.10, kv: 2450,
     dims: [28, 28, 32], shaft: 'Ø5mm M5 prop thread', mount: '16×16mm or 19×19mm',
     sku: '2207 2450KV 3-6S brushless', src: 'amzn',
     note: 'The 5-inch class standard. One per corner, and they all have to be the same.',
   },
   motor2806: {
     name: '2806.5 1300KV brushless motor',
-    cat: 'actuator', price: 26, mass: 48, volts: 22.2,
+    cat: 'actuator', price: 26, mass: 48, volts: 22.2, stallNm: 1.30, kv: 1300,
     dims: [34, 34, 34], shaft: 'Ø5mm', mount: '19×19mm',
     sku: '2806.5 1300KV 6S', src: 'amzn',
     note: 'The 7-inch long-range class: more disk, less revs, quieter.',
