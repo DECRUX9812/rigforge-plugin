@@ -2450,30 +2450,30 @@ function buildHumanoid(brief) {
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
   rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
-  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
-  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
-  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true, joint: 'waist' })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true, joint: 'waist' })
+  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb', { joint: 'waist' })
   // the BOM's sensors are real parts: ToF on the chest face for stair
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1])
-  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
+  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1], { joint: 'waist' })
   // controller + drivers on the backpack's rear face and the lower back —
   // the way a real humanoid routes its electronics behind the torso. The
   // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
   // rear deck above the pack, the other UBECs below it.
   const packBack = -limbD / 2 - 25 // rear face of the pack box
   const packZ = pelvisTop + torsoH * 0.55
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1])
-  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1])
-  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1])
-  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1])
-  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1])
-  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1])
-  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
-  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
-  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal', { joint: 'neck-pan' })
+  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true, joint: 'neck-tilt' })
+  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass', { joint: 'neck-tilt' })
 
   // waist is the ROOT joint: everything above and below hangs off it
   joint(d, 'waist', 'Waist yaw', 'z', [0, 0, zHip + pelvisH * 0.7], -60, 60, null)
@@ -2514,7 +2514,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
@@ -3878,6 +3878,51 @@ function harnessAnalysis(design) {
   }
 }
 
+/**
+ * Desk-prop reach proof. The reach bound is an outer sphere — a prop inside
+ * it can still be unreachable at EVERY joint angle (a waist-yaw root inflates
+ * the sphere without adding vertical reach, for instance). Probe each prop's
+ * top face with the same multi-seed CCD the workspace map uses; a prop counts
+ * unreachable only when every sample misses by ≥12mm — the solver's own
+ * convergence threshold, so "reachable" here means the same thing it means
+ * on the bench overlay.
+ */
+function deskUnreachableProps(design, tip, bound) {
+  const { tipChain, tipNode } = tip
+  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
+  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
+  const ikChain = tipChain.map((j) => byId.get(j.id)).filter(Boolean)
+  if (ikChain.length < 3) return []
+  const chains = chainsFor(scratch)
+  const tipW = () => benchNodeWorld(scratch, chains, tipNode)
+  const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
+  const seeds = [frac(0.5), frac(0.15), frac(0.85), scratch.joints.map(() => 0)]
+  const out = []
+  for (const p of DESK_PROPS) {
+    // a prop the sphere already proves unreachable is the sphere path's
+    // problem — probing it here would be wasted solves
+    const dx = Math.max(Math.abs(p.pos[0] - bound.c[0]) - p.size[0] / 2, 0)
+    const dy = Math.max(Math.abs(p.pos[1] - bound.c[1]) - p.size[1] / 2, 0)
+    const dz = Math.max(Math.abs(p.pos[2] - bound.c[2]) - p.size[2] / 2, 0)
+    if (Math.hypot(dx, dy, dz) - bound.r > 0) continue
+    // centre first, then the top-face ring: one reachable point clears the prop
+    const pts = [[0, 0], [-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8], [-0.8, 0], [0.8, 0], [0, -0.8], [0, 0.8]]
+    let bestErr = Infinity, reached = false
+    for (const [fx, fy] of pts) {
+      if (reached) break
+      const t = [p.pos[0] + fx * p.size[0] / 2, p.pos[1] + fy * p.size[1] / 2, p.pos[2] + p.size[2] / 2]
+      for (const seed of seeds) {
+        seed.forEach((a, k) => { scratch.joints[k].angle = a })
+        const r = solveChainIK(scratch, ikChain, t, tipW, 14)
+        if (r.err < bestErr) bestErr = r.err
+        if (r.err < 12) { reached = true; break }
+      }
+    }
+    if (!reached) out.push({ id: p.id, name: p.name, miss: Math.round(bestErr) })
+  }
+  return out
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
@@ -4046,7 +4091,11 @@ function analyze(design) {
       const tip = whole || armChainFor(design, 'r')
       const b = armReachBound(tip)
       // multi-limb fallback: the bound describes ONE arm, say which
-      return b && !whole ? { ...b, side: 'r' } : b
+      const out = b && !whole ? { ...b, side: 'r' } : b
+      // the sphere is an outer bound, not a reachability proof — IK-probe the
+      // desk props so fix suggestions can tell "inside but unreachable" apart
+      if (out && tip) out.unreachable = deskUnreachableProps(design, tip, out)
+      return out
     })(),
     cost,
     costBuy,
@@ -9038,19 +9087,30 @@ function fixSuggestions(s) {
   // solver's problem, only provable outsiders get the prescription.
   if (s.reach && s.reach.c && s.reach.r) {
     let worst = null
+    const deskById = new Map(DESK_PROPS.map((p) => [p.id, p]))
     for (const p of DESK_PROPS) {
       const dx = Math.max(Math.abs(p.pos[0] - s.reach.c[0]) - p.size[0] / 2, 0)
       const dy = Math.max(Math.abs(p.pos[1] - s.reach.c[1]) - p.size[1] / 2, 0)
       const dz = Math.max(Math.abs(p.pos[2] - s.reach.c[2]) - p.size[2] / 2, 0)
       const gap = Math.hypot(dx, dy, dz) - s.reach.r
-      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap }
+      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap, sphere: true }
+    }
+    // the bound sphere is an outer bound — a prop inside it can still be
+    // unreachable at every joint angle (analysis IK-probes each prop). Those
+    // get the same prescription, sized by the solver's miss distance.
+    for (const u of s.reach.unreachable || []) {
+      const p = deskById.get(u.id)
+      if (p && (!worst || u.miss > worst.gap)) worst = { prop: p, gap: u.miss, sphere: false }
     }
     if (worst) {
       const arch = brief.archetype || ''
       const DEF = { arm: 450, robot: 450, humanoid: 620 }
       const cur = brief.reachMm || DEF[arch] || 450
       const next = Math.min(1200, Math.ceil((cur + worst.gap * 1.2) / 20) * 20)
-      push('warn', `Fix reach: ${worst.prop.name} sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound — lengthen the arm`,
+      const how = worst.sphere
+        ? `sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound`
+        : `is inside the ${Math.round(s.reach.r)}mm bound but no joint solve reaches it (~${Math.round(worst.gap)}mm miss)`
+      push('warn', `Fix reach: ${worst.prop.name} ${how} — lengthen the arm`,
         next > cur ? { reachMm: next } : null)
     }
   }

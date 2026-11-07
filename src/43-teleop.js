@@ -616,19 +616,30 @@ function fixSuggestions(s) {
   // solver's problem, only provable outsiders get the prescription.
   if (s.reach && s.reach.c && s.reach.r) {
     let worst = null
+    const deskById = new Map(DESK_PROPS.map((p) => [p.id, p]))
     for (const p of DESK_PROPS) {
       const dx = Math.max(Math.abs(p.pos[0] - s.reach.c[0]) - p.size[0] / 2, 0)
       const dy = Math.max(Math.abs(p.pos[1] - s.reach.c[1]) - p.size[1] / 2, 0)
       const dz = Math.max(Math.abs(p.pos[2] - s.reach.c[2]) - p.size[2] / 2, 0)
       const gap = Math.hypot(dx, dy, dz) - s.reach.r
-      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap }
+      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap, sphere: true }
+    }
+    // the bound sphere is an outer bound — a prop inside it can still be
+    // unreachable at every joint angle (analysis IK-probes each prop). Those
+    // get the same prescription, sized by the solver's miss distance.
+    for (const u of s.reach.unreachable || []) {
+      const p = deskById.get(u.id)
+      if (p && (!worst || u.miss > worst.gap)) worst = { prop: p, gap: u.miss, sphere: false }
     }
     if (worst) {
       const arch = brief.archetype || ''
       const DEF = { arm: 450, robot: 450, humanoid: 620 }
       const cur = brief.reachMm || DEF[arch] || 450
       const next = Math.min(1200, Math.ceil((cur + worst.gap * 1.2) / 20) * 20)
-      push('warn', `Fix reach: ${worst.prop.name} sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound — lengthen the arm`,
+      const how = worst.sphere
+        ? `sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound`
+        : `is inside the ${Math.round(s.reach.r)}mm bound but no joint solve reaches it (~${Math.round(worst.gap)}mm miss)`
+      push('warn', `Fix reach: ${worst.prop.name} ${how} — lengthen the arm`,
         next > cur ? { reachMm: next } : null)
     }
   }

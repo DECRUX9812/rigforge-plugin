@@ -342,6 +342,51 @@ function harnessAnalysis(design) {
   }
 }
 
+/**
+ * Desk-prop reach proof. The reach bound is an outer sphere — a prop inside
+ * it can still be unreachable at EVERY joint angle (a waist-yaw root inflates
+ * the sphere without adding vertical reach, for instance). Probe each prop's
+ * top face with the same multi-seed CCD the workspace map uses; a prop counts
+ * unreachable only when every sample misses by ≥12mm — the solver's own
+ * convergence threshold, so "reachable" here means the same thing it means
+ * on the bench overlay.
+ */
+function deskUnreachableProps(design, tip, bound) {
+  const { tipChain, tipNode } = tip
+  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
+  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
+  const ikChain = tipChain.map((j) => byId.get(j.id)).filter(Boolean)
+  if (ikChain.length < 3) return []
+  const chains = chainsFor(scratch)
+  const tipW = () => benchNodeWorld(scratch, chains, tipNode)
+  const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
+  const seeds = [frac(0.5), frac(0.15), frac(0.85), scratch.joints.map(() => 0)]
+  const out = []
+  for (const p of DESK_PROPS) {
+    // a prop the sphere already proves unreachable is the sphere path's
+    // problem — probing it here would be wasted solves
+    const dx = Math.max(Math.abs(p.pos[0] - bound.c[0]) - p.size[0] / 2, 0)
+    const dy = Math.max(Math.abs(p.pos[1] - bound.c[1]) - p.size[1] / 2, 0)
+    const dz = Math.max(Math.abs(p.pos[2] - bound.c[2]) - p.size[2] / 2, 0)
+    if (Math.hypot(dx, dy, dz) - bound.r > 0) continue
+    // centre first, then the top-face ring: one reachable point clears the prop
+    const pts = [[0, 0], [-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8], [-0.8, 0], [0.8, 0], [0, -0.8], [0, 0.8]]
+    let bestErr = Infinity, reached = false
+    for (const [fx, fy] of pts) {
+      if (reached) break
+      const t = [p.pos[0] + fx * p.size[0] / 2, p.pos[1] + fy * p.size[1] / 2, p.pos[2] + p.size[2] / 2]
+      for (const seed of seeds) {
+        seed.forEach((a, k) => { scratch.joints[k].angle = a })
+        const r = solveChainIK(scratch, ikChain, t, tipW, 14)
+        if (r.err < bestErr) bestErr = r.err
+        if (r.err < 12) { reached = true; break }
+      }
+    }
+    if (!reached) out.push({ id: p.id, name: p.name, miss: Math.round(bestErr) })
+  }
+  return out
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
@@ -510,7 +555,11 @@ function analyze(design) {
       const tip = whole || armChainFor(design, 'r')
       const b = armReachBound(tip)
       // multi-limb fallback: the bound describes ONE arm, say which
-      return b && !whole ? { ...b, side: 'r' } : b
+      const out = b && !whole ? { ...b, side: 'r' } : b
+      // the sphere is an outer bound, not a reachability proof — IK-probe the
+      // desk props so fix suggestions can tell "inside but unreachable" apart
+      if (out && tip) out.unreachable = deskUnreachableProps(design, tip, out)
+      return out
     })(),
     cost,
     costBuy,

@@ -54,30 +54,30 @@ function buildHumanoid(brief) {
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
   rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
-  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
-  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
-  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true, joint: 'waist' })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true, joint: 'waist' })
+  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb', { joint: 'waist' })
   // the BOM's sensors are real parts: ToF on the chest face for stair
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1])
-  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
+  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1], { joint: 'waist' })
   // controller + drivers on the backpack's rear face and the lower back —
   // the way a real humanoid routes its electronics behind the torso. The
   // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
   // rear deck above the pack, the other UBECs below it.
   const packBack = -limbD / 2 - 25 // rear face of the pack box
   const packZ = pelvisTop + torsoH * 0.55
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1])
-  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1])
-  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1])
-  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1])
-  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1])
-  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1])
-  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
-  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
-  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal', { joint: 'neck-pan' })
+  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true, joint: 'neck-tilt' })
+  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass', { joint: 'neck-tilt' })
 
   // waist is the ROOT joint: everything above and below hangs off it
   joint(d, 'waist', 'Waist yaw', 'z', [0, 0, zHip + pelvisH * 0.7], -60, 60, null)
@@ -118,7 +118,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
