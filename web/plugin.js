@@ -10207,35 +10207,77 @@ const PRESETS = [
 
 // Same ladder, but it admits when nothing matched — the difference between
 // "I heard you" and "here is a guess", which the UI must not blur.
+/**
+ * Which machine does this sentence name?
+ *
+ * This used to be first-rule-wins, which means the ORDER of the list silently
+ * decides the answer: "a robot dog that carries tools" hit the quadruped rule
+ * only because it happened to come before rover, and one stray word ("workshop")
+ * could drag a vacuum into the scene builder. A person describing a machine says
+ * several things at once, so every archetype now scores its own evidence and the
+ * strongest reading wins. Ties keep list order, which is roughly specialisation
+ * order (a lineup is more specific than a rover).
+ */
+const ARCH_TERMS = [
+  ['scene', [
+    /\b(?:two|three|four|five|several|multiple|a few)\b[^.]{0,24}\b(?:robots?|machines?|arms?|rovers?|drones?)\b/,
+    /lineup|line.?up|assembly line|production line|fleet of|bench of machines/,
+  ]],
+  ['drone', [
+    /\bdrones?\b/, /quad.?copter/, /\bquad\b/, /multirotor|hexacopter/,
+    /\bfpv\b/, /\buav\b/, /flying|airborne/, /propellers?|copter/,
+  ]],
+  ['gantry', [
+    /gantry/, /\bcnc\b/, /router|plotter/, /\bmill\b/, /laser cut/,
+    /full.?scale|metre class|meter class/, /overhead/, /3.?axis machin/,
+  ]],
+  ['pcb', [
+    /\bpcb\b/, /circuit board|controller board/, /breakout|carrier board/,
+    /schematic|gerber/, /(custom|my own|design .{0,10}) ?board/,
+    /board with (a|an|the)?\s*(screen|sensor|chip|relay)/,
+  ]],
+  ['iot', [
+    /\biot\b/, /sensor node/, /thermostat|weather station/, /plant|soil|moisture/,
+    /logger|beacon|tracker/, /\btag\b/, /door sensor|air quality/,
+  ]],
+  ['humanoid', [ /humanoid/, /biped|two.?leg/, /android|mannequin/ ]],
+  ['robot', [
+    /full robot|whole robot/, /mobile manipulator/,
+    /robot arm on a (rover|base|chassis)/, /drive.*(and|&).*(grab|pick)/,
+  ]],
+  ['quadruped', [ /quadruped|quad pod/, /four.?leg/, /walking|\bdog\b|trot/ ]],
+  ['gripper', [
+    /gripper|claw|\bjaw\b/, /end.?effector/, /\bgrab\b|clamp|pinch|squeeze/,
+    /hold (an? )?(egg|cup|block)/,
+  ]],
+  ['arm', [
+    /\barm\b/, /manipulator/, /pick.?(and|&).?place/, /[56].?dof/, /delta/,
+    /\bsort(s|ing|ed)?\b/, /\bweld(s|ing)?\b/, /assembly robot/,
+  ]],
+  ['rover', [
+    /rover/, /\bcar\b|robot car/, /\btank\b/, /wheels?|mecanum/, /\bdrive\b|chassis/,
+    /vacuum|roomba|sweeper/, /mower|lawn|tractor/,
+  ]],
+]
+
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
-  const rules = [
-    // A scene is a LINEUP, not a room. "a robot vacuum for my workshop" is one
-    // machine that happens to mention a workshop; matching the place word sent
-    // it to the scene builder and produced three robots nobody asked for.
-    ['scene', /(\b(?:two|three|four|five|several|multiple|a few)\b[^.]{0,24}\b(?:robots?|machines?|arms?|rovers?|drones?)\b)|lineup|line.?up|assembly line|production line|fleet of|bench of machines/],
-    // Flying machines had no vocabulary at all: "a drone that follows me on a
-    // bike" fell through to the gadget builder, so the one archetype with its
-    // own lift arithmetic was unreachable from plain English.
-    ['drone', /\bdrones?\b|quad.?copter|\bquad\b|multirotor|hexacopter|fpv\b|\buav\b|flying|airborne|propellers?|copter/],
-    ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
-    ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
-    ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
-    ['humanoid', /humanoid|biped|two.?leg|android|mannequin/],
-    ['robot', /full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/],
-    ['quadruped', /quadruped|quad pod|four.?leg|walking|dog\b|trot/],
-    ['gripper', /gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/],
-    ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta|\bsort(s|ing|ed)?\b|\bweld(s|ing)?\b|assembly robot/],
-    ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis|vacuum|roomba|sweeper|mower|lawn|tractor/],
-  ]
-  for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
+  let best = null
+  ARCH_TERMS.forEach(([id, terms], order) => {
+    let score = 0
+    for (const re of terms) if (re.test(t)) score += 1
+    if (!score) return
+    // strict >, so an earlier (more specialised) archetype wins a tie
+    if (!best || score > best.score) best = { id, archetype: id, score, order, confident: score >= 2, matched: true }
+  })
+  if (best) return best
   // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
   // load carrier: catching it here beats building an enclosure and calling it a
   // misunderstanding
   if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
-    return { id: 'rover', archetype: 'rover', confident: true, matched: true }
+    return { id: 'rover', archetype: 'rover', confident: true, matched: true, score: 1, order: 99 }
   }
-  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false }
+  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false, score: 0, order: 99 }
 }
 
 function detectArchetype(text) {

@@ -40,6 +40,11 @@ import { Studio, plugin } from './preview.mjs'
 // the app wires it — otherwise the AGENT chip reads OFFLINE and the harness lies.
 const store = new Map()
 plugin.register({
+  // The app's real surface is register({id, area, …}); the harness used to stub
+  // only contribution(), so a bundle that had moved to register() threw here and
+  // the preview went blank while the app was fine. Both are stubbed now: the
+  // harness must accept what the app accepts.
+  register: () => undefined,
   contribution: () => () => {},
   registerMany: () => () => {},
   registerSettingsPage: () => () => {},
