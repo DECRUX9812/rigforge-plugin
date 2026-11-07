@@ -391,10 +391,22 @@ function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
-  const harness = harnessAnalysis(design)
+  // A scene is several independent machines, not one bus: each member already
+  // passed its own power/pin/harness checks inside composeDesign, so the merged
+  // totals must not be judged against a single pack or a single MCU.
+  const isScene = design.archetype === 'scene'
+  if (isScene) {
+    power.bat = null
+    power.runtimeMin = null
+    power.wiring = []
+    power.systems = (design.parts || []).filter((p) => PARTS[p.key]?.cat === 'battery').length
+    design.checks = design.checks || []
+    design.checks.push({ level: 'ok', msg: `Scene power: ${power.systems} independent pack(s) — each machine's runtime and wiring are certified in its own report, not summed onto one bus.` })
+  }
+  const harness = isScene ? (design._sceneHarness || null) : harnessAnalysis(design)
   // A joint the stock lead cannot reach is not a note — it is a part you must
   // buy. Put the extension in the BOM so cost and shopping list stay honest.
-  if (harness && harness.needExt && !design._harnessed) {
+  if (!isScene && harness && harness.needExt && !design._harnessed) {
     design._harnessed = true
     addPart(design, 'extlead_300', harness.needExt, `${harness.needExt} joint run(s) exceed stock servo lead`)
   }
@@ -441,22 +453,22 @@ function analyze(design) {
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
   }
-  if (power.bat && power.typ > power.bat.maxA) {
+  if (!isScene && power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
-  } else if (power.bat && power.peak > power.bat.maxA * 2) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 2) {
     // Far beyond the pack's burst is not a caution, it is the wrong pack: the
     // protection circuit trips or the cells sag before the machine moves.
     checks.push({
       level: 'fail',
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
-  } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }
-  if (power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
+  if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
   }
-  if (pins.used > pins.mcu.pinBudget) {
+  if (!isScene && pins.used > pins.mcu.pinBudget) {
     checks.push({ level: 'fail', msg: `Pin map wants ${pins.used} GPIO, ${pins.mcu.name} exposes ${pins.mcu.pinBudget}. Move the motors to an I2C driver or drop a sensor.` })
   }
   if (printGrams > 900) {

@@ -187,7 +187,9 @@ function chainFrames(chain) {
     const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
     const a = axisVec3(j.axis)
     // Pitch joints read positive = UP (same sign convention applyChain had).
-    const sign = j.axis === 'y' ? -1 : 1
+    // axis0 preserves the model letter when a scene yaw turned axis into a
+    // vector — the pitch check must still recognise it.
+    const sign = (j.axis0 || j.axis) === 'y' ? -1 : 1
     const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
     const pivotW = [
       Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
@@ -244,7 +246,7 @@ function slideDisp(design, node) {
   let j = j0, own = true
   while (j && j.slide && !seen.has(j.id)) {
     seen.add(j.id)
-    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+    const dir = axisVec3(j.axis)
     const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
     out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
     own = false
