@@ -91,25 +91,25 @@ delete require.cache[bundlePath]
 const mod = require(bundlePath)
 const plugin = mod.default || mod
 
-// the host's real contribution API: one call per area
-const areaOf = { palette: 'palette', routes: 'routes', sidebar: 'sidebar', directive: 'directive' }
+// The host's real surface, and only that: register({ id, area, data, render }).
+// The previous stub invented `contribution(area, payload)` — the API the plugin
+// was actually calling — so the suite stayed green while the app threw
+// "ctx.contribution is not a function" and dropped the plugin on load. A stub
+// that agrees with a wrong call site is worse than no stub.
+const AREAS = {
+  routes: 'pages', sidebar: 'nav', palette: 'palette', directive: 'directives', settings: 'settings', statusbar: 'logs',
+}
 const ctx = {
-  contribution: (area, payload) => {
-    const a = areaOf[area] || area
-    if (a === 'routes') registered.pages.push(payload)
-    else if (a === 'sidebar') registered.nav.push(payload)
-    else if (a === 'palette') registered.palette.push(payload)
-    else if (a === 'directive') registered.directives.push(payload)
-    else registered.logs.push('contribution:' + area)
+  ...globalThis.__hostStub,
+  register: (c) => {
+    const key = AREAS[c.area]
+    if (!key) { registered.logs.push('register:' + String(c.area)); return }
+    if (key === 'logs') { registered.logs.push('statusbar:' + c.id); return }
+    registered[key].push({ id: c.id, area: c.area, data: c.data, render: c.render })
+    if (c.area === 'routes' && !c.render) registered.logs.push('page without render: ' + c.id)
   },
-  registerPage: (p) => registered.pages.push(p),
-  registerRoute: (p) => registered.pages.push(p),
-  registerNav: (p) => registered.nav.push(p),
-  registerSidebarNav: (p) => registered.nav.push(p),
-  registerPaletteItem: (p) => registered.palette.push(p),
-  registerDirective: (p) => registered.directives.push(p),
-  registerSettingsPage: (p) => registered.settings.push(p),
   registerTool: (t) => registered.tools.push(t),
+  registerSettingsPage: (p) => registered.settings.push(p),
   log: (...a) => registered.logs.push(a.join(' ')),
   logger: { info: () => {}, warn: () => {}, error: () => {} },
 }
