@@ -2086,7 +2086,7 @@ function toSpecMarkdown(design, a, extras) {
   if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended${a.reach.side ? `, ${a.reach.side} arm` : ''}) |`)
   if (extras && extras.ws && extras.ws.stats && extras.ws.stats.reach) {
     const s = extras.ws.stats
-    L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} also lift ${s.payloadG}g |`)
+    L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} lift ${s.payloadG}g · ${s.torqueLimited} reachable but over joint torque at that load · ${s.outOfReach} beyond reach |`)
   }
   if (m.runtimeMin) L.push(`| Runtime | ~${Math.round(m.runtimeMin)} min |`)
   L.push('')

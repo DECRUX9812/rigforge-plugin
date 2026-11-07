@@ -2103,11 +2103,19 @@ function Studio() {
                   style: { color: propHud.over ? C.red : C.green },
                   title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
                 }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
-                wsMap && wsMap.stats.reach ? h('span', {
-                  key: 'ws',
-                  style: { color: C.cyan },
-                  title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} targets reachable · ${wsMap.stats.lift} also lift ${wsMap.stats.payloadG}g`,
-                }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g`) : null,
+                wsMap && wsMap.stats.reach ? (() => {
+                  // A percentage on its own reads as "the arm is broken". Split it:
+                  // targets the solver never reached are a reach problem, targets it
+                  // reached but could not lift are a torque problem — and those have
+                  // different fixes.
+                  const torqueLimited = Math.max(0, wsMap.stats.reach - wsMap.stats.lift)
+                  const outOfReach = Math.max(0, wsMap.stats.total - wsMap.stats.reach)
+                  return h('span', {
+                    key: 'ws',
+                    style: { color: C.cyan },
+                    title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} reachable · ${wsMap.stats.lift} lift ${wsMap.stats.payloadG}g · ${torqueLimited} reachable but over torque at this payload · ${outOfReach} beyond reach`,
+                  }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g · ${torqueLimited} torque-limited`)
+                })() : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'

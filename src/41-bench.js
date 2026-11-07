@@ -540,7 +540,12 @@ function workspaceMap(design, analysis, opts = {}) {
       pts.push({ p: target, lift: ok })
     }
   }
-  return { pts, stats: { total, reach, lift, payloadG } }
+  // Split the shortfall where a user can act on it: targets the solver never got
+  // to are a reach problem, targets it reached but could not lift are a torque
+  // problem. One number ("2 of 76") tells neither story.
+  const torqueLimited = Math.max(0, reach - lift)
+  const outOfReach = Math.max(0, total - reach)
+  return { pts, stats: { total, reach, lift, payloadG, torqueLimited, outOfReach } }
 }
 
 /** GL_LINES crosses for the workspace map: cyan = reachable, green = can
