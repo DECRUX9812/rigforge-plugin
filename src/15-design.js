@@ -22,6 +22,10 @@ function newDesign(archetype, brief) {
     subtitle: '',
     nodes: [],
     joints: [],
+    // Every builder must be able to declare what drives each joint: the bench
+    // matches actuators to joints by label, and a machine that publishes none is
+    // unmeasurable rather than strong.
+    actuators: [],
     metrics: {},
     parts: [],
     notes: [],

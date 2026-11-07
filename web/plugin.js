@@ -740,6 +740,10 @@ function newDesign(archetype, brief) {
     subtitle: '',
     nodes: [],
     joints: [],
+    // Every builder must be able to declare what drives each joint: the bench
+    // matches actuators to joints by label, and a machine that publishes none is
+    // unmeasurable rather than strong.
+    actuators: [],
     metrics: {},
     parts: [],
     notes: [],
@@ -2036,6 +2040,13 @@ function buildQuadruped(brief) {
     d.checks.push({ level: 'warn', msg: `All-stall current is ${fmt(peakAll, 1)}A; the pack cannot do that. Firmware must stagger leg lifts.` })
   }
 
+  // The bench matches actuators to joints by label. The quadruped published none,
+  // so its torque margins came back empty — which the lift test used to read as
+  // "infinitely strong". One row per joint, sized by the same worst-phase need.
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: reqFoot, servo: servoKey, ratio: 1, effective: servo.torque,
+  }))
+
   Object.assign(d.metrics, {
     joints: 12,
     legMm: Math.round(legLen),
@@ -2863,9 +2874,24 @@ function buildHumanoid(brief) {
     actuatorCost,
     printedG: printedKg * 1000,
   })
-  d.actuators = Object.entries(need).map(([label, want]) => ({
-    label, need: want, servo: jointServo, ratio: 1, effective: PARTS[jointServo].torque,
-  }))
+  // One actuator per JOINT, not per joint *category*. The bench matches actuators
+  // to joints by label, so four category rows ('Ankle', 'Knee', 'Hip',
+  // 'Shoulder') matched none of the 23 real joints — torque margins came back
+  // empty, and an empty list reads as "infinitely strong" upstream. The humanoid
+  // was therefore certified as able to lift any payload.
+  const categoryOf = (j) => {
+    const id = String(j.id).toLowerCase()
+    if (id.includes('ankle')) return 'Ankle'
+    if (id.includes('knee')) return 'Knee'
+    if (id.includes('hip')) return 'Hip'
+    if (/shoulder|elbow|wrist/.test(id)) return 'Shoulder'
+    return null
+  }
+  d.actuators = (d.joints || []).map((j) => {
+    const cat = categoryOf(j)
+    const want = cat ? need[cat] : 0
+    return { label: j.label, category: cat, need: want, servo: jointServo, ratio: 1, effective: PARTS[jointServo].torque }
+  })
   return d
 }
 
@@ -3713,6 +3739,12 @@ function buildScene(brief) {
       }
       if (nj.axis !== j.axis) nj.axis0 = j.axis
       d.joints.push(nj)
+    }
+    // Carry the sub-machine's actuators with the same label prefix the joints got.
+    // The bench matches by label, so a scene that renames joints but drops
+    // actuators reports no torque margins at all — every joint reads unmeasurable.
+    for (const a of sd.actuators || []) {
+      d.actuators.push({ ...a, label: `${label} · ${a.label}`, category: a.category })
     }
     for (const p of sd.parts || []) addPart(d, p.key, p.qty, `${label}: ${p.role || 'part'}`)
     // A machine that fails its own checks fails the scene — the lineup is
@@ -8115,7 +8147,10 @@ function workspaceMap(design, analysis, opts = {}) {
       const tp = benchNodeWorld(posed, chainsFor(posed), tipNode)
       const tor = benchTorqueMargins(posed, mat, [{ joint: tipNode.joint, pos: [tp[0], tp[1], tp[2] - 35], massG: payloadG }])
       const worst = tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity })
-      const ok = worst.margin >= 1
+      // An EMPTY margin list used to read as "infinitely strong" and counted every
+      // reachable target as liftable. It means the torque model could not resolve
+      // this joint at all — that is unknown, not capable.
+      const ok = tor.length > 0 && worst.margin >= 1
       if (ok) lift += 1
       pts.push({ p: target, lift: ok })
     }

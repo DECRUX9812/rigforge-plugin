@@ -221,9 +221,24 @@ function buildHumanoid(brief) {
     actuatorCost,
     printedG: printedKg * 1000,
   })
-  d.actuators = Object.entries(need).map(([label, want]) => ({
-    label, need: want, servo: jointServo, ratio: 1, effective: PARTS[jointServo].torque,
-  }))
+  // One actuator per JOINT, not per joint *category*. The bench matches actuators
+  // to joints by label, so four category rows ('Ankle', 'Knee', 'Hip',
+  // 'Shoulder') matched none of the 23 real joints — torque margins came back
+  // empty, and an empty list reads as "infinitely strong" upstream. The humanoid
+  // was therefore certified as able to lift any payload.
+  const categoryOf = (j) => {
+    const id = String(j.id).toLowerCase()
+    if (id.includes('ankle')) return 'Ankle'
+    if (id.includes('knee')) return 'Knee'
+    if (id.includes('hip')) return 'Hip'
+    if (/shoulder|elbow|wrist/.test(id)) return 'Shoulder'
+    return null
+  }
+  d.actuators = (d.joints || []).map((j) => {
+    const cat = categoryOf(j)
+    const want = cat ? need[cat] : 0
+    return { label: j.label, category: cat, need: want, servo: jointServo, ratio: 1, effective: PARTS[jointServo].torque }
+  })
   return d
 }
 

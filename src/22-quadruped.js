@@ -93,6 +93,13 @@ function buildQuadruped(brief) {
     d.checks.push({ level: 'warn', msg: `All-stall current is ${fmt(peakAll, 1)}A; the pack cannot do that. Firmware must stagger leg lifts.` })
   }
 
+  // The bench matches actuators to joints by label. The quadruped published none,
+  // so its torque margins came back empty — which the lift test used to read as
+  // "infinitely strong". One row per joint, sized by the same worst-phase need.
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: reqFoot, servo: servoKey, ratio: 1, effective: servo.torque,
+  }))
+
   Object.assign(d.metrics, {
     joints: 12,
     legMm: Math.round(legLen),

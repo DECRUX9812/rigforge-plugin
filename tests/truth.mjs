@@ -485,6 +485,35 @@ check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table',
 })
 
 // ── 14. the machines we ship as presets are buildable as shown ──────────────
+check('every machine with revolute joints can have its torque measured', () => {
+  // An empty margin list is not "infinitely strong", it is "unmeasurable" — and
+  // three archetypes (quadruped, humanoid, scene) were publishing no actuators,
+  // so their joints were silently exempt from every torque claim.
+  const blind = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    const rev = design.joints.filter((j) => !j.slide && j.axis !== 'z')
+    if (!rev.length) continue
+    const tor = A.benchTorqueMargins(design, null, [])
+    if (tor.length < rev.length) blind.push(`${p.id}: ${tor.length}/${rev.length}`)
+  }
+  if (blind.length) throw new Error(`no torque margin for ${blind.join(' · ')}`)
+  return 'every archetype with revolute joints reports a margin for each of them'
+})
+
+check('the humanoid lift test actually feels the payload', () => {
+  const p = A.PRESETS.find((x) => x.id === 'humanoid')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const light = A.workspaceMap(design, analysis, { payloadG: 300 }).stats.lift
+  const heavy = A.workspaceMap(design, analysis, { payloadG: 20000 }).stats.lift
+  // A 20kg load on a 550mm arm is past every servo in the catalogue. If the
+  // count does not move, the torque model is not being consulted at all — which
+  // is what four category-labelled actuators and 23 labelled joints produced.
+  assert(light > 0, `humanoid lifts nothing even at 300g (${light})`)
+  assert(heavy === 0, `humanoid still "lifts" ${heavy} targets with 20kg`)
+  return `300g: ${light} lift · 20kg: ${heavy} lift`
+})
+
 check('bench and motion share one payload number, not two', () => {
   const p = A.PRESETS.find((x) => x.id === 'arm')
   const { design, analysis } = A.composeDesign({ ...p.brief })
