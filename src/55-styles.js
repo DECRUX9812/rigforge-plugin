@@ -349,6 +349,11 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
+  viewPlay: {
+    padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
+    background: 'rgba(255,106,26,0.10)', color: C.accent,
+    fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
+  },
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
