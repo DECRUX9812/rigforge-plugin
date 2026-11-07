@@ -1174,7 +1174,10 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
 
 // ── 27b. joint sim: servo speed follows a real torque-speed curve ───────────
 check('joint sim: slew speed derates with gravity load, dies near stall', () => {
-  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  // zero payload on purpose: this claim measures the torque-speed CURVE, and
+  // a carried load now genuinely loads the joints, which would put the wrist
+  // straight past stall and leave nothing to measure
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief, payloadKg: 0 })
   const names = design.joints.map((j) => j.id)
   const measure = (pose) => {
     const s = A.createJointSim(design, analysis)

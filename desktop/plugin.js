@@ -8621,7 +8621,7 @@ function bakeVertexAO(mesh, opts) {
  * every ancestor joint via the exact r×F statics from 41-bench. `poseAngles`
  * optionally overrides design.joints[].angle without mutating the design.
  */
-function jointLoadNm(design, mat, poseAngles) {
+function jointLoadNm(design, mat, poseAngles, extras) {
   const joints = design.joints
   const saved = joints.map((j) => j.angle)
   if (poseAngles) joints.forEach((j, i) => { j.angle = poseAngles[i] == null ? j.angle : poseAngles[i] })
@@ -8642,12 +8642,28 @@ function jointLoadNm(design, mat, poseAngles) {
       if (!frameCache.has(jid)) frameCache.set(jid, jointFrameWorld(chains, jid))
       return frameCache.get(jid)
     }
+    // A carried load is weight at the end of the chain, not a bigger machine.
+    // It used to be invisible here: payloadKg changed the BOM and the sizing
+    // checks, but the joints never felt it, so the stall branch could never
+    // fire no matter how much you hung on the gripper.
+    const loads = []
     for (const n of design.nodes) {
-      const nj = n.joint ? byId.get(n.joint) : null
-      if (!nj) continue
-      const w = benchNodeWorld(design, chains, n)
+      if (!n.joint) continue
       const g = benchNodeMassG(design, n, mat) * 9.81e-3 // N
-      if (g <= 0) continue
+      if (g > 0) loads.push({ joint: n.joint, w: benchNodeWorld(design, chains, n), g })
+    }
+    for (const e of extras || []) {
+      if (!e || !(e.massG > 0)) continue
+      // hang it 35mm below the tip node — a gripped block sits under the jaw
+      const host = design.nodes.find((n) => n.joint === e.joint)
+      const base = host ? benchNodeWorld(design, chains, host) : [0, 0, 0]
+      loads.push({ joint: e.joint, w: [base[0], base[1], base[2] - (e.dz || 35)], g: e.massG * 9.81e-3 })
+    }
+    for (const item of loads) {
+      const nj = byId.get(item.joint)
+      if (!nj) continue
+      const w = item.w
+      const g = item.g
       for (const j of ancestorsOf(nj.id)) {
         if (j.slide || j.axis === 'z') continue
         const fr = frameOf(j.id)
@@ -8695,11 +8711,18 @@ function createJointSim(design, analysis) {
   }
   const LOAD_MS = 500
   const SAG_DPS = 22 // °/s a stalled joint creeps toward rest under gravity
+  // The brief's payload is a mass the machine CARRIES, so it belongs in the
+  // load model at the tip — otherwise a 6kg gripper load is free and no joint
+  // can ever stall.
+  const payloadG = Math.max(0, ((design.brief && design.brief.payloadKg) || 0) * 1000)
+  const tipChain = typeof armTipChain === 'function' ? armTipChain(design) : null
+  const tipJoint = (tipChain && tipChain.tipNode && tipChain.tipNode.joint) || (n ? joints[n - 1].id : null)
+  const extras = payloadG > 0 && tipJoint ? [{ joint: tipJoint, massG: payloadG }] : []
 
   function refreshLoad(now) {
     if (now - state._loadAt < LOAD_MS) return
     state._loadAt = now
-    const load = jointLoadNm(design, mat, state.angles)
+    const load = jointLoadNm(design, mat, state.angles, extras)
     let bus = 0
     for (let i = 0; i < n; i++) {
       const j = joints[i]
@@ -8750,6 +8773,17 @@ function createJointSim(design, analysis) {
         const a = state.angles[i]
         const t = state.targets[i]
         const err = t - a
+        // A joint past stall torque cannot hold a pose either: it sags even when
+        // it already sits on its target. Checking "arrived" first let a stalled
+        // joint freeze at the commanded angle, which is the one thing a servo
+        // beyond stall torque does NOT do.
+        if (state.stalled[i]) {
+          const dir = a > 0 ? -1 : 1
+          const sag = Math.min(Math.abs(a), SAG_DPS * dt)
+          if (sag > 1e-9) { state.angles[i] = a + dir * sag; moved = true }
+          state.vel[i] = 0
+          continue
+        }
         if (Math.abs(err) < 0.01) { state.vel[i] = 0; continue }
         if (j.slide) {
           // rail/belt vs leadscrew differ by ~20× — j.slideSpeed carries the
@@ -8759,14 +8793,6 @@ function createJointSim(design, analysis) {
           const step = Math.sign(err) * Math.min(Math.abs(err), spd * dt)
           state.angles[i] = a + step
           state.vel[i] = step / Math.max(dt, 1e-4)
-          moved = true
-          continue
-        }
-        if (state.stalled[i]) {
-          // cannot hold position: creep toward rest (angle 0) under gravity
-          const dir = a > 0 ? -1 : 1
-          state.angles[i] = a + dir * Math.min(Math.abs(a), SAG_DPS * dt)
-          state.vel[i] = 0
           moved = true
           continue
         }
