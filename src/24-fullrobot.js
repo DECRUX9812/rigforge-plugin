@@ -177,7 +177,7 @@ function buildFullRobot(brief) {
   const headY = 0
   box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
   box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
-  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
+  elec(d, 'tof', 'vl53l0x', [headX + 32, -14, deckZ + 58], [2, 0, 1])
   cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
   joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 

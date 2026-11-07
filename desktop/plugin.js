@@ -1597,7 +1597,7 @@ function buildRover(brief) {
   // sensor mast + head
   rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
   rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true })
-  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
+  elec(d, 'head-tof', 'vl53l0x', [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], [2, 0, 1])
   cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
 
   // the BOM's electronics are real parts, not implied: controller + IMU on
@@ -1617,7 +1617,7 @@ function buildRover(brief) {
   elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
   // XT60 at the pack feed, between the fuse and the drivers
   elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
-  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
+  elec(d, 'tof-drop', 'vl53l0x', [-wheelbase / 2 - 6, 0, z0 - 8])
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
@@ -2225,7 +2225,7 @@ function buildFullRobot(brief) {
   const headY = 0
   box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
   box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
-  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
+  elec(d, 'tof', 'vl53l0x', [headX + 32, -14, deckZ + 58], [2, 0, 1])
   cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
   joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
@@ -2455,7 +2455,7 @@ function buildHumanoid(brief) {
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
+  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1])
   elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
   // controller + drivers on the backpack's rear face and the lower back —
   // the way a real humanoid routes its electronics behind the torso. The
@@ -3052,7 +3052,13 @@ function buildIot(brief) {
   // the board sits on standoffs inside the cavity, the sensor by the
   // grille, the cell flat on the base
   rbox(d, 'mcu', [26, 18, 5], [-8, 0, 16], 1, 'pcb')
-  rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  // the internal sensor block covers the board-level sensors (BME280, PIR,
+  // HX711); a soil probe is a different object entirely — its 98mm blade
+  // cannot fit a 62mm case, so it gets its own node out front on the ground
+  if (!wants.soil || wants.air || wants.motion || wants.weight) {
+    rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  }
+  if (wants.soil) elec(d, 'probe', 'soil', [0, -D / 2 - 14, 2])
   rbox(d, 'cell', [40, 26, 8], [0, 0, 7], 2, 'steel')
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `standoff-${sx}${sy}`, 2.4, 11, [sx * 10 - 8, sy * 7, 8.5], 'z', 'metal')

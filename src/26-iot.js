@@ -50,7 +50,13 @@ function buildIot(brief) {
   // the board sits on standoffs inside the cavity, the sensor by the
   // grille, the cell flat on the base
   rbox(d, 'mcu', [26, 18, 5], [-8, 0, 16], 1, 'pcb')
-  rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  // the internal sensor block covers the board-level sensors (BME280, PIR,
+  // HX711); a soil probe is a different object entirely — its 98mm blade
+  // cannot fit a 62mm case, so it gets its own node out front on the ground
+  if (!wants.soil || wants.air || wants.motion || wants.weight) {
+    rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  }
+  if (wants.soil) elec(d, 'probe', 'soil', [0, -D / 2 - 14, 2])
   rbox(d, 'cell', [40, 26, 8], [0, 0, 7], 2, 'steel')
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `standoff-${sx}${sy}`, 2.4, 11, [sx * 10 - 8, sy * 7, 8.5], 'z', 'metal')

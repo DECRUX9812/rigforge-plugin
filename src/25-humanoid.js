@@ -61,7 +61,7 @@ function buildHumanoid(brief) {
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
+  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1])
   elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1])
   // controller + drivers on the backpack's rear face and the lower back —
   // the way a real humanoid routes its electronics behind the torso. The
