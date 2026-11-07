@@ -541,6 +541,31 @@ function analyze(design) {
   } else if (harness) {
     checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
   }
+  // ── drones: thrust margin and hover time ─────────────────────────────────
+  // A quad has two numbers that decide whether it flies at all: how much lift
+  // four discs make against its own weight, and how many minutes that buys.
+  // Both come from momentum theory in droneReport(), not from a lookup table.
+  let drone = null
+  if (design.drone) {
+    drone = droneReport(design.drone, totalMassG)
+    const twr = drone.twr
+    if (twr < 1.0) {
+      checks.push({ level: 'fail', msg: `Lift-to-weight is ${twr.toFixed(2)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g of thrust for a ${Math.round(totalMassG)}g machine. It cannot leave the ground. Bigger props, more voltage, or less mass.` })
+    } else if (twr < 1.5) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight is ${twr.toFixed(2)}:1. It will hover, but with almost no control authority — a quad wants 2:1 minimum and 3:1 to handle wind.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
+    }
+    if (drone.hoverThrottle > 0.75) {
+      checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
+    }
+    if (drone.minutes < 3) {
+      checks.push({ level: 'warn', msg: `Hover endurance is ${drone.minutes.toFixed(1)} min on ${design.drone.mah}mAh — short even for FPV. A bigger pack costs mass, which costs hover power: check the trade before buying.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Hover endurance ${drone.minutes.toFixed(1)} min at ${drone.hoverAmps.toFixed(1)}A on ${design.drone.mah}mAh (80% usable), drawing ${Math.round(drone.hoverWatts)}W.` })
+    }
+  }
+
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -567,6 +592,7 @@ function analyze(design) {
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
+    drone,
     dims,
     checks,
     mcu: pins.mcu,

@@ -15,6 +15,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
+  { id: 'drone', label: 'FPV drone', brief: { archetype: 'drone', mission: 'a 5-inch FPV quad that carries a camera for 6 minutes', reachMm: 127, payloadKg: 0.2, battery: 'lipo4s' } },
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
@@ -121,7 +122,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'drone' ? buildDrone(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)

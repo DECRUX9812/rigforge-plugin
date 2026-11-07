@@ -309,6 +309,62 @@ const PARTS = {
     dims: [70, 35, 14], conn: 'XT30 + JST-XH balance', sku: '2S 1000mAh 30C LiPo XT30', src: 'amzn',
     note: 'Light and punchy. Needs a proper balance charger and a LiPo bag.',
   },
+  motor2207: {
+    name: '2207 2450KV brushless motor',
+    cat: 'actuator', price: 14, mass: 32, volts: 14.8,
+    dims: [28, 28, 32], shaft: 'Ø5mm M5 prop thread', mount: '16×16mm or 19×19mm',
+    sku: '2207 2450KV 3-6S brushless', src: 'amzn',
+    note: 'The 5-inch class standard. One per corner, and they all have to be the same.',
+  },
+  motor2806: {
+    name: '2806.5 1300KV brushless motor',
+    cat: 'actuator', price: 26, mass: 48, volts: 22.2,
+    dims: [34, 34, 34], shaft: 'Ø5mm', mount: '19×19mm',
+    sku: '2806.5 1300KV 6S', src: 'amzn',
+    note: 'The 7-inch long-range class: more disk, less revs, quieter.',
+  },
+  prop5: {
+    name: '5×4.3 3-blade propeller set',
+    cat: 'mech', price: 3, mass: 16, volts: 0,
+    dims: [127, 127, 8], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '5043 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Two CW, two CCW. Fit them the wrong way and the quad flips on arm.',
+  },
+  prop7: {
+    name: '7×3.5 3-blade propeller set',
+    cat: 'mech', price: 5, mass: 26, volts: 0,
+    dims: [178, 178, 9], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '7035 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Longer blades at lower revs: more efficient hover, slower top end.',
+  },
+  esc4in1: {
+    name: '4-in-1 45A BLHeli_S ESC',
+    cat: 'driver', price: 34, mass: 14, volts: 22.2, curr: { idle: 0.1, typ: 1.5, peak: 180 },
+    dims: [36, 36, 8], conn: 'solder pads, 4× motor + XT60 input',
+    sku: '45A 4-in-1 ESC 2-6S 30.5×30.5', src: 'amzn',
+    note: 'One board for four motors. Mount it under the flight controller, airflow across it.',
+  },
+  fc405: {
+    name: 'F405 flight controller',
+    cat: 'mcu', price: 42, mass: 9, volts: 5, curr: { idle: 0.12, typ: 0.35, peak: 0.8 },
+    dims: [36, 36, 8], pins: 12, conn: '30.5×30.5 stack, 8 motor/servo outputs',
+    sku: 'F405 V3 flight controller', src: 'amzn',
+    note: 'Runs the loop at 8kHz and the PID loop you will spend a weekend tuning.',
+  },
+  lipo4s: {
+    name: 'LiPo 4S 1500mAh 100C',
+    cat: 'battery', price: 30, mass: 190, volts: 14.8, mah: 1500, maxA: 150,
+    dims: [75, 35, 30], conn: 'XT60 + JST-XH balance',
+    sku: '4S 1500mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Short, hot flights. Land at 3.5V/cell or the pack puffs.',
+  },
+  lipo6s: {
+    name: 'LiPo 6S 1300mAh 100C',
+    cat: 'battery', price: 38, mass: 210, volts: 22.2, mah: 1300, maxA: 130,
+    dims: [78, 38, 32], conn: 'XT60 + JST-XH balance',
+    sku: '6S 1300mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Long range builds run 6S: less current for the same watts, cooler ESC.',
+  },
   lipo3s: {
     name: 'LiPo 3S 2200mAh 30C',
     cat: 'battery', price: 25, mass: 180, volts: 11.1, mah: 2200, maxA: 40,
@@ -1693,6 +1749,156 @@ function buildRover(brief) {
     battery,
   })
   return d
+}
+
+// ── drone: disk loading, thrust and hover time ──────────────────────────────
+// A quadcopter is not a robot with wheels: every gram is either thrust margin or
+// flight time, and the two trade against each other. The geometry here is the
+// easy part (four arms, four motors, four props). The interesting part is the
+// arithmetic in droneReport(): how much lift four discs of this size actually
+// make, at what throttle it hovers, and how many minutes that buys on the pack.
+
+const DRONE_AIR_RHO = 1.225 // kg/m³ at sea level, 15°C
+const DRONE_PROP_SLIP = 0.72 // real exit velocity is ~72% of geometric pitch speed
+const DRONE_FOM = 0.55 // figure of merit: motor + ESC + prop, lumped
+
+/**
+ * Momentum theory, no fudge factors beyond the two constants above.
+ *   thrust  T = ½·ρ·A·v²        (v = exit velocity through the disc)
+ *   power   P = T^1.5 / √(2ρA)   (ideal induced power)
+ * Everything the product claims about a quad comes out of those two lines, so a
+ * design that says 12 minutes has 12 minutes of arithmetic behind it.
+ */
+function droneReport(params, massG) {
+  const D = params.propMm / 1000
+  const A = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = params.cells * 3.7 * 0.9
+  const rpm = params.kv * vPack * 0.85
+  const vExit = (rpm / 60) * pitch * DRONE_PROP_SLIP
+  const tOne = 0.5 * DRONE_AIR_RHO * A * vExit * vExit // N
+  const thrustG = (4 * tOne * 1000) / 9.81
+  const massKg = Math.max(0.001, massG / 1000)
+  const weightN = massKg * 9.81
+  // hover: each motor carries a quarter of the weight
+  const tHover = weightN / 4
+  const vHover = Math.sqrt((2 * tHover) / (DRONE_AIR_RHO * A))
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * DRONE_AIR_RHO * A) // W, ideal, per motor
+  const pElec = (4 * pHover) / DRONE_FOM
+  const amps = pElec / vPack
+  const minutes = ((params.mah / 1000) * 0.8 * 60) / amps
+  return {
+    propMm: params.propMm,
+    diskAreaM2: A,
+    vExit,
+    thrustG,
+    twr: thrustG / massG,
+    hoverThrottle: vHover / vExit,
+    hoverAmps: amps,
+    hoverWatts: pElec,
+    minutes,
+    tipSpeed: Math.PI * D * (rpm / 60),
+  }
+}
+
+function buildDrone(brief) {
+  const d = newDesign('drone', brief)
+  // the prop size is the whole design: 5" and 7" are different machines, not a
+  // style choice. Take it from propMm, else from the reach slider the UI shows.
+  const wanted = brief.propMm || brief.reachMm || 127
+  const propKey = wanted >= 160 ? 'prop7' : 'prop5'
+  const propMm = propKey === 'prop7' ? 178 : 127
+  const motorKey = propKey === 'prop7' ? 'motor2806' : 'motor2207'
+  const kv = propKey === 'prop7' ? 1300 : 2450
+  const battKey = brief.battery === 'lipo6s' ? 'lipo6s' : propKey === 'prop7' ? 'lipo6s' : 'lipo4s'
+  const batt = PARTS[battKey]
+  const cells = Math.round(batt.volts / 3.7)
+
+  // motor diagonal: a 5" quad carries props that just clear each other, so the
+  // diagonal is the prop diameter plus a margin — 1.78× is the real-world ratio
+  const diagonal = clamp(Math.round(propMm * 1.78), 160, 900)
+  const armLen = Math.round(diagonal / 2 - 18)
+  const core = Math.round(diagonal * 0.42)
+  const payload = clampPayload(d, brief.payloadKg || 0, 0, 6)
+
+  d.title = `${propMm}mm ${propKey === 'prop7' ? '7' : '5'}-inch quad`
+  d.subtitle = `${diagonal}mm motor diagonal · ${batt.name.split(' ').slice(0, 2).join(' ')} · ${payload}kg payload`
+  d.metrics = {}
+
+  const zArm = 6
+  const zTop = 20
+
+  // ── plates and arms: the frame, printed ───────────────────────────────────
+  splitBox(d, 'plate-bottom', [core, core, 3], [0, 0, 3], 2, 'shell', 256, { print: true })
+  splitBox(d, 'plate-top', [Math.round(core * 0.72), Math.round(core * 0.72), 3], [0, 0, zTop], 2, 'shell', 256, { print: true })
+  for (let i = 0; i < 4; i += 1) {
+    const ang = (Math.PI / 4) + (i * Math.PI) / 2
+    const cx = Math.cos(ang)
+    const sy = Math.sin(ang)
+    const mid = armLen / 2 + 10
+    box(d, `arm-${i}`, [armLen, 14, 5], [cx * mid, sy * mid, zArm], 'shell', {
+      print: true,
+      rot: [0, 0, ang],
+    })
+    // motor mount pad, slightly wider than the arm so the bolts have material
+    cyl(d, `arm-pad-${i}`, 13, 4, [cx * (armLen + 12), sy * (armLen + 12), zArm + 2], 'z', 'shell', { print: true })
+
+    // motor: stator can + bell, then the prop on top of the bell
+    const mx = cx * (armLen + 12)
+    const my = sy * (armLen + 12)
+    cyl(d, `${nameOf(i)}-motor`, 13.5, 26, [mx, my, zArm + 15], 'z', 'metal')
+    cyl(d, `${nameOf(i)}-bell`, 14.5, 10, [mx, my, zArm + 30], 'z', 'steel')
+    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent')
+    for (let b = 0; b < 3; b += 1) {
+      const ba = (b * 2 * Math.PI) / 3
+      // a blade: length from the hub, thin, pitched a few degrees out of flat
+      box(d, `${nameOf(i)}-blade-${b}`, [propMm * 0.46, 11, 1.6],
+        [mx + Math.cos(ba) * propMm * 0.24, my + Math.sin(ba) * propMm * 0.24, zArm + 37],
+        'rubber', { rot: [0.18, 0, ba] })
+    }
+    // leg: the frame has to stand on something
+    cyl(d, `leg-${i}`, 4.5, 22, [cx * (core / 2 - 6), sy * (core / 2 - 6), -8], 'z', 'shell', { print: true })
+  }
+
+  // ── the stack: ESC under the flight controller, both on the 30.5 grid ─────
+  elec(d, 'esc', 'esc4in1', [0, 0, zArm + 6], null)
+  elec(d, 'fc', 'fc405', [0, 0, zArm + 14], null)
+  box(d, 'stack-standoff-a', [3, 3, 8], [15, 15, zArm + 10], 'steel')
+  box(d, 'stack-standoff-b', [3, 3, 8], [-15, -15, zArm + 10], 'steel')
+
+  // ── battery on top, strapped, with the camera out front ───────────────────
+  const bd = PARTS[battKey].dims
+  box(d, 'battery', [bd[0], bd[1], bd[2]], [0, Math.round(core * 0.06), zTop + 3 + bd[2] / 2], 'pcb')
+  // the pack is held by straps, and a pack without straps is a pack that leaves
+  // the frame on the first punch-out
+  for (const s of [-1, 1]) {
+    box(d, `strap-${s > 0 ? 'a' : 'b'}`, [11, bd[1] + 10, 3],
+      [s * Math.round(bd[0] * 0.26), Math.round(core * 0.06), zTop + 3 + bd[2] + 1.5], 'accent')
+  }
+  box(d, 'strap-lock', [16, 6, 6], [0, Math.round(core * 0.06) - bd[1] / 2 - 4, zTop + 3 + bd[2] + 1], 'pcb')
+  box(d, 'cam-bracket', [26, 8, 22], [core * 0.42, 0, zTop + 4], 'shell', { print: true, rot: [0.5, 0, 0] })
+  elec(d, 'cam', 'ov2640', [Math.round(core * 0.46), 0, zTop + 14], [0, 2, 1])
+  cyl(d, 'antenna', 1.4, 46, [0, -Math.round(core * 0.34), zTop + 26], 'z', 'steel')
+  cyl(d, 'antenna-tip', 3.2, 6, [0, -Math.round(core * 0.34), zTop + 48], 'z', 'accent')
+
+  // ── what you buy ─────────────────────────────────────────────────────────
+  addPart(d, motorKey, 4, 'Drive')
+  addPart(d, propKey, 4, 'Lift')
+  addPart(d, 'esc4in1', 1, 'Drive')
+  addPart(d, 'fc405', 1, 'Flight control')
+  addPart(d, battKey, 1, 'Power')
+  addPart(d, 'ov2640', 1, 'FPV')
+  addPart(d, 'xt60', 1, 'Power')
+  addPart(d, 'm3_screws', 16, 'Frame')
+
+  d.drone = {
+    propMm, kv, cells, mah: batt.mah, motors: 4, propKey, motorKey, battery: battKey, payloadKg: payload,
+  }
+  return d
+}
+
+function nameOf(i) {
+  return ['prop-fl', 'prop-fr', 'prop-rr', 'prop-rl'][i] || `prop-${i}`
 }
 
 // ── quadruped: the machine everyone wants and nobody budgets for ────────────
@@ -4165,6 +4371,31 @@ function analyze(design) {
   } else if (harness) {
     checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
   }
+  // ── drones: thrust margin and hover time ─────────────────────────────────
+  // A quad has two numbers that decide whether it flies at all: how much lift
+  // four discs make against its own weight, and how many minutes that buys.
+  // Both come from momentum theory in droneReport(), not from a lookup table.
+  let drone = null
+  if (design.drone) {
+    drone = droneReport(design.drone, totalMassG)
+    const twr = drone.twr
+    if (twr < 1.0) {
+      checks.push({ level: 'fail', msg: `Lift-to-weight is ${twr.toFixed(2)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g of thrust for a ${Math.round(totalMassG)}g machine. It cannot leave the ground. Bigger props, more voltage, or less mass.` })
+    } else if (twr < 1.5) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight is ${twr.toFixed(2)}:1. It will hover, but with almost no control authority — a quad wants 2:1 minimum and 3:1 to handle wind.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
+    }
+    if (drone.hoverThrottle > 0.75) {
+      checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
+    }
+    if (drone.minutes < 3) {
+      checks.push({ level: 'warn', msg: `Hover endurance is ${drone.minutes.toFixed(1)} min on ${design.drone.mah}mAh — short even for FPV. A bigger pack costs mass, which costs hover power: check the trade before buying.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Hover endurance ${drone.minutes.toFixed(1)} min at ${drone.hoverAmps.toFixed(1)}A on ${design.drone.mah}mAh (80% usable), drawing ${Math.round(drone.hoverWatts)}W.` })
+    }
+  }
+
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -4191,6 +4422,7 @@ function analyze(design) {
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
+    drone,
     dims,
     checks,
     mcu: pins.mcu,
@@ -9492,6 +9724,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
+  { id: 'drone', label: 'FPV drone', brief: { archetype: 'drone', mission: 'a 5-inch FPV quad that carries a camera for 6 minutes', reachMm: 127, payloadKg: 0.2, battery: 'lipo4s' } },
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
@@ -9598,7 +9831,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'drone' ? buildDrone(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
@@ -14336,9 +14570,14 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     },
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
         benchOk ? 'BENCH ✓' : 'BENCH !'),
-      h('span', {}, benchOk
-        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
-        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
+      h('span', {}, design.archetype === 'drone'
+        // a quad does not climb ramps: it either has thrust margin or it does not
+        ? (analysis.drone
+          ? `Hovers at ${Math.round(analysis.drone.hoverThrottle * 100)}% throttle with ${analysis.drone.twr.toFixed(1)}:1 lift-to-weight, ${analysis.drone.minutes.toFixed(1)} min of hover on the pack.`
+          : 'Flight report unavailable for this design.')
+        : benchOk
+          ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+          : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
