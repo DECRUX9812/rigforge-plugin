@@ -19,6 +19,29 @@ const HEAD = {
   scad: (s) => s.includes('module ') && s.length > 300,
 }
 
+// Negative controls first: a header check that passes a corrupt buffer is not a
+// check, it is decoration. Each validator must reject garbage before it is
+// trusted to pass a real file.
+const CONTROLS = [
+  ['stl', () => HEAD.stl(new ArrayBuffer(100)), false],
+  ['stl', () => HEAD.stl(new ArrayBuffer(0)), false],
+  ['glb', () => HEAD.glb(Buffer.from('GLBX')), false],
+  ['step', () => HEAD.step('<xml>'), false],
+  ['urdf', () => HEAD.urdf('<robot name="x">'), false],
+  ['mjcf', () => HEAD.mjcf('<mujoco>'), false],
+  ['scad', () => HEAD.scad('module'), false],
+  ['stl', () => HEAD.stl(Buffer.alloc(84 + 50)), true],
+  ['glb', () => HEAD.glb(Buffer.from('glTFxxxx')), true],
+  ['step', () => HEAD.step('ISO-10303-21;'), true],
+]
+let controlsFailed = 0
+for (const [name, fn, want] of CONTROLS) {
+  let got
+  try { got = fn() } catch (e) { got = 'THREW' }
+  if (got !== want) { controlsFailed += 1; console.log(`  CONTROL FAIL ${name}: expected ${want}, got ${got}`) }
+}
+console.log(`  negative controls: ${CONTROLS.length - controlsFailed}/${CONTROLS.length} behave`)
+
 let failures = 0
 const lines = []
 for (const preset of A.PRESETS) {
@@ -40,4 +63,4 @@ for (const preset of A.PRESETS) {
 }
 lines.forEach((l) => console.log(' ', l))
 console.log(`\n${A.PRESETS.length - failures}/${A.PRESETS.length} presets export every format`)
-if (failures) process.exitCode = 1
+if (failures || controlsFailed) process.exitCode = 1
