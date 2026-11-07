@@ -62,6 +62,10 @@ const TABLE = [
   ['a 2m gantry for plywood', 'gantry'],
   ['a 1.5 metre gantry', 'gantry'],
   ['a 12 inch arm', 'arm'],
+  // the plainest word in the vocabulary used to build a desk enclosure
+  ['a robot', 'robot'],
+  ['a robot with wheels and an arm', 'robot'],
+  ['a desk clock with an oled', 'gadget'],
 ]
 
 // The parser is allowed to emit these; every one of them must have a builder,

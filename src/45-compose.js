@@ -89,6 +89,10 @@ const ARCH_TERMS = [
   ['robot', [
     /full robot|whole robot/, /mobile manipulator/,
     /robot arm on a (rover|base|chassis)/, /drive.*(and|&).*(grab|pick)/,
+    // wheels AND an arm is the definition of a mobile manipulator — two terms so
+    // it outscores the bare \barm\b rule it would otherwise tie with
+    /wheels?[^.]{0,30}\barm\b/, /\barm\b[^.]{0,30}wheels?/,
+    /base[^.]{0,20}\barm\b/,
   ]],
   ['quadruped', [ /quadruped|quad pod/, /four.?leg/, /walking|\bdog\b|trot/ ]],
   ['gripper', [
@@ -121,6 +125,13 @@ function matchArchetype(text) {
   // misunderstanding
   if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
     return { id: 'rover', archetype: 'rover', confident: true, matched: true, score: 1, order: 99 }
+  }
+  // The plainest request in the product's whole vocabulary — "a robot" — fell
+  // through to gadget and built a desk enclosure. Every specific rule has had its
+  // turn by now (including the load-carrier rule above), so anything still
+  // unmatched that says "robot" is one.
+  if (/\brobots?\b/.test(t)) {
+    return { id: 'robot', archetype: 'robot', confident: true, matched: true, score: 1, order: 90 }
   }
   return { id: 'gadget', archetype: 'gadget', confident: false, matched: false, score: 0, order: 99 }
 }
