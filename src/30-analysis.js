@@ -568,6 +568,13 @@ function analyze(design) {
     } else {
       checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
     }
+    // Momentum theory assumes the disc reaches its geometric pitch speed. A real
+    // motor is loaded down by the prop and never gets there, so the model is
+    // optimistic by a margin that grows with disc size. Past 8:1 the honest
+    // reading is "this is a ceiling, not a spec" — say so where it is claimed.
+    if (twr > 8) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight reads ${twr.toFixed(1)}:1, which is above what hobby hardware reaches (${drone.propMm}mm props on this pack). The figure is momentum theory at geometric pitch speed — motor loading is not modelled, so treat ${Math.round(drone.thrustG)}g as an upper bound, not a measured thrust.` })
+    }
     if (drone.hoverThrottle > 0.75) {
       checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
     }

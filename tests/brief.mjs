@@ -57,6 +57,11 @@ const TABLE = [
   ['a weather station with a small solar panel', 'iot'],
   ['a 5 dof arm with a gripper for sorting bolts', 'arm'],
   ['a track driven rover with a camera mast', 'rover'],
+  // units other than mm/cm: most of the world says inches or metres
+  ['a 7 inch drone with a camera', 'drone'],
+  ['a 2m gantry for plywood', 'gantry'],
+  ['a 1.5 metre gantry', 'gantry'],
+  ['a 12 inch arm', 'arm'],
 ]
 
 // The parser is allowed to emit these; every one of them must have a builder,
@@ -95,6 +100,19 @@ check('brief: numbers in the sentence become numbers in the design', () => {
   assert(Math.abs(b.payloadKg - 2.5) < 1e-9, `payload ${b.payloadKg}`)
   assert(b.material === 'petg', `material ${b.material}`)
   return `6 dof · 700mm · 2.5kg · PETG`
+})
+
+check('brief: inches and metres are understood, not silently ignored', () => {
+  const seven = A.parseBrief('a 7 inch drone with a camera')
+  assert(seven.archetype === 'drone', `archetype ${seven.archetype}`)
+  assert(seven.propMm === 178, `7 inch drone should size a 178mm prop, got ${seven.propMm}`)
+  const big = A.parseBrief('a 2m gantry for plywood')
+  assert(big.reachMm === 2000, `2m gantry should be 2000mm, got ${big.reachMm}`)
+  const spelled = A.parseBrief('a 1.5 metre gantry')
+  assert(spelled.reachMm === 1500, `1.5 metre should be 1500mm, got ${spelled.reachMm}`)
+  const arm = A.parseBrief('a 12 inch arm')
+  assert(arm.reachMm === 305, `12 inch should be 305mm, got ${arm.reachMm}`)
+  return '7in → 178mm prop · 2m → 2000mm · 1.5 metre → 1500mm · 12in → 305mm'
 })
 
 check('brief: nonsense is refused, not quietly built as a box', () => {

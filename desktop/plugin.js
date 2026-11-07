@@ -4758,6 +4758,13 @@ function analyze(design) {
     } else {
       checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
     }
+    // Momentum theory assumes the disc reaches its geometric pitch speed. A real
+    // motor is loaded down by the prop and never gets there, so the model is
+    // optimistic by a margin that grows with disc size. Past 8:1 the honest
+    // reading is "this is a ceiling, not a spec" — say so where it is claimed.
+    if (twr > 8) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight reads ${twr.toFixed(1)}:1, which is above what hobby hardware reaches (${drone.propMm}mm props on this pack). The figure is momentum theory at geometric pitch speed — motor loading is not modelled, so treat ${Math.round(drone.thrustG)}g as an upper bound, not a measured thrust.` })
+    }
     if (drone.hoverThrottle > 0.75) {
       checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
     }
@@ -10330,6 +10337,18 @@ function parseBrief(text) {
   if (mm && !(out.wheelMm && parseInt(mm[1], 10) === out.wheelMm)) out.reachMm = parseInt(mm[1], 10)
   const cm = text.match(/(\d{1,3})\s*cm/i)
   if (!mm && cm) out.reachMm = parseInt(cm[1], 10) * 10
+  // Metres and inches are how most of the world actually specifies a machine.
+  // Only mm/cm were understood, so "a 2m gantry" and "a 7 inch drone" silently
+  // kept the default size — the sentence named a size and the design ignored it.
+  const metres = text.match(/(\d+(?:[.,]\d+)?)\s*(?:m\b(?!m)|metres?\b|meters?\b)/i)
+  if (!mm && !cm && metres) out.reachMm = Math.round(parseFloat(metres[1].replace(',', '.')) * 1000)
+  const inchRaw = text.match(/(\d+(?:[.,]\d+)?)\s*(?:inch(?:es)?|in\b|")/i)
+  if (inchRaw) {
+    const inchMm = Math.round(parseFloat(inchRaw[1].replace(',', '.')) * 25.4)
+    // on a flying machine the inch number IS the prop size — "a 7 inch drone"
+    if (out.archetype === 'drone') out.propMm = clamp(inchMm, 90, 220)
+    else if (!mm && !cm && !metres) out.reachMm = inchMm
+  }
   const dof = text.match(/([3-6])\s*(?:dof|degrees? of freedom|axis)/i)
   if (dof) out.dof = parseInt(dof[1], 10)
   if (/petg/i.test(text)) out.material = 'petg'
