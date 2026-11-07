@@ -195,10 +195,28 @@ function createJointSim(design, analysis) {
         const dps = part && part.speed
           ? (60 / part.speed) * Math.pow(Math.max(0, 1 - Math.min(loadR, 1)), 0.75)
           : 200
-        const maxStep = dps * dt
-        const step = Math.sign(err) * Math.min(Math.abs(err), maxStep)
-        state.angles[i] = a + step
-        state.vel[i] = step / Math.max(dt, 1e-4)
+        // ── inertia, not a rate clamp ─────────────────────────────────────
+        // The joint used to jump straight to its datasheet speed, which reads as
+        // an animation: no mass, no overshoot, no settle. A servo has rotor
+        // inertia and back-EMF, so angular velocity approaches the commanded
+        // speed with a time constant and carries momentum past the target.
+        // TAU is the actuator's electrical+mechanical lag (50ms for a hobby
+        // servo); SETTLE is what is left of the velocity when it crosses.
+        const vCmd = Math.sign(err) * dps
+        const TAU = j.slide ? 0.02 : 0.05
+        let v = state.vel[i] + (vCmd - state.vel[i]) * Math.min(1, dt / TAU)
+        v = Math.max(-dps, Math.min(dps, v))
+        let next = a + v * dt
+        // crossing the target keeps a fraction of the speed for one or two
+        // frames — that is the micro-settling a real joint shows, and it is
+        // bounded so it can never walk away from the command
+        const crossed = (err > 0 && next > t) || (err < 0 && next < t)
+        if (crossed) {
+          next = t
+          v *= j.slide ? 0.15 : 0.35
+        }
+        state.angles[i] = next
+        state.vel[i] = v
         moved = true
       }
       return moved

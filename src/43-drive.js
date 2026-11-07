@@ -223,7 +223,16 @@ function createDrive(design, analysis) {
       // rolling resistance + viscous drag: the machine actually stops when you
       // let go, instead of coasting forever on a frictionless floor
       const aRoll = -Math.sign(s.v) * (0.35 + 0.25 * Math.abs(s.v))
-      s.v += Math.max(-4, Math.min(4, F / mNow + aGrav + aRoll)) * dt
+      // Static friction: below the friction angle tanθ = μ a stationary machine
+      // stays put. Without this a parked rover creeps down ANY slope, so "will
+      // it hold on a 20° ramp" could never be answered honestly. The gate has to
+      // run before the integrate — checking afterwards lets one gravity tick
+      // through and the machine is already moving.
+      const aStatic = mu * G * Math.cos(grade)
+      const parked = Math.abs(s.throttle) < 0.02 && Math.abs(s.v) < 0.08 && Math.abs(aGrav) <= aStatic + 1e-9
+      const aG = parked ? 0 : aGrav
+      s.v += Math.max(-4, Math.min(4, F / mNow + aG + aRoll)) * dt
+      if (parked) s.v = 0
 
       const wWant = (wCmd - s.w) / 0.18
       const wMax = 3.2
