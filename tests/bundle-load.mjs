@@ -114,9 +114,35 @@ const ctx = {
   logger: { info: () => {}, warn: () => {}, error: () => {} },
 }
 
+// The host has two generations. This bundle must survive either: a build that
+// only has contribution(area, payload) is still out there, and calling the wrong
+// one throws inside register() and drops the whole plugin.
+const legacy = { pages: 0, nav: 0, palette: 0, directives: 0 }
+const legacyCtx = {
+  ...globalThis.__hostStub,
+  register: undefined,
+  contribution: (area, payload) => {
+    if (area === 'routes') legacy.pages += 1
+    else if (area === 'sidebar') legacy.nav += 1
+    else if (area === 'palette') legacy.palette += 1
+    else if (area === 'directive') legacy.directives += 1
+  },
+}
+
 const problems = []
 if (!plugin || typeof plugin.register !== 'function') problems.push('the bundle exports no register()')
-else plugin.register(ctx)
+else {
+  plugin.register(ctx)
+  // and again against a legacy host: same bundle, older API
+  try {
+    plugin.register(legacyCtx)
+  } catch (e) {
+    problems.push('legacy contribution() host threw: ' + e.message)
+  }
+  if (legacy.pages < 1 || legacy.nav < 1 || legacy.palette < 1 || legacy.directives < 1) {
+    problems.push(`legacy host registered ${JSON.stringify(legacy)} — shim does not cover it`)
+  }
+}
 
 const want = (list, n, label) => {
   if (list.length < n) problems.push(`${label}: expected at least ${n}, got ${list.length}`)
