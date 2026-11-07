@@ -131,6 +131,9 @@ function buildFullRobot(brief) {
   pick('Wrist roll', need.roll)
   pick('Gripper', need.grip)
   d.actuators = stairs
+  // The head pan is already in the BOM (mg90s ×1, role "head pan") but had no
+  // actuator row, so its joint carried no torque and no part name downstream.
+  d.actuators.push({ label: 'Head pan', need: 0, servo: 'mg90s', ratio: 1, effective: PARTS.mg90s.torque })
   const stepOf = (label) => stairs.find((s) => s.label === label) || { servo: 'ds3225', ratio: 1 }
 
   // ── arm ─────────────────────────────────────────────────────────────────

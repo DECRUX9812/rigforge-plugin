@@ -485,6 +485,22 @@ check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table',
 })
 
 // ── 14. the machines we ship as presets are buildable as shown ──────────────
+check('every joint names the part that drives it', () => {
+  // Torque margins being present is not enough: the pin map, the joint sim and the
+  // servo harness all look the driver up by joint label. A joint without an
+  // actuator row is a joint whose servo nobody can name.
+  const orphans = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    for (const j of design.joints || []) {
+      const a = (design.actuators || []).find((x) => x.label === j.label)
+      if (!a || !a.servo || !A.PARTS[a.servo]) orphans.push(`${p.id}:${j.label}`)
+    }
+  }
+  if (orphans.length) throw new Error(`unactuated ${orphans.join(' · ')}`)
+  return 'every joint in every preset resolves to a real part key'
+})
+
 check('every machine with revolute joints can have its torque measured', () => {
   // An empty margin list is not "infinitely strong", it is "unmeasurable" — and
   // three archetypes (quadruped, humanoid, scene) were publishing no actuators,

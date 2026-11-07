@@ -1752,6 +1752,12 @@ function buildRover(brief) {
     motor,
     battery,
   })
+  // The camera head pans on a real servo that is already in the BOM; without the
+  // actuator row the pan joint has no torque and no part name downstream.
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: 0, servo: 'mg90s', ratio: 1, effective: PARTS.mg90s.torque,
+  }))
+
   return d
 }
 
@@ -2216,6 +2222,11 @@ function buildGripper(brief) {
     { label: 'Hold capacity', value: `${fmt(gripMass, 1)} kg`, limit: `${payload} kg brief`, ok: gripMass >= payload },
     { label: 'Jaw travel', value: `${fmt(Math.max(8, travel), 0)} mm/side`, limit: 'stroke > obj/2', ok: null },
   ]
+  // The jaw is driven by the servo already priced in the BOM; publish the link so
+  // the jaw joint carries a stall torque instead of zero.
+  d.actuators = (d.joints || []).map((jj) => ({
+    label: jj.label, need: 0, servo, ratio: 1, effective: PARTS[servo].torque,
+  }))
   return d
 }
 
@@ -2437,6 +2448,9 @@ function buildFullRobot(brief) {
   pick('Wrist roll', need.roll)
   pick('Gripper', need.grip)
   d.actuators = stairs
+  // The head pan is already in the BOM (mg90s ×1, role "head pan") but had no
+  // actuator row, so its joint carried no torque and no part name downstream.
+  d.actuators.push({ label: 'Head pan', need: 0, servo: 'mg90s', ratio: 1, effective: PARTS.mg90s.torque })
   const stepOf = (label) => stairs.find((s) => s.label === label) || { servo: 'ds3225', ratio: 1 }
 
   // ── arm ─────────────────────────────────────────────────────────────────
@@ -3612,6 +3626,13 @@ function buildGantry(brief) {
     beltDeflect,
     motors: 3,
   })
+  // Three steppers, three slides — publish them so the joint sim and the pin map
+  // can name what moves each axis. A slide with no actuator has no stall torque,
+  // which reads downstream as "this axis cannot move at all".
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: 0, servo: 'nema17', ratio: 1, effective: PARTS.nema17.torque,
+  }))
+
   return d
 }
 
