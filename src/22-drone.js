@@ -44,6 +44,7 @@ function droneReport(params, massG) {
     hoverAmps: amps,
     hoverWatts: pElec,
     minutes,
+    rpm,
     tipSpeed: Math.PI * D * (rpm / 60),
   }
 }
@@ -95,13 +96,16 @@ function buildDrone(brief) {
     const my = sy * (armLen + 12)
     cyl(d, `${nameOf(i)}-motor`, 13.5, 26, [mx, my, zArm + 15], 'z', 'metal')
     cyl(d, `${nameOf(i)}-bell`, 14.5, 10, [mx, my, zArm + 30], 'z', 'steel')
-    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent')
+    // Rotors spin opposite their diagonal partner — that is how a quad yaws, and
+    // getting it wrong is why a first build flips on arm.
+    const dir = i === 0 || i === 3 ? 1 : -1
+    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent', { rotor: { dir } })
     for (let b = 0; b < 3; b += 1) {
       const ba = (b * 2 * Math.PI) / 3
       // a blade: length from the hub, thin, pitched a few degrees out of flat
       box(d, `${nameOf(i)}-blade-${b}`, [propMm * 0.46, 11, 1.6],
         [mx + Math.cos(ba) * propMm * 0.24, my + Math.sin(ba) * propMm * 0.24, zArm + 37],
-        'rubber', { rot: [0.18, 0, ba] })
+        'rubber', { rot: [0.18, 0, ba], rotor: { dir } })
     }
     // leg: the frame has to stand on something
     cyl(d, `leg-${i}`, 4.5, 22, [cx * (core / 2 - 6), sy * (core / 2 - 6), -8], 'z', 'shell', { print: true })

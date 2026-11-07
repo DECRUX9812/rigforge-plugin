@@ -632,6 +632,10 @@ function Studio() {
   }, [moves, spec])
   useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
+  // Rotor phase for flying machines. A quad's props spin continuously; there is
+  // no commanded angle to slew to, so the phase is driven by the clock and the
+  // mesh rotates the rotor nodes by it (see buildMesh).
+  const [spinPhase, setSpinPhase] = useState(0)
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
   // (where the joints physically are). The sim slews one toward the other at
@@ -824,7 +828,25 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: dispPose[i] || 0 })),
   }), [design, dispPose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0), [posedDesign, opts.explode, explodeF])
+  const motorsOn = design.archetype === 'drone' && opts.motors !== false
+  useEffect(() => {
+    if (!motorsOn) return undefined
+    let raf = 0
+    let last = 0
+    const rpm = (analysis.drone && analysis.drone.rpm) || 9000
+    const radPerSec = (rpm / 60) * Math.PI * 2
+    const step = (now) => {
+      // 30 Hz is enough for a 3-blade prop to read as motion, and keeps the
+      // whole page from re-rendering 60 times a second for a visual effect
+      if (now - last > 33) { setSpinPhase(((now - t0) / 1000) * radPerSec); last = now }
+      raf = requestAnimationFrame(step)
+    }
+    const t0 = performance.now()
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [motorsOn, analysis])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0, motorsOn ? spinPhase : 0),
+    [posedDesign, opts.explode, explodeF, motorsOn, spinPhase])
 
   // teleop handles + kind live above the overlay memos: REACH reads them.
   const ikRef = useRef(null)
@@ -2348,7 +2370,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['SCALE', 'scale'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['MOTORS', 'motors'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
