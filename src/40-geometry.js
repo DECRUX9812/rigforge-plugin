@@ -909,13 +909,34 @@ function explodeShifts(design, f) {
 }
 
 /** Full mesh for the current pose. */
-function buildMesh(design, explode) {
+function buildMesh(design, explode, spin) {
   const tris = []
   const chains = chainsFor(design)
   const shifts = explodeShifts(design, explode || 0)
+  // Rotors: a drone's props have no joint — they spin continuously, which is not
+  // a commanded angle but a rotation about their own axis. Rather than give the
+  // quad four fake revolute joints (and four fake pose sliders), the mesh rotates
+  // the rotor nodes by the phase handed in here. Nothing else in the design
+  // knows they moved, which is exactly right: a prop is not part of the chain.
+  const phase = spin || 0
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
-    const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    let add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    if (node.rotor && phase) {
+      const dir = node.rotor.dir || 1
+      const a = phase * dir
+      const c = Math.cos(a)
+      const sn = Math.sin(a)
+      const o = node.pos || [0, 0, 0]
+      add = add.map((t) => ({
+        ...t,
+        pts: t.pts.map((p) => {
+          const dx = p[0] - o[0]
+          const dy = p[1] - o[1]
+          return [o[0] + dx * c - dy * sn, o[1] + dx * sn + dy * c, p[2]]
+        }),
+      }))
+    }
     // `node`/`mat` key the viewport colours and the GLB materials; STL/SCAD ignore them.
     for (const t of add) { t.node = node.id; t.mat = node.mat; tris.push(t) }
   }

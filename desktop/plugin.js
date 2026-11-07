@@ -1797,6 +1797,7 @@ function droneReport(params, massG) {
     hoverAmps: amps,
     hoverWatts: pElec,
     minutes,
+    rpm,
     tipSpeed: Math.PI * D * (rpm / 60),
   }
 }
@@ -1848,13 +1849,16 @@ function buildDrone(brief) {
     const my = sy * (armLen + 12)
     cyl(d, `${nameOf(i)}-motor`, 13.5, 26, [mx, my, zArm + 15], 'z', 'metal')
     cyl(d, `${nameOf(i)}-bell`, 14.5, 10, [mx, my, zArm + 30], 'z', 'steel')
-    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent')
+    // Rotors spin opposite their diagonal partner — that is how a quad yaws, and
+    // getting it wrong is why a first build flips on arm.
+    const dir = i === 0 || i === 3 ? 1 : -1
+    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent', { rotor: { dir } })
     for (let b = 0; b < 3; b += 1) {
       const ba = (b * 2 * Math.PI) / 3
       // a blade: length from the hub, thin, pitched a few degrees out of flat
       box(d, `${nameOf(i)}-blade-${b}`, [propMm * 0.46, 11, 1.6],
         [mx + Math.cos(ba) * propMm * 0.24, my + Math.sin(ba) * propMm * 0.24, zArm + 37],
-        'rubber', { rot: [0.18, 0, ba] })
+        'rubber', { rot: [0.18, 0, ba], rotor: { dir } })
     }
     // leg: the frame has to stand on something
     cyl(d, `leg-${i}`, 4.5, 22, [cx * (core / 2 - 6), sy * (core / 2 - 6), -8], 'z', 'shell', { print: true })
@@ -6166,13 +6170,34 @@ function explodeShifts(design, f) {
 }
 
 /** Full mesh for the current pose. */
-function buildMesh(design, explode) {
+function buildMesh(design, explode, spin) {
   const tris = []
   const chains = chainsFor(design)
   const shifts = explodeShifts(design, explode || 0)
+  // Rotors: a drone's props have no joint — they spin continuously, which is not
+  // a commanded angle but a rotation about their own axis. Rather than give the
+  // quad four fake revolute joints (and four fake pose sliders), the mesh rotates
+  // the rotor nodes by the phase handed in here. Nothing else in the design
+  // knows they moved, which is exactly right: a prop is not part of the chain.
+  const phase = spin || 0
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
-    const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    let add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    if (node.rotor && phase) {
+      const dir = node.rotor.dir || 1
+      const a = phase * dir
+      const c = Math.cos(a)
+      const sn = Math.sin(a)
+      const o = node.pos || [0, 0, 0]
+      add = add.map((t) => ({
+        ...t,
+        pts: t.pts.map((p) => {
+          const dx = p[0] - o[0]
+          const dy = p[1] - o[1]
+          return [o[0] + dx * c - dy * sn, o[1] + dx * sn + dy * c, p[2]]
+        }),
+      }))
+    }
     // `node`/`mat` key the viewport colours and the GLB materials; STL/SCAD ignore them.
     for (const t of add) { t.node = node.id; t.mat = node.mat; tris.push(t) }
   }
@@ -15521,6 +15546,10 @@ function Studio() {
   }, [moves, spec])
   useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
+  // Rotor phase for flying machines. A quad's props spin continuously; there is
+  // no commanded angle to slew to, so the phase is driven by the clock and the
+  // mesh rotates the rotor nodes by it (see buildMesh).
+  const [spinPhase, setSpinPhase] = useState(0)
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
   // (where the joints physically are). The sim slews one toward the other at
@@ -15713,7 +15742,25 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: dispPose[i] || 0 })),
   }), [design, dispPose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0), [posedDesign, opts.explode, explodeF])
+  const motorsOn = design.archetype === 'drone' && opts.motors !== false
+  useEffect(() => {
+    if (!motorsOn) return undefined
+    let raf = 0
+    let last = 0
+    const rpm = (analysis.drone && analysis.drone.rpm) || 9000
+    const radPerSec = (rpm / 60) * Math.PI * 2
+    const step = (now) => {
+      // 30 Hz is enough for a 3-blade prop to read as motion, and keeps the
+      // whole page from re-rendering 60 times a second for a visual effect
+      if (now - last > 33) { setSpinPhase(((now - t0) / 1000) * radPerSec); last = now }
+      raf = requestAnimationFrame(step)
+    }
+    const t0 = performance.now()
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [motorsOn, analysis])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0, motorsOn ? spinPhase : 0),
+    [posedDesign, opts.explode, explodeF, motorsOn, spinPhase])
 
   // teleop handles + kind live above the overlay memos: REACH reads them.
   const ikRef = useRef(null)
@@ -17237,7 +17284,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['SCALE', 'scale'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['MOTORS', 'motors'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
