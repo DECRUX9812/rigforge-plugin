@@ -539,7 +539,6 @@ const PARTS = {
   jst_kit: {
     shop: true, // consumable: bought once, lasts many builds
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
-    dims: [16, 10, 8], // JST-XH 4-pin housing + pin header footprint
     conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
@@ -562,7 +561,7 @@ const PARTS = {
   },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
-    dims: [20, 15, 12], conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
+    conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
     note: 'The pack interface. Solder the battery side first, one lead at a time.',
   },
   xt30: {
@@ -572,7 +571,7 @@ const PARTS = {
   },
   fuse: {
     name: 'Inline fuse holder + blade fuse', cat: 'mech', price: 3, mass: 10, volts: 0,
-    dims: [32, 12, 18], conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
+    conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
     note: 'A $3 part that stands between a shorted rail and a lithium fire.',
   },
   cap1000: {
@@ -708,16 +707,6 @@ function addPart(d, key, qty, role) {
 /** Box node. `pos` is the CENTRE. `r` rounds it into a chamfered `rbox`. */
 function box(d, id, size, pos, mat, extra) {
   d.nodes.push({ id, kind: 'box', size, pos, mat, ...extra })
-}
-
-/** Electronics node at CATALOG dims — the board on the BOM is the board on
- *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
- *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
- *  [2,0,1] stands a board on edge). Defaults to lying flat. */
-function elec(d, id, key, pos, axes, extra) {
-  const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
-  const m = axes || [0, 1, 2]
-  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb', extra)
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
@@ -1178,52 +1167,6 @@ function servoBody(d, prefix, pos, axis, partKey, joint, hornJoint, opts) {
   cyl(d, `${prefix}-horn`, 11, 2.5, at(4), a, 'accent', ho)
 }
 
-/** GT2 belt reduction across a 'y'-axis joint. The servo moves below the
- *  pivot where its shaft stays parallel to the joint axis; a 20T pinion on
- *  the servo drives a 20·ratio-T gear on an output stub. Because the driven
- *  gear's centre sits ON the joint axis, pitching the arm just spins it in
- *  place — the two tangent belt runs stay engaged at every angle.
- *  o: { prefix, pivot:[x,y,z], ratio, servoKey, servoJoint, outJoint, beltY } */
-function beltStageY(d, o) {
-  const { prefix, pivot, ratio, servoKey, servoJoint = null, outJoint, beltY } = o
-  const px = pivot[0]; const pz = pivot[2]
-  const gm = 2 / Math.PI                    // GT2 belt: 2mm tooth pitch
-  const pin = 20                            // driver pinion teeth
-  const gearN = 20 * Math.max(2, Math.round(ratio))
-  const RoD = (gm * pin) / 2 + 0.85 * gm + 1.1   // belt path radius, driver
-  const RoN = (gm * gearN) / 2 + 0.85 * gm + 1.1 // belt path radius, driven
-  const CD = 2.1 * (RoD + RoN)              // centre distance, compact stage
-  const pzD = pz - CD                       // driver sits below the pivot
-  const by = beltY
-
-  // output side: stub shaft + driven gear — pitches with the arm
-  cyl(d, `${prefix}-belt-shaft`, 4, 24, [px, by + 6, pz], 'y', 'steel', { joint: outJoint })
-  gear(d, `${prefix}-belt-driven`, gm, gearN, 8, [px, by, pz], 'y', 'metal', { joint: outJoint })
-  // motor side: pinion on the servo shaft — yaws with the base, never pitches
-  gear(d, `${prefix}-belt-pinion`, gm, pin, 8, [px, by, pzD], 'y', 'metal', { joint: servoJoint })
-  servoBody(d, `${prefix}-servo`, [px, by - 6, pzD], 'y', servoKey, servoJoint, servoJoint)
-
-  // belt runs: external tangents between the two belt-path circles
-  const dr = RoN - RoD
-  const nz = -dr / CD
-  const nx = Math.sqrt(Math.max(0, 1 - nz * nz))
-  const dx = (RoN - RoD) * nx
-  const dz = CD + (RoN - RoD) * nz
-  const tilt = Math.atan2(dx, dz)
-  const runLen = Math.hypot(dx, dz)
-  for (const s of [1, -1]) {
-    const tx = s * RoN * nx
-    const tz = RoN * nz
-    const bx = s * RoD * nx
-    const bz = -CD + RoD * nz
-    const mx = (tx + bx) / 2
-    const mz = (tz + bz) / 2
-    box(d, `${prefix}-belt-run${s > 0 ? 'a' : 'b'}`, [3, 5, runLen], [px + mx, by, pz + mz], 'belt', {
-      joint: servoJoint, rot: [0, s * tilt, 0],
-    })
-  }
-}
-
 /** Wheel drawn as a wheel: torus tyre + rim ring + hub boss. */
 function wheelAssy(d, id, pos, axis, dia, width, joint, side) {
   const o = { joint }
@@ -1381,15 +1324,9 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
-  // driver boards on the exposed plate annulus at catalog dims, clear of
-  // tower wall, bolts and each other; UBEC on the front strip
-  elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
-  elec(d, 'buck5a', 'buck5a', [0, 64, 18])
-  // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
-  // beside it — the $3 part between a short and a lithium fire
-  elec(d, 'fuse', 'fuse', [-40, 64, 21])
-  elec(d, 'cap1000', 'cap1000', [40, 64, 20])
+  // driver boards on the exposed plate annulus, clear of tower wall and bolts
+  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
+  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
@@ -1401,13 +1338,7 @@ function buildArm(brief) {
   wedge(d, 'gusset-l', [30, 6, 30], [16, -ARM_SEG.w / 2 + 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   wedge(d, 'gusset-r', [30, 6, 30], [16, ARM_SEG.w / 2 - 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   cyl(d, 'shoulder-hub', 22, ARM_SEG.w + 10, [0, 0, baseH], 'y', 'metal', { joint: 'yaw' })
-  const ratioOf = (label) => (d.actuators.find((a) => a.label === label) || {}).ratio || 1
-  if (ratioOf('Shoulder pitch') > 1) {
-    // stage hangs below the pivot, outboard far enough to clear the tower wall
-    beltStageY(d, { prefix: 'shoulder', pivot: [0, 0, baseH], ratio: ratioOf('Shoulder pitch'), servoKey: svc('shoulder', 'ds3218'), servoJoint: 'yaw', outJoint: 'shoulder', beltY: -54 })
-  } else {
-    servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
-  }
+  servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
   bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
   bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
 
@@ -1418,11 +1349,7 @@ function buildArm(brief) {
     box(d, `upper-rib-${sy}`, [L1 * 0.86, 4, ARM_SEG.h * 0.42], [L1 / 2, sy * (ARM_SEG.w / 2 + 2), baseH + 2], 'accent', { joint: 'shoulder', print: true })
   }
   cyl(d, 'elbow-hub', 18, ARM_SEG.w + 8, [L1, 0, baseH], 'y', 'metal', { joint: 'shoulder' })
-  if (ratioOf('Elbow pitch') > 1) {
-    beltStageY(d, { prefix: 'elbow', pivot: [L1, 0, baseH], ratio: ratioOf('Elbow pitch'), servoKey: svc('elbow', 'mg996r'), servoJoint: 'shoulder', outJoint: 'elbow', beltY: -38 })
-  } else {
-    servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
-  }
+  servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
   bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
   bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
 
@@ -1440,11 +1367,7 @@ function buildArm(brief) {
 
   if (dof >= 4) {
     cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
-    if (ratioOf('Wrist pitch') > 1) {
-      beltStageY(d, { prefix: 'wrist', pivot: [wristX, 0, baseH], ratio: ratioOf('Wrist pitch'), servoKey: svc('wrist', 'mg90s'), servoJoint: chain, outJoint: 'wrist-pitch', beltY: -33 })
-    } else {
-      servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
-    }
+    servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
     joint(d, 'wrist-pitch', 'Wrist pitch', 'y', [wristX, 0, baseH], -110, 110)
     chain = 'wrist-pitch'
     box(d, 'wrist-link', [L3, 36, 32], [wristX + L3 / 2, 0, baseH], 'shell', { joint: chain, print: true })
@@ -1510,9 +1433,7 @@ function buildArm(brief) {
   addPart(d, 'fuse', 1, 'pack protection')
   addPart(d, 'cap1000', 1, 'servo rail smoothing')
   addPart(d, 'thrust51103', 1, 'yaw axial load')
-  // no as5600 here: the cartridge races + bolt + servo fill every joint face,
-  // there is no honest mount for a magnetic encoder — and the generated
-  // firmware never reads one. Phantom parts inflate the BOM; cut them.
+  addPart(d, 'as5600', 2, 'shoulder + elbow feedback')
   addPart(d, 'hw_m3', 1, 'nuts + washers')
   addPart(d, 'bearing608', 4, 'joint bearings')
   addPart(d, 'wire22', 1, 'signal harness')
@@ -1596,28 +1517,17 @@ function buildRover(brief) {
 
   // sensor mast + head
   rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
-  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true, joint: 'head-pan' })
-  elec(d, 'head-tof', 'vl53l0x', [wheelbase * 0.34 + 37, 0, z0 + chassisH + 167], [2, 0, 1], { joint: 'head-pan' })
-  elec(d, 'head-cam', 'ov2640', [wheelbase * 0.34 + 48, 26, z0 + chassisH + 173], null, { joint: 'head-pan' })
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true })
+  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
+  cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
 
   // the BOM's electronics are real parts, not implied: controller + IMU on
   // the deck, and the second VL53L0X faces down under the rear bumper as the
   // drop-off ranger the BOM line names
   const deckTop = z0 + chassisH + 0.5
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-wheelbase * 0.3, -track * 0.3, deckTop + 5])
-  elec(d, 'imu', 'bno085', [-wheelbase * 0.3 + 48, -track * 0.3, deckTop + 2])
-  // motor drivers + logic UBEC on the open deck, clear of wheels and mast
-  elec(d, 'bts7960-a', 'bts7960', [-wheelbase * 0.22, -track * 0.15, deckTop + 10])
-  elec(d, 'bts7960-b', 'bts7960', [-wheelbase * 0.22, track * 0.15, deckTop + 10])
-  elec(d, 'buck5a', 'buck5a', [-wheelbase * 0.08, 0, deckTop + 6])
-  // power path on the open deck: ATO fuse at the pack feed, rail cap at the
-  // drivers, rocker on the deck edge — all catalog dims
-  elec(d, 'fuse', 'fuse', [-wheelbase * 0.178, 0, deckTop + 9])
-  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, track * 0.05, deckTop + 8])
-  elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
-  // XT60 at the pack feed, between the fuse and the drivers
-  elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
-  elec(d, 'tof-drop', 'vl53l0x', [-wheelbase / 2 - 6, 0, z0 - 8])
+  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
+  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
@@ -1659,7 +1569,6 @@ function buildRover(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
-  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'jst_kit', 1, 'connectors')
   addPart(d, 'xt60', 1, 'pack connector')
@@ -1718,14 +1627,8 @@ function buildQuadruped(brief) {
   // the BOM's brains are real parts: IMU centered on the spine shelf for
   // body attitude, controller board on the body top outboard of the spine
   const bodyTop = z0 + bodyH / 2
-  elec(d, 'imu', 'bno085', [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14])
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5])
-  // the BOM's driver boards at catalog dims: two PCA9685 on the pack lid,
-  // two UBECs on the body-top front strip clear of spine and pack
-  elec(d, 'pca9685-a', 'pca9685', [-20, 0, bodyTop + 32], [1, 0, 2])
-  elec(d, 'pca9685-b', 'pca9685', [20, 0, bodyTop + 32], [1, 0, 2])
-  elec(d, 'buck5a-a', 'buck5a', [-25, 57, bodyTop + 6])
-  elec(d, 'buck5a-b', 'buck5a', [25, 57, bodyTop + 6])
+  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
+  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
@@ -1865,10 +1768,8 @@ function buildGripper(brief) {
 
   // ── linear rail + carriages carry the jaw load, racks only drive ─────────
   cyl(d, 'rail', 3, Math.min(deckL * 0.86, span * 0.9 + 60), [0, 0, deckZ + 3], 'x', 'steel', { segs: 10 })
-  // the BOM's mgn12×2 are these: ground aluminum rail sections the carriage
-  // trucks straddle — not printed drawer slides pretending to be linear guides
   for (const sy of [-1, 1]) {
-    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 12, 10], [0, sy * railY, deckZ + 5], 'metal')
+    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 7, 8], [0, sy * railY, deckZ + 4], 'shell', { print: true })
   }
 
   // ── jaw assemblies: carriage pair + riser + L-finger + replaceable pad ────
@@ -1900,26 +1801,12 @@ function buildGripper(brief) {
   // ── homing switch + jaw-position encoder ─────────────────────────────────
   box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
-  // jaw encoder relocated to the keeper lane: the magnet rides the moving
-  // carriage at y≈27 (inside the keeper channel), the AS5600 sits on the
-  // keeper top reading down through a ~2mm air gap — clear of the finger
-  // sweep that made the old deck-level placement impossible
-  rbox(d, 'enc-bracket', [6, 20, 26], [deckL / 2 - 8, 27, deckZ + 24], 1, 'shell', { print: true })
-  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, 27, deckZ + 13])
-  // controller stack on a printed backplate behind the deck — the deck top
-  // is all mechanism (rail, keepers, carriages), so the boards stand on the
-  // plate's rear face like a real gadget's rear cover
-  rbox(d, 'elec-plate', [110, 12, 75], [0, -deckW / 2 - 6, 47.5], 2, 'shell', { print: true })
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
-  elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
-  elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
-  // power path on the front deck strip: ATO fuse, rail cap, power rocker —
-  // clear of keepers (y≤29.5) and the cheek (z≤46)
-  elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
-  elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
-  // rocker stays BOM-only: the jaw sweeps every deck/plate face at OPEN —
-  // there is no honest place for a panel switch on this machine
-  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
+  box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
+  box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
+  // controller boards on the open deck strip behind the keeper rails
+  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
+  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
+  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
   addPart(d, servo, 1, 'rack & pinion actuator')
@@ -1927,7 +1814,6 @@ function buildGripper(brief) {
   addPart(d, 'limit_sw', 1, 'homing end-stop')
   addPart(d, 'as5600', 1, 'jaw position feedback')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
-  addPart(d, 'bus_adapter', 1, 'serial servo bus')
   addPart(d, 'buck5a', 1, '6V servo rail')
   addPart(d, brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : brief.battery, 1, 'energy')
   addPart(d, 'fuse', 1, 'rail protection')
@@ -2094,20 +1980,9 @@ function buildFullRobot(brief) {
   for (const sx of [-1, 1]) {
     splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
-  box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
   box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
-  // Electronics at catalog dims, on the two boards a real build gives them:
-  // logic on the avionics PCB (clear of the turret column x<-24/y>-46 and the
-  // pack x>8/y>-71), power on the pack lid. Verified against boundsOf.
-  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const px = wheelbase * 0.16
-  elec(d, 'imu', 'bno085', [ax, ay, deckZ + 22])
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [ax - 27.7, ay - 17.1, deckZ + 24], [1, 0, 2])
-  elec(d, 'pca9685', 'pca9685', [ax + 27.3, ay - 17.1, deckZ + 22], [1, 0, 2])
-  elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
-  elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
-  elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
-  // XT60 on the pack lid, clear of the avionics row — the lead's first stop
-  elec(d, 'xt60', 'xt60', [px + 28, -20, deckZ + 40])
+  box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
+  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
@@ -2122,9 +1997,47 @@ function buildFullRobot(brief) {
     cyl(d, `motor-${i}`, 19, 46, [x, y - side * 26, z0], 'y', 'metal')
   })
 
+  // ── arm ─────────────────────────────────────────────────────────────────
+  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
+  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
+  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
+  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
+
+  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
+  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
+  servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', 'ds3225', 'yaw', 'shoulder')
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
+
+  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
+  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
+  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
+  servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', 'ds3218', 'shoulder', 'elbow')
+  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
+  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
+
+  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
+  const wristX = armX + L1 + L2
+  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
+  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
+
+  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
+  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
+  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
+  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
+  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
+
+  // ── head ────────────────────────────────────────────────────────────────
+  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
+  // clearance in the rest pose, and no way for the boom to shave the sensors.
+  const headX = wheelbase / 2 + 2
+  const headY = 0
+  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
+  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
+  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
+  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
+  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
+
   // ── arm sizing (same cascade as the arm archetype) ──────────────────────
-  // Runs BEFORE the arm geometry: a joint that needs a belt reduction gets
-  // its stage geometry instead of the coaxial servo layout.
   const linkMass = (len) => len * 44 * 40 * 0.34 * density
   const mUpper = linkMass(L1)
   const mFore = linkMass(L2)
@@ -2180,55 +2093,6 @@ function buildFullRobot(brief) {
   pick('Wrist roll', need.roll)
   pick('Gripper', need.grip)
   d.actuators = stairs
-  const stepOf = (label) => stairs.find((s) => s.label === label) || { servo: 'ds3225', ratio: 1 }
-
-  // ── arm ─────────────────────────────────────────────────────────────────
-  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
-  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
-  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
-  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
-
-  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
-  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
-  if (stepOf('Shoulder pitch').ratio > 1) {
-    beltStageY(d, { prefix: 'shoulder', pivot: [armX, 0, shoulderZ], ratio: stepOf('Shoulder pitch').ratio, servoKey: stepOf('Shoulder pitch').servo, servoJoint: 'yaw', outJoint: 'shoulder', beltY: -44 })
-  } else {
-    servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', stepOf('Shoulder pitch').servo, 'yaw', 'shoulder')
-  }
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
-
-  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
-  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
-  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
-  if (stepOf('Elbow pitch').ratio > 1) {
-    beltStageY(d, { prefix: 'elbow', pivot: [armX + L1, 0, shoulderZ], ratio: stepOf('Elbow pitch').ratio, servoKey: stepOf('Elbow pitch').servo, servoJoint: 'shoulder', outJoint: 'elbow', beltY: -40 })
-  } else {
-    servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', stepOf('Elbow pitch').servo, 'shoulder', 'elbow')
-  }
-  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
-  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
-
-  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
-  const wristX = armX + L1 + L2
-  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
-  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
-
-  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
-  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
-  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
-  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
-  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
-
-  // ── head ────────────────────────────────────────────────────────────────
-  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
-  // clearance in the rest pose, and no way for the boom to shave the sensors.
-  const headX = wheelbase / 2 + 2
-  const headY = 0
-  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
-  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true, joint: 'head-pan' })
-  elec(d, 'tof', 'vl53l0x', [headX + 33, -14, deckZ + 58], [2, 0, 1], { joint: 'head-pan' })
-  elec(d, 'cam', 'ov2640', [headX + 44, 16, deckZ + 62], null, { joint: 'head-pan' })
-  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
   // ── drive sizing ────────────────────────────────────────────────────────
   const printKg = (printedVolume(d.nodes) * mat.density) / 1000 / 1000
@@ -2250,7 +2114,6 @@ function buildFullRobot(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
-  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'mg90s', 1, 'head pan')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'bearing608', 2, 'turret + shoulder')
@@ -2450,30 +2313,18 @@ function buildHumanoid(brief) {
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
   rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
-  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true, joint: 'waist' })
-  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true, joint: 'waist' })
-  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb', { joint: 'waist' })
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
+  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
   // the BOM's sensors are real parts: ToF on the chest face for stair
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1], { joint: 'waist' })
-  // controller + drivers on the backpack's rear face and the lower back —
-  // the way a real humanoid routes its electronics behind the torso. The
-  // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
-  // rear deck above the pack, the other UBECs below it.
-  const packBack = -limbD / 2 - 25 // rear face of the pack box
-  const packZ = pelvisTop + torsoH * 0.55
-  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1], { joint: 'waist' })
-  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1], { joint: 'waist' })
-  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal', { joint: 'neck-pan' })
-  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true, joint: 'neck-tilt' })
-  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass', { joint: 'neck-tilt' })
+  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
+  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
+  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
+  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
+  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
 
   // waist is the ROOT joint: everything above and below hangs off it
   joint(d, 'waist', 'Waist yaw', 'z', [0, 0, zHip + pelvisH * 0.7], -60, 60, null)
@@ -2514,7 +2365,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
@@ -3054,13 +2905,7 @@ function buildIot(brief) {
   // the board sits on standoffs inside the cavity, the sensor by the
   // grille, the cell flat on the base
   rbox(d, 'mcu', [26, 18, 5], [-8, 0, 16], 1, 'pcb')
-  // the internal sensor block covers the board-level sensors (BME280, PIR,
-  // HX711); a soil probe is a different object entirely — its 98mm blade
-  // cannot fit a 62mm case, so it gets its own node out front on the ground
-  if (!wants.soil || wants.air || wants.motion || wants.weight) {
-    rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
-  }
-  if (wants.soil) elec(d, 'probe', 'soil', [0, -D / 2 - 14, 2])
+  rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
   rbox(d, 'cell', [40, 26, 8], [0, 0, 7], 2, 'steel')
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `standoff-${sx}${sy}`, 2.4, 11, [sx * 10 - 8, sy * 7, 8.5], 'z', 'metal')
@@ -3164,30 +3009,9 @@ function buildGantry(brief) {
   for (let i = -2; i <= 2; i += 1) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
-  // control enclosure in the rail/bed channel — open-top card-cage so the
-  // GRBL stack inside is visible: 3× DRV8825 stepper drivers standing on the
-  // base, ESP32-S3 + buck on the outer wall. Out of the quill's X/Y envelope.
-  {
-    const cb = [-(spanX / 2 + 15), 0, 75]
-    const cbO = { print: true }
-    box(d, 'ctrl-base', [30, 150, 4], [cb[0], cb[1], cb[2] - 43], 'shell', cbO)
-    for (const sy of [-1, 1]) box(d, `ctrl-wall-y${sy}`, [30, 3, 86], [cb[0], cb[1] + sy * 73.5, cb[2] + 2], 'shell', cbO)
-    for (const sx of [-1, 1]) box(d, `ctrl-wall-x${sx}`, [3, 144, 86], [cb[0] + sx * 13.5, cb[1], cb[2] + 2], 'shell', cbO)
-    // boards at catalog dims, stood on edge against the side walls — the
-    // cage is only ~24mm deep, so flat-mounting a 62mm DevKit is impossible;
-    // a real build standoffs them to the walls exactly like this.
-    elec(d, 'esp32', 'esp32s3', [cb[0] - 8, cb[1] - 30, cb[2] + 2], [2, 0, 1])
-    elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
-    for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
-      elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
-    // power path on the cage floor: ATO fuse, rail cap, power rocker —
-    // flat on the base, clear of the wall-mounted boards above
-    elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
-    elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
-    elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
-    // XT60 at the cage mouth — pack lead lands on the fuse first
-    elec(d, 'xt60', 'xt60', [cb[0], cb[1] + 12, cb[2] - 34])
-  }
+  // control enclosure in the rail/bed channel — the BOM's controller lives
+  // here; out of the quill's X/Y envelope and clear of the bed slab
+  rbox(d, 'ctrl-box', [30, 150, 90], [-(spanX / 2 + 15), 0, 75], 2, 'shell')
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
   // spanning frame X with the ends bedded onto the side rails. The carriage
@@ -3204,8 +3028,7 @@ function buildGantry(brief) {
   const legBot = railW + 27 // flush on the y-carriage top
   for (const sy of [-1, 1]) {
     rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0 - legBot], [0, sy * (spanY / 2 + 10), (z0 + legBot) / 2], 2, 'accent', { print: false, ...onX })
-    // Y carriage: bearing block riding the 2040 X rail — MGN12 would be
-    // comically undersized at this span; V-slot extrusion is the honest guide
+    // Y carriage: rail block riding the X rail (MGN-style, like the BOM's mgn12)
     rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
   }
 
@@ -3242,7 +3065,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
+    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the
@@ -3286,8 +3109,7 @@ function buildGantry(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller (GRBL-firmware)')
   addPart(d, 'gt2_kit', 1, 'X/Y belts + pulleys')
   addPart(d, 'leadscrew_t8', 1, 'Z axis')
-  // no mgn12 here: 12mm rail on a metre gantry is a toy — the 2040
-  // extrusion budget above IS the guide rail, carriages ride it directly
+  addPart(d, 'mgn12', 3, 'linear rails')
   addPart(d, 'limit_sw', 3, 'homes')
   addPart(d, 'buck5a', 1, 'logic rail')
   addPart(d, 'fuse', 1, 'main protection')
@@ -3343,180 +3165,6 @@ function buildGantry(brief) {
   return d
 }
 
-// ── scene: several machines sharing one bench ──────────────────────────────
-// A workshop lineup is a real deliverable — the rover beside the arm it feeds,
-// the sensor node watching both. Each machine is built through the normal
-// pipeline (own analysis, own BOM), then merged into ONE design: ids prefixed,
-// placement baked as yaw + offset. Cost, mass, pin budget, power and print
-// packing are then computed over the whole scene — two machines cannot
-// silently share a pin or a watt.
-//
-// v1 transforms are yaw-about-Z + translation only. Arbitrary orientation
-// would have to rotate every joint axis AND every node euler; yaw covers
-// "machines side by side on a bench" honestly, and the spec says so.
-
-const SCENE_GAP = 140 // mm of clear floor between machine envelopes
-const SCENE_DEFAULT = [
-  { preset: 'arm', label: 'pick & place arm' },
-  { preset: 'rover', label: 'survey rover' },
-  { preset: 'iot', label: 'sensor node' },
-]
-
-/** Resolve a scene slot to a composed machine. spec.preset may be a PRESETS
- *  id ('arm') or an archetype ('rover'); other spec fields override the
- *  preset's brief. 'scene' itself is refused — recursion is not a machine. */
-function sceneMachine(spec, material) {
-  if (!spec || typeof spec !== 'object') return null
-  const preset = PRESETS.find((p) => p.id === spec.preset || p.brief.archetype === spec.preset || p.id === spec.archetype)
-  const arch = preset ? preset.brief.archetype : spec.archetype || spec.preset
-  // composeDesign falls through to the arm builder for unknown archetypes —
-  // a scene slot must name a real machine or be refused, not silently arm.
-  const BUILDABLE = ['arm', 'rover', 'quadruped', 'gripper', 'gadget', 'robot', 'humanoid', 'gantry', 'iot', 'pcb', 'custom']
-  if (!arch || arch === 'scene' || !BUILDABLE.includes(arch)) return null
-  const brief = { ...(preset ? preset.brief : { archetype: arch }), ...spec }
-  delete brief.scene
-  delete brief.preset
-  // Material is a scene-level decision — print packing and cost assume one
-  // filament, so a slot cannot quietly order a different one.
-  brief.material = material || brief.material || 'petg'
-  return { spec, label: spec.label || (preset ? preset.id : arch), out: composeDesign(brief) }
-}
-
-/** Bake one machine into the scene frame: translate its bounding-box anchor
- *  to the slot centre, floor its lowest point at z=0, yaw about that anchor. */
-function sceneBake(design, slot, yawRad) {
-  const bb = boundsOf(design.nodes)
-  const anchor = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, bb.min[2]]
-  const c = Math.cos(yawRad), s = Math.sin(yawRad)
-  const R = (p) => [
-    c * (p[0] - anchor[0]) - s * (p[1] - anchor[1]) + slot.x,
-    s * (p[0] - anchor[0]) + c * (p[1] - anchor[1]) + slot.y,
-    p[2] - anchor[2] + slot.z,
-  ]
-  // 'z' survives a z-yaw as the letter (sign conventions and exporters read
-  // it); 'x'/'y' become vectors and keep their model letter in axis0 so the
-  // pitch-joint sign check still knows what it was. yaw=0 leaves axes alone.
-  const axisFor = (axis) => {
-    if (Math.abs(s) < 1e-12 && Math.abs(c - 1) < 1e-12) return axis
-    const v = axisVec3(axis)
-    const rv = [c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]]
-    if (Math.abs(rv[0]) < 1e-9 && Math.abs(rv[1]) < 1e-9 && Math.abs(Math.abs(rv[2]) - 1) < 1e-9) return 'z'
-    return rv
-  }
-  return { R, axisFor, prefix: slot.prefix }
-}
-
-function buildScene(brief) {
-  // An omitted scene means the default lineup; an empty one is a user error
-  // and must fail honestly rather than quietly materialising three machines.
-  const specs = brief.scene == null ? SCENE_DEFAULT
-    : Array.isArray(brief.scene) ? brief.scene : [brief.scene]
-  const d = newDesign('scene', brief)
-  const machines = []
-  const sceneMat = brief.material || 'petg'
-  for (const raw of specs) {
-    const spec = typeof raw === 'string' ? { preset: raw } : raw
-    const m = sceneMachine(spec, sceneMat)
-    if (m) machines.push(m)
-    else d.notes.push(`Scene slot skipped — '${raw && (raw.preset || raw.archetype || raw)}' is not a buildable machine.`)
-  }
-  if (!machines.length) {
-    d.checks.push({ level: 'fail', msg: 'Scene has no machines — name presets in brief.scene.' })
-    return d
-  }
-
-  // auto-layout: a row along X, envelopes separated by SCENE_GAP, all facing
-  // the same way unless a spec asks for yaw
-  const widths = machines.map(({ out }) => {
-    const bb = boundsOf(out.design.nodes)
-    return { w: bb.max[0] - bb.min[0] }
-  })
-  const total = widths.reduce((a, w) => a + w.w, 0) + SCENE_GAP * (machines.length - 1)
-  let cursor = -total / 2
-  const slots = machines.map((m, i) => {
-    const slot = { x: cursor + widths[i].w / 2, y: 0, z: 0, prefix: `s${i}-` }
-    cursor += widths[i].w + SCENE_GAP
-    return slot
-  })
-
-  machines.forEach(({ spec, label, out }, i) => {
-    const yaw = ((spec.yaw || 0) * Math.PI) / 180
-    const { R, axisFor, prefix } = sceneBake(out.design, slots[i], yaw)
-    const sd = out.design
-
-    for (const n of sd.nodes || []) {
-      d.nodes.push({
-        ...n,
-        id: prefix + n.id,
-        pos: R(n.pos || [0, 0, 0]),
-        // scene yaw about Z composes with the node euler as rz += yaw —
-        // rotEuler applies rx→ry→rz, so Rz(θ)·R_node = Rz(θ+rz)·Ry·Rx
-        rot: n.rot ? [n.rot[0], n.rot[1], n.rot[2] + yaw] : n.rot,
-        joint: n.joint ? prefix + n.joint : n.joint,
-        slide: n.slide ? { ...n.slide, joint: prefix + n.slide.joint } : n.slide,
-      })
-    }
-    for (const j of sd.joints || []) {
-      const nj = {
-        ...j,
-        id: prefix + j.id,
-        label: `${label} · ${j.label || j.id}`,
-        pivot: R(j.pivot || [0, 0, 0]),
-        parent: j.parent ? prefix + j.parent : null,
-        axis: axisFor(j.axis),
-      }
-      if (nj.axis !== j.axis) nj.axis0 = j.axis
-      d.joints.push(nj)
-    }
-    for (const p of sd.parts || []) addPart(d, p.key, p.qty, `${label}: ${p.role || 'part'}`)
-    // A machine that fails its own checks fails the scene — the lineup is
-    // only as buildable as its weakest member.
-    for (const c of (out.design.checks || []).filter((c) => c.level === 'fail'))
-      d.checks.push({ level: 'fail', msg: `${label}: ${c.msg}` })
-    const subWarn = (out.design.checks || []).filter((c) => c.level === 'warn').length
-    if (subWarn) d.notes.push(`${label}: ${subWarn} build warning(s) — see its standalone report.`)
-    d.notes.push(`${label} — ${Math.round(out.analysis.mass.totalG)}g · $${out.analysis.cost.toFixed(0)} · placed at x=${Math.round(slots[i].x)}${spec.yaw ? ` yaw ${spec.yaw}°` : ''}`)
-  })
-
-  // Harness is per-machine, not per-scene: each member's stock-lead runs were
-  // measured in its own composeDesign, and yaw+translate preserves every
-  // distance, so those rows stay true in the scene frame. Ids get the slot
-  // prefix so they resolve against the merged joint table.
-  const hRows = []
-  const hHomes = []
-  const hDrops = []
-  let needExt = 0
-  machines.forEach(({ label, out }, i) => {
-    const h = out.analysis && out.analysis.harness
-    if (!h) return
-    const prefix = slots[i].prefix
-    for (const r of h.rows || []) hRows.push({ ...r, id: prefix + r.id, label: `${label} · ${r.label || r.id}` })
-    hHomes.push({ label, home: h.home })
-    hDrops.push(...(h.dropBad || []))
-    needExt += h.needExt || 0
-  })
-  if (hRows.length) {
-    d._sceneHarness = {
-      // home stays null: there is no single driver bay in a lineup — the
-      // cable overlay needs per-machine homes and stays off for scenes.
-      home: null, homes: hHomes, rows: hRows,
-      worst: hRows.reduce((a, b) => (b.run > (a ? a.run : -1) ? b : a), null),
-      needExt, dropBad: hDrops,
-      minLead: Math.min(...machines.map((m) => m.out.analysis.harness?.minLead ?? Infinity).filter(isFinite)),
-      maxLead: Math.max(...machines.map((m) => m.out.analysis.harness?.maxLead ?? -Infinity).filter((v) => v > -Infinity)),
-      busOnly: machines.every((m) => m.out.analysis.harness?.busOnly),
-      note: 'Per-machine harnesses — runs measured inside each member, not across the bench.',
-    }
-  }
-
-  d.title = `Workshop scene · ${machines.length} machine${machines.length > 1 ? 's' : ''}`
-  d.subtitle = machines.map((m) => m.label).join(' + ')
-  d.metrics = { machines: machines.length }
-  d.notes.push('Each machine keeps its own kinematics under prefixed ids (s0-, s1-…) — pose presets, single-arm IK and per-machine teleop do not span the scene.')
-  d.notes.push('Scene transforms are yaw + offset only; every machine prints in the scene material.')
-  return d
-}
-
 // ── pcb: the board itself, not just the machine around it ───────────────────
 // A small custom board: the MCU module, its sensors, power and connectors, laid
 // out on a real outline with mounting holes, silkscreen and the passive parts
@@ -3524,187 +3172,32 @@ function buildScene(brief) {
 // designator, a package and a rotation, because that is what a centroid file is.
 
 // designator, part key, x fraction, y fraction, rotation°, package
-// Fractions map onto the usable field (half-board minus a 6mm edge margin).
-// These were laid out by courtyard, not by eye: the ESP32 module owns the
-// bottom-left, breakouts fill the top band, the rocker hangs the right edge —
-// auditBoardFit proves no two courtyards touch at the default 120×79mm.
 const PCB_PARTS = [
-  ['U1', 'esp32s3', -0.39, -0.76, 0, 'MODULE 62×26'],
-  ['U2', 'bme280', -0.07, 0.66, 0, 'LGA-8'],
-  ['U3', 'ssd1306', -0.56, 0.60, 0, 'MODULE 27×27'],
-  ['U4', 'ina219', 0.65, 0.15, 0, 'SOT-23-8'],
-  ['J1', 'jst_kit', 0.56, 0.99, 0, 'JST-XH 4'],
-  ['J2', 'rocker', 0.89, -0.63, 90, 'THT 3'],
+  ['U1', 'esp32s3', 0, 0.08, 0, 'MODULE 62×26'],
+  ['U2', 'bme280', -0.34, 0.3, 0, 'LGA-8'],
+  ['U3', 'ssd1306', 0.32, 0.3, 0, 'MODULE 27×27'],
+  ['U4', 'ina219', 0.34, -0.12, 0, 'SOT-23-8'],
+  ['J1', 'jst_kit', -0.38, -0.34, 0, 'JST-XH 4'],
+  ['J2', 'rocker', 0.36, -0.36, 0, 'THT 3'],
 ]
 
 // the passives a board like this actually needs, and the reason each exists
-// x and y are fractions of the same usable field as the modules.
+// x and y are fractions of the half-board, same as the modules: a board that
+// grows must not fling its passives off the edge.
 const PCB_PASSIVES = [
-  ['C1', '0402', -0.65, -0.27, 0, 'input bulk'],
-  ['C2', '0402', -0.52, -0.27, 0, 'decoupling · 3V3'],
-  ['C3', '0402', -0.39, -0.27, 90, 'decoupling · 1V1'],
-  ['C4', '0402', -0.26, -0.27, 0, 'decoupling · ADC ref'],
-  ['R1', '0402', 0.19, 0.72, 0, 'I²C pull-up · SDA'],
-  ['R2', '0402', 0.26, 0.72, 0, 'I²C pull-up · SCL'],
-  ['R3', '0603', 0.37, -1.04, 90, 'LED series'],
-  ['R4', '0603', 0.48, -1.04, 0, 'boot pull-up'],
+  ['C1', '0402', -0.22, -0.3, 0, 'input bulk'],
+  ['C2', '0402', -0.14, -0.3, 0, 'decoupling · 3V3'],
+  ['C3', '0402', -0.06, -0.3, 90, 'decoupling · 1V1'],
+  ['C4', '0402', 0.02, -0.3, 0, 'decoupling · ADC ref'],
+  ['R1', '0402', 0.12, -0.16, 0, 'I²C pull-up · SDA'],
+  ['R2', '0402', 0.2, -0.16, 0, 'I²C pull-up · SCL'],
+  ['R3', '0603', 0.1, 0.34, 90, 'LED series'],
+  ['R4', '0603', 0.18, 0.34, 0, 'boot pull-up'],
 ]
-
-// ── board fit audit ────────────────────────────────────────────────────────
-// A placement list is a claim that this board can be built. Before we say it,
-// check it: every courtyard inside the outline, no two courtyards touching,
-// nothing in the antenna keep-out, nothing over a drill pad. Courtyards are
-// the real part outline plus the clearance a fab needs — the drawn body is
-// 0.86× the part on purpose, so auditing the drawing would understate it.
-
-// courtyard [w, d] mm per package; modules use their catalog dims + margin
-const COURTYARD = { '0402': [1.5, 1.0], '0603': [2.7, 1.6] }
-const COURT_MARGIN = 0.8 // mm added to a module's catalog footprint
-
-function courtyardOf(p) {
-  if (p.kind === 'passive') return COURTYARD[p.pkg] || [2.0, 1.2]
-  const part = PARTS[p.key]
-  const dims = (part && part.dims) || [10, 10]
-  return [dims[0] + COURT_MARGIN, dims[1] + COURT_MARGIN]
-}
-
-// AABB of a w×d rect rotated rot° about its centre, as [x0,y0,x1,y1]
-function placedAabb(p, cw) {
-  const [w, d] = cw
-  const r = ((p.rot || 0) * Math.PI) / 180
-  const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r))
-  const hw = (w * c + d * s) / 2, hd = (w * s + d * c) / 2
-  return [p.x - hw, p.y - hd, p.x + hw, p.y + hd]
-}
-
-function auditBoardFit(d, placed, W, H) {
-  const edge = 0.3 // outline keeps this much copper off the board edge
-  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
-  // antenna keep-out and the USB-C tongue zone are board features, not parts
-  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
-  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
-  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
-
-  const boxes = placed.map((p) => ({ p, cw: courtyardOf(p), bb: placedAabb(p, courtyardOf(p)) }))
-  const name = (p) => `${p.des} ${p.pkg && p.kind === 'passive' ? p.pkg : (PARTS[p.key] && PARTS[p.key].name) || p.key}`
-
-  // 1 — every courtyard inside the outline (fail: the board cannot be built)
-  for (const { p, cw, bb } of boxes) {
-    if (bb[0] < bx0 || bb[1] < by0 || bb[2] > bx1 || bb[3] > by1) {
-      const needW = Math.ceil(cw[0]), needH = Math.ceil(cw[1])
-      d.checks.push({ level: 'fail',
-        msg: `${name(p)} needs a ${needW}×${needH}mm courtyard but the ${W}×${H}mm outline leaves ${Math.floor(bx1 - bx0)}×${Math.floor(by1 - by0)}mm usable — grow reachMm or move the part in.` })
-    }
-  }
-
-  // 2 — courtyard overlaps (fail: two parts cannot occupy the same pads)
-  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-    const a = boxes[i].bb, b = boxes[j].bb
-    const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0])
-    const oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1])
-    if (ox > 0 && oy > 0) {
-      d.checks.push({ level: 'fail',
-        msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards overlap by ${ox.toFixed(1)}×${oy.toFixed(1)}mm — the pick-and-place file would collide.` })
-    }
-  }
-
-  // 3 — antenna keep-out and USB tongue are keep-outs, not courtyards
-  for (const { p, bb } of boxes) {
-    const hit = (k) => bb[0] < k[2] && bb[2] > k[0] && bb[1] < k[3] && bb[3] > k[1]
-    if (hit(keepout)) d.checks.push({ level: 'warn', msg: `${name(p)} sits inside the antenna keep-out — the radio range claim no longer holds.` })
-    if (hit(usb)) d.checks.push({ level: 'warn', msg: `${name(p)} overlaps the USB-C connector zone.` })
-    // 4 — drill pads need copper clearance: no courtyard within pad r + 0.5mm
-    for (const [hx, hy] of holes) {
-      if (hx > bb[0] - 3.5 && hx < bb[2] + 3.5 && hy > bb[1] - 3.5 && hy < bb[3] + 3.5) {
-        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard reaches a mounting hole pad — keep 0.5mm drill-to-copper.` })
-        break
-      }
-    }
-  }
-
-  // 5 — pick-and-place access: a machine passive closer than ~2mm to the
-  // outline leaves no room for the nozzle, and courtyards nearer than ~0.5mm
-  // leave no room to work between them. Hand-placed modules are exempt —
-  // an iron doesn't need nozzle clearance.
-  for (const { p, bb } of boxes) {
-    if (p.kind !== 'passive') continue
-    const edgeGap = Math.min(bb[0] - bx0, bb[1] - by0, bx1 - bb[2], by1 - bb[3])
-    if (edgeGap < 2) {
-      d.checks.push({ level: 'warn', msg: `${name(p)} courtyard sits ${Math.max(0, edgeGap).toFixed(1)}mm from the board edge — pick-and-place nozzles need ~2mm.` })
-    }
-  }
-  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-    const a = boxes[i].bb, b = boxes[j].bb
-    const gx = Math.max(a[0] - b[2], b[0] - a[2], 0)
-    const gy = Math.max(a[1] - b[3], b[1] - a[3], 0)
-    const gap = Math.hypot(gx, gy)
-    if (gap > 0 && gap < 0.5 && (boxes[i].p.kind === 'passive' || boxes[j].p.kind === 'passive')) {
-      d.checks.push({ level: 'warn', msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards are ${gap.toFixed(2)}mm apart — under the ~0.5mm a placement nozzle needs between parts.` })
-    }
-  }
-
-  // 6 — fiducials: machine assembly wants two bare-copper marks on a diagonal
-  // for vision alignment. They are board features, not placements, so they
-  // get their own keep-out check against every courtyard.
-  for (const f of d.pcb.fiducials || []) {
-    const fb = [f.x - 1.6, f.y - 1.6, f.x + 1.6, f.y + 1.6]
-    for (const { p, bb } of boxes) {
-      if (bb[0] < fb[2] && bb[2] > fb[0] && bb[1] < fb[3] && bb[3] > fb[1]) {
-        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard covers fiducial ${f.id} — the assembler's vision target must stay bare.` })
-        break
-      }
-    }
-  }
-}
-
-/**
- * Pick-and-place fiducials: two 1mm bare-copper marks the assembler's vision
- * uses for panel alignment — they belong on a diagonal so rotation is
- * observable. Scan the usable field on a coarse grid, keep spots whose 3.2mm
- * keep-out box clears every courtyard, the antenna keep-out, the USB zone and
- * the drill pads, then take the best-separated pair. Returns [] when the
- * layout genuinely has no room — the caller says so honestly.
- */
-function placeFiducials(placed, W, H) {
-  const edge = 0.3, margin = 4 // fiducial centre stays this far off the outline
-  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
-  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
-  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
-  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
-  const boxes = placed.map((p) => ({ bb: placedAabb(p, courtyardOf(p)) }))
-  const clear = (x, y) => {
-    const fb = [x - 1.6, y - 1.6, x + 1.6, y + 1.6]
-    if (fb[0] < bx0 || fb[1] < by0 || fb[2] > bx1 || fb[3] > by1) return false
-    const hit = (k) => fb[0] < k[2] && fb[2] > k[0] && fb[1] < k[3] && fb[3] > k[1]
-    if (hit(keepout) || hit(usb)) return false
-    for (const b of boxes) if (hit(b.bb)) return false
-    for (const [hx, hy] of holes) if (Math.hypot(hx - x, hy - y) < 4) return false
-    return true
-  }
-  const spots = []
-  for (let x = -W / 2 + margin; x <= W / 2 - margin; x += 3) {
-    for (let y = -H / 2 + margin; y <= H / 2 - margin; y += 3) {
-      if (clear(x, y)) spots.push([x, y])
-    }
-  }
-  // best diagonal pair: maximise separation, prefer opposite corners
-  let best = null
-  for (let i = 0; i < spots.length; i++) for (let j = i + 1; j < spots.length; j++) {
-    const sep = Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1])
-    const diag = Math.sign(spots[i][0]) !== Math.sign(spots[j][0]) && Math.sign(spots[i][1]) !== Math.sign(spots[j][1]) ? 1 : 0
-    const score = sep + diag * 20
-    if (sep >= 20 && (!best || score > best.score)) best = { a: spots[i], b: spots[j], score }
-  }
-  if (!best) return []
-  return [
-    { id: 'fid-1', x: Math.round(best.a[0] * 10) / 10, y: Math.round(best.a[1] * 10) / 10 },
-    { id: 'fid-2', x: Math.round(best.b[0] * 10) / 10, y: Math.round(best.b[1] * 10) / 10 },
-  ]
-}
 
 function buildPcb(brief) {
   const d = newDesign('pcb', brief)
-  const W = clamp(Math.round(brief.reachMm || 120), 40, 160)
+  const W = clamp(Math.round(brief.reachMm || 92), 40, 160)
   const H = clamp(Math.round(W * 0.66), 30, 120)
   const T = 1.6
 
@@ -3716,7 +3209,7 @@ function buildPcb(brief) {
   rbox(d, 'board', [W, H, T], [0, 0, 0], 2, 'pcb', { print: false })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `hole-${sx}${sy}`, 1.6, T + 1, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), 0], 'z', 'rubber')
-    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'copper')
+    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'brass')
   }
   // USB-C and the antenna keep-out as silkscreen blocks the eye can read
   box(d, 'usb', [9, 7.5, 3], [-W / 2 + 1, 0, T / 2 + 1.5], 'metal')
@@ -3724,222 +3217,32 @@ function buildPcb(brief) {
   rbox(d, 'keepout', [14, 9, 0.25], [W / 2 - 9, H / 2 - 7, T / 2 + 0.2], 1, 'steel')
 
   // ── placed parts: modules, then the passives ───────────────────────────
-  const rotPt = (dx, dy, deg) => {
-    const r = (deg * Math.PI) / 180
-    const c = Math.cos(r)
-    const sn = Math.sin(r)
-    return [dx * c - dy * sn, dx * sn + dy * c]
-  }
-  const at = (x, y, rot) => (dx, dy) => {
-    const [rx, ry] = rotPt(dx, dy, rot)
-    return [x + rx, y + ry]
-  }
-
-  // ── components that look like the thing you would actually buy ────────────
-  // A devkit is a board with a shield can, a USB-C shell and two rows of 2.54mm
-  // pins. An OLED is glass in a frame with a four-pin header. A rocker is a
-  // black box with a lever. None of that is a rounded cuboid, and the rounded
-  // cuboid is exactly why the board read as clay.
-  const pinHeader = (d, id, x, y, rot, n, pitch, z0, along) => {
-    const P = at(x, y, rot)
-    const span = (n - 1) * pitch
-    const rail = along === 'x' ? [span + 2.2, 2.54, 1.3] : [2.54, span + 2.2, 1.3]
-    box(d, `${id}-rail`, rail, [x, y, z0 + 0.65], 'rubber')
-    for (let i = 0; i < n; i += 1) {
-      const t = i * pitch - span / 2
-      const [px, py] = along === 'x' ? P(t, 0) : P(0, t)
-      box(d, `${id}-p${i}`, [1.1, 1.1, 2.6], [px, py, z0 + 1.3], 'copper')
-    }
-  }
-
-  const component = (d, des, key, x, y, rot, sx, sy, h, T) => {
-    const z0 = T / 2
-    const P = at(x, y, rot)
-    switch (key) {
-      case 'esp32s3': {
-        rbox(d, `${des}-pcb`, [sx, sy, 1.6], [x, y, z0 + 0.8], 0.6, 'pcbblue')
-        box(d, `${des}-can`, [sx * 0.42, sy * 0.55, 1.4], [x - sx * 0.06, y, z0 + 2.3], 'metal')
-        box(d, `${des}-usbc`, [7.5, 4.2, 2.8], [x + sx / 2 - 2.6, y, z0 + 1.7], 'metal')
-        box(d, `${des}-usbc-in`, [4, 2.2, 1.8], [x + sx / 2 - 1.2, y, z0 + 1.7], 'rubber')
-        const n = Math.max(4, Math.floor((sy - 5) / 2.54) + 1)
-        const pitch = 2.54
-        for (const s of [-1, 1]) {
-          const [rx, ry] = P(0, s * (sy / 2 - 2.4))
-          pinHeader(d, `${des}-hdr${s > 0 ? 'a' : 'b'}`, rx, ry, rot, n, pitch, z0, 'y')
-        }
-        for (const s of [-1, 1]) {
-          const [bx, by] = P(-sx * 0.2, s * sy * 0.34)
-          box(d, `${des}-btn${s > 0 ? 'a' : 'b'}`, [3.2, 3.2, 1.8], [bx, by, z0 + 1.7], 'rubber')
-        }
-        break
-      }
-      case 'ssd1306': {
-        rbox(d, `${des}-pcb`, [sx, sy, 1.4], [x, y, z0 + 0.7], 0.5, 'rubber')
-        box(d, `${des}-glass`, [sx * 0.86, sy * 0.62, 0.7], [x, y + sy * 0.06, z0 + 1.7], 'glass')
-        box(d, `${des}-bezel`, [sx * 0.92, sy * 0.10, 0.9], [x, y - sy * 0.36, z0 + 1.7], 'rubber')
-        const [hx, hy] = P(0, -sy / 2 + 1.6)
-        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'x')
-        break
-      }
-      case 'bme280': {
-        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcb')
-        const [hx, hy] = P(-sx / 2 + 1.5, 0)
-        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
-        box(d, `${des}-chip`, [3.2, 3.2, 1.1], [P(sx * 0.1, 0)[0], P(sx * 0.1, 0)[1], z0 + 1.2], 'metal')
-        break
-      }
-      case 'ina219': {
-        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcbblue')
-        box(d, `${des}-shunt`, [6.5, 4, 1.4], [P(-sx * 0.1, -sy * 0.12)[0], P(-sx * 0.1, -sy * 0.12)[1], z0 + 1.3], 'rubber')
-        box(d, `${des}-ic`, [4, 4, 1.0], [P(sx * 0.22, sy * 0.2)[0], P(sx * 0.22, sy * 0.2)[1], z0 + 1.1], 'rubber')
-        const [hx, hy] = P(-sx / 2 + 1.5, 0)
-        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
-        break
-      }
-      case 'jst_kit': {
-        box(d, `${des}-body`, [14, 8.5, 6], [x, y, z0 + 3], 'shell')
-        for (let i = 0; i < 4; i += 1) {
-          const [px, py] = P((i - 1.5) * 2.5, 0)
-          box(d, `${des}-pin${i}`, [0.8, 0.8, 1.2], [px, py, z0 + 6.4], 'brass')
-        }
-        const col = ['accent', 'rubber', 'brass']
-        for (let i = 0; i < 3; i += 1) {
-          const yoff = (i - 1) * 2.5
-          for (let sgi = 0; sgi < 3; sgi += 1) {
-            const len = 9
-            const [px, py] = P(sx / 2 + 2 + sgi * len, yoff)
-            box(d, `${des}-lead${i}-${sgi}`, [len, 1.7, 1.7], [px, py, z0 + 3 - sgi * 0.6], col[i])
-          }
-        }
-        break
-      }
-      case 'rocker': {
-        box(d, `${des}-shell`, [sx, sy, h * 0.7], [x, y, z0 + h * 0.35], 'rubber')
-        box(d, `${des}-lever`, [sx * 0.62, sy * 0.5, 3.2], [x, y, z0 + h * 0.7 + 1.4], 'copper')
-        box(d, `${des}-rim`, [sx * 0.9, sy * 0.12, 1.2], [x, y - sy * 0.4, z0 + h * 0.7], 'rubber')
-        break
-      }
-      default: {
-        rbox(d, `${des}-body`, [sx, sy, Math.max(2, h)], [x, y, z0 + Math.max(2, h) / 2], 0.4, 'rubber')
-      }
-    }
-  }
-
   const placed = []
-  const FIELD_X = W / 2 - 6, FIELD_Y = H / 2 - 6
   for (const [des, key, fx, fy, rot, pkg] of PCB_PARTS) {
-    const x = Math.round(fx * FIELD_X)
-    const y = Math.round(fy * FIELD_Y)
+    const x = Math.round(fx * (W / 2 - 12))
+    const y = Math.round(fy * (H / 2 - 10))
     const part = PARTS[key]
     if (!part) continue
     const [l, w, h] = part.dims || [10, 10, 3]
     const sx = Math.max(3, l * 0.86)
     const sy = Math.max(3, w * 0.86)
-    component(d, `part-${des}`, key, x, y, rot, sx, sy, Math.max(2, h), T)
+    rbox(d, `part-${des}`, [sx, sy, Math.max(2, h)], [x, y, T / 2 + Math.max(2, h) / 2], 0.4, 'pcb', {
+      rot: [0, 0, (rot * Math.PI) / 180],
+    })
     // a pin-1 marker: the one detail that says "this is a real footprint"
     box(d, `pin1-${des}`, [1.2, 1.2, 0.6], [x - sx / 2 + 1.5, y - sy / 2 + 1.5, T / 2 + Math.max(2, h) + 0.3], 'brass')
-    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module', sz: [sx, sy], h: Math.max(2, h) })
+    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
   }
   for (const [des, pkg, fx, fy, rot, why] of PCB_PASSIVES) {
-    const x = Math.round(fx * FIELD_X)
-    const y = Math.round(fy * FIELD_Y)
+    const x = Math.round(fx * (W / 2 - 10))
+    const y = Math.round(fy * (H / 2 - 8))
     const size = pkg === '0603' ? [1.6, 0.8] : [1.0, 0.5]
     box(d, `pass-${des}`, [size[0], size[1], 0.5], [x, y, T / 2 + 0.25], 'metal', {
       rot: [0, 0, (rot * Math.PI) / 180],
     })
-    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why, sz: size })
+    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
   }
-  // ── the detail that makes it read as a board, not a green slab ──────────
-  // Pads (ENIG), a white silkscreen outline around every placement, and copper
-  // traces leaving each pad toward the controller. A real board hides its
-  // traces under the mask, but a board with none at all reads as plastic.
-  const rot2 = (dx, dy, deg) => {
-    const r = (deg * Math.PI) / 180
-    const c = Math.cos(r)
-    const sn = Math.sin(r)
-    return [dx * c - dy * sn, dx * sn + dy * c]
-  }
-  const hub = [0, Math.round(0.08 * (H / 2 - 12))]
-  for (const p of placed) {
-    const [sx, sy] = p.sz || [4, 3]
-    const deg = p.rot || 0
-    const zPad = T / 2 + 0.14
-    const zSilk = T / 2 + 0.07
-    const zTrace = T / 2 + 0.05
-
-    // pads: two ends on a passive, a pin row down each long side on a module
-    const pads = []
-    if (p.kind === 'passive') {
-      // pads sit at the ends of the body, half exposed — an SMD joint is a
-      // fillet at the edge, not a decal hidden under the part
-      for (const s of [-1, 1]) pads.push([s * (sx / 2 + 0.35), 0])
-    } else {
-      // a module is soldered by a pin row along each long side, and the pads
-      // must stick out past the body or the body simply hides them
-      const n = p.pkg && /MODULE/.test(p.pkg) ? 6 : 4
-      for (let i = 0; i < n; i += 1) {
-        const t = (i / (n - 1) - 0.5) * sx * 0.8
-        pads.push([t, -(sy / 2 + 0.55)], [t, sy / 2 + 0.55])
-      }
-    }
-    pads.forEach(([dx, dy], i) => {
-      const [rx, ry] = rot2(dx, dy, deg)
-      box(d, `pad-${p.des}-${i}`, [1.5, 1.0, 0.22], [p.x + rx, p.y + ry, zPad], 'copper')
-    })
-
-    // silkscreen: four thin bars framing the footprint, just outside the part
-    const halfW = sx / 2 + 0.6
-    const halfH = sy / 2 + 0.6
-    const bars = [
-      [[halfW * 2 + 0.6, 0.5, 0.14], [0, -halfH]],
-      [[halfW * 2 + 0.6, 0.5, 0.14], [0, halfH]],
-      [[0.5, halfH * 2, 0.14], [-halfW, 0]],
-      [[0.5, halfH * 2, 0.14], [halfW, 0]],
-    ]
-    bars.forEach(([size, off], i) => {
-      const [rx, ry] = rot2(off[0], off[1], deg)
-      box(d, `silk-${p.des}-${i}`, size, [p.x + rx, p.y + ry, zSilk], 'silk')
-    })
-
-    // traces: one Manhattan run from the first pad toward the controller
-    const [px0, py0] = rot2(pads[0][0], pads[0][1], deg)
-    const ax = p.x + px0
-    const ay = p.y + py0
-    const midX = (ax + hub[0]) / 2
-    box(d, `trace-${p.des}-a`, [Math.abs(hub[0] - ax) + 0.4, 0.55, 0.12], [midX, ay, zTrace], 'copper')
-    box(d, `trace-${p.des}-b`, [0.55, Math.abs(hub[1] - ay) + 0.4, 0.12], [hub[0], (ay + hub[1]) / 2, zTrace], 'copper')
-  }
-
-  // copper pour ring inside the outline — a real 2-layer board is mostly copper
-  const inset = 2.4
-  for (const [w, h, x, y] of [
-    [W - inset * 2, 2.2, 0, H / 2 - inset],
-    [W - inset * 2, 2.2, 0, -H / 2 + inset],
-    [2.2, H - inset * 2, -W / 2 + inset, 0],
-    [2.2, H - inset * 2, W / 2 - inset, 0],
-  ]) {
-    box(d, `pour-${x}-${y}`, [w, h, 0.05], [x, y, T / 2 + 0.02], 'copper')
-  }
-
-  // the module itself: a metal shield can on the controller, glass on the display
-  const u1 = placed.find((p) => p.des === 'U1')
-  if (u1) {
-    box(d, 'u1-shield', [u1.sz[0] * 0.62, u1.sz[1] * 0.7, 0.7], [u1.x, u1.y, T / 2 + u1.h + 0.35], 'metal')
-    box(d, 'u1-antenna', [u1.sz[0] * 0.5, 1.2, 0.5], [u1.x, u1.y + u1.sz[1] * 0.42, T / 2 + u1.h + 0.25], 'brass')
-  }
-  const u3 = placed.find((p) => p.des === 'U3')
-  if (u3) {
-    box(d, 'u3-glass', [u3.sz[0] * 0.78, u3.sz[1] * 0.62, 0.4], [u3.x, u3.y, T / 2 + u3.h + 0.2], 'glass')
-  }
-
   d.pcb = { placed, W, H, T }
-  d.pcb.fiducials = placeFiducials(placed, W, H)
-  auditBoardFit(d, placed, W, H)
-  // bare-copper fiducial pads: the assembler's vision targets, drawn as the
-  // 1mm pads they are — audit already proved no courtyard covers them
-  for (const f of d.pcb.fiducials) {
-    cyl(d, f.id, 0.5, 0.2, [f.x, f.y, T / 2 + 0.1], 'z', 'brass')
-  }
 
   // ── BOM ────────────────────────────────────────────────────────────────
   addPart(d, brief.mcu || 'esp32s3', 1, 'U1 controller')
@@ -3959,13 +3262,8 @@ function buildPcb(brief) {
   const machinePlaced = placed.filter((p) => p.kind === 'passive').length
   // joints on the board itself: two per passive, and a header row per module
   d.pcb.joints = placed.reduce((n, p) => n + (p.kind === 'passive' ? 2 : 8), 0)
-  d.notes.push(d.pcb.fiducials.length === 2
-    ? 'Two fiducial pads give the assembler vision a diagonal reference — bare copper, no paste.'
-    : 'No room for fiducial pads in this layout — hand-place the passives or panelize for machine assembly.')
   d.notes.push(`${placed.length} placements: ${handPlaced} modules you solder or socket, ${machinePlaced} passives a pick-and-place machine does in seconds.`)
-  d.notes.push(W > 100
-    ? `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — over the 100mm cheap-tier width, so the next fab price band.`
-    : `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
+  d.notes.push(`Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
   // the envelope includes what sticks out past the outline (USB-C, headers)
   const bb = boundsOf(d.nodes)
   const envelope = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]].map((v) => Math.round(v))
@@ -4322,71 +3620,14 @@ function harnessAnalysis(design) {
   }
 }
 
-/**
- * Desk-prop reach proof. The reach bound is an outer sphere — a prop inside
- * it can still be unreachable at EVERY joint angle (a waist-yaw root inflates
- * the sphere without adding vertical reach, for instance). Probe each prop's
- * top face with the same multi-seed CCD the workspace map uses; a prop counts
- * unreachable only when every sample misses by ≥12mm — the solver's own
- * convergence threshold, so "reachable" here means the same thing it means
- * on the bench overlay.
- */
-function deskUnreachableProps(design, tip, bound) {
-  const { tipChain, tipNode } = tip
-  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
-  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
-  const ikChain = tipChain.map((j) => byId.get(j.id)).filter(Boolean)
-  if (ikChain.length < 3) return []
-  const chains = chainsFor(scratch)
-  const tipW = () => benchNodeWorld(scratch, chains, tipNode)
-  const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
-  const seeds = [frac(0.5), frac(0.15), frac(0.85), scratch.joints.map(() => 0)]
-  const out = []
-  for (const p of DESK_PROPS) {
-    // a prop the sphere already proves unreachable is the sphere path's
-    // problem — probing it here would be wasted solves
-    const dx = Math.max(Math.abs(p.pos[0] - bound.c[0]) - p.size[0] / 2, 0)
-    const dy = Math.max(Math.abs(p.pos[1] - bound.c[1]) - p.size[1] / 2, 0)
-    const dz = Math.max(Math.abs(p.pos[2] - bound.c[2]) - p.size[2] / 2, 0)
-    if (Math.hypot(dx, dy, dz) - bound.r > 0) continue
-    // centre first, then the top-face ring: one reachable point clears the prop
-    const pts = [[0, 0], [-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8], [-0.8, 0], [0.8, 0], [0, -0.8], [0, 0.8]]
-    let bestErr = Infinity, reached = false
-    for (const [fx, fy] of pts) {
-      if (reached) break
-      const t = [p.pos[0] + fx * p.size[0] / 2, p.pos[1] + fy * p.size[1] / 2, p.pos[2] + p.size[2] / 2]
-      for (const seed of seeds) {
-        seed.forEach((a, k) => { scratch.joints[k].angle = a })
-        const r = solveChainIK(scratch, ikChain, t, tipW, 14)
-        if (r.err < bestErr) bestErr = r.err
-        if (r.err < 12) { reached = true; break }
-      }
-    }
-    if (!reached) out.push({ id: p.id, name: p.name, miss: Math.round(bestErr) })
-  }
-  return out
-}
-
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
-  // A scene is several independent machines, not one bus: each member already
-  // passed its own power/pin/harness checks inside composeDesign, so the merged
-  // totals must not be judged against a single pack or a single MCU.
-  const isScene = design.archetype === 'scene'
-  if (isScene) {
-    power.bat = null
-    power.runtimeMin = null
-    power.wiring = []
-    power.systems = (design.parts || []).filter((p) => PARTS[p.key]?.cat === 'battery').length
-    design.checks = design.checks || []
-    design.checks.push({ level: 'ok', msg: `Scene power: ${power.systems} independent pack(s) — each machine's runtime and wiring are certified in its own report, not summed onto one bus.` })
-  }
-  const harness = isScene ? (design._sceneHarness || null) : harnessAnalysis(design)
+  const harness = harnessAnalysis(design)
   // A joint the stock lead cannot reach is not a note — it is a part you must
   // buy. Put the extension in the BOM so cost and shopping list stay honest.
-  if (!isScene && harness && harness.needExt && !design._harnessed) {
+  if (harness && harness.needExt && !design._harnessed) {
     design._harnessed = true
     addPart(design, 'extlead_300', harness.needExt, `${harness.needExt} joint run(s) exceed stock servo lead`)
   }
@@ -4433,22 +3674,22 @@ function analyze(design) {
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
   }
-  if (!isScene && power.bat && power.typ > power.bat.maxA) {
+  if (power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
-  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 2) {
+  } else if (power.bat && power.peak > power.bat.maxA * 2) {
     // Far beyond the pack's burst is not a caution, it is the wrong pack: the
     // protection circuit trips or the cells sag before the machine moves.
     checks.push({
       level: 'fail',
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
-  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
+  } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }
-  if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
+  if (power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
   }
-  if (!isScene && pins.used > pins.mcu.pinBudget) {
+  if (pins.used > pins.mcu.pinBudget) {
     checks.push({ level: 'fail', msg: `Pin map wants ${pins.used} GPIO, ${pins.mcu.name} exposes ${pins.mcu.pinBudget}. Move the motors to an I2C driver or drop a sensor.` })
   }
   if (printGrams > 900) {
@@ -4547,11 +3788,7 @@ function analyze(design) {
       const tip = whole || armChainFor(design, 'r')
       const b = armReachBound(tip)
       // multi-limb fallback: the bound describes ONE arm, say which
-      const out = b && !whole ? { ...b, side: 'r' } : b
-      // the sphere is an outer bound, not a reachability proof — IK-probe the
-      // desk props so fix suggestions can tell "inside but unreachable" apart
-      if (out && tip) out.unreachable = deskUnreachableProps(design, tip, out)
-      return out
+      return b && !whole ? { ...b, side: 'r' } : b
     })(),
     cost,
     costBuy,
@@ -5209,9 +4446,7 @@ function chainFrames(chain) {
     const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
     const a = axisVec3(j.axis)
     // Pitch joints read positive = UP (same sign convention applyChain had).
-    // axis0 preserves the model letter when a scene yaw turned axis into a
-    // vector — the pitch check must still recognise it.
-    const sign = (j.axis0 || j.axis) === 'y' ? -1 : 1
+    const sign = j.axis === 'y' ? -1 : 1
     const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
     const pivotW = [
       Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
@@ -5268,7 +4503,7 @@ function slideDisp(design, node) {
   let j = j0, own = true
   while (j && j.slide && !seen.has(j.id)) {
     seen.add(j.id)
-    const dir = axisVec3(j.axis)
+    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
     const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
     out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
     own = false
@@ -5683,61 +4918,6 @@ function sphereTris(r) {
 /** Spur gear: trapezoid-tooth profile extruded — one clean solid. The old
  *  build fused a root disc with penetrating tooth boxes: intersecting
  *  surfaces, non-manifold edges, BRepCheck-invalid solids. */
-// Involute gear outline: tooth flanks follow the true involute curve so meshing
-// pairs actually look like gears, not trapezoids. θ(ρ) is the standard tooth
-// half-thickness at radius ρ: π/2T at pitch, thinner toward the tip, thicker
-// toward the root — falls back to the old 4-pt trapezoid when the space between
-// teeth gets too thin for an involute (very high tooth counts).
-function gearOutline(T, pitchR, rootR, tipR) {
-  const aPitch = Math.PI / (2 * T)
-  const ALPHA = 0.34906585 // 20° pressure angle
-  const rb = pitchR * Math.cos(ALPHA)
-  const inv = (x) => Math.tan(x) - x
-  const invA = inv(ALPHA)
-  const halfThick = (rho) => {
-    const r = Math.max(rho, rb * 1.000001)
-    return aPitch + invA - inv(Math.acos(Math.min(1, rb / r)))
-  }
-  const flankBot = Math.max(rootR, rb)
-  const thRoot = halfThick(flankBot)
-  const space = Math.PI / T
-  if (space - thRoot < space * 0.08) {
-    // tooth gap nearly closed — trapezoid fallback
-    const aRoot = Math.min(aPitch * pitchR / rootR, space * 0.42)
-    const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
-    const out = []
-    for (let i = 0; i < T; i += 1) {
-      const a = (i / T) * Math.PI * 2
-      out.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
-      out.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
-      out.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
-      out.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
-    }
-    return out
-  }
-  const FLANK = 5
-  const out = []
-  for (let i = 0; i < T; i += 1) {
-    const a = (i / T) * Math.PI * 2
-    const pt = (rho, ang) => [Math.cos(ang) * rho, Math.sin(ang) * rho]
-    out.push(pt(rootR, a - space))                    // root-land midpoint
-    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a - thRoot)) // back root
-    for (let k = 0; k <= FLANK; k += 1) {             // back flank, root→tip
-      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
-      out.push(pt(rho, a - halfThick(rho)))
-    }
-    const thTip = halfThick(tipR)
-    for (let k = 1; k <= 2; k += 1)                   // tip land arc
-      out.push(pt(tipR, a - thTip + (2 * thTip * k) / 3))
-    for (let k = FLANK; k >= 0; k -= 1) {             // front flank, tip→root
-      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
-      out.push(pt(rho, a + halfThick(rho)))
-    }
-    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a + thRoot)) // front root
-  }
-  return out
-}
-
 function gearTris(m, teeth, width, axis) {
   const T = Math.max(3, Math.round(teeth))
   const pitchR = (m * T) / 2
@@ -5745,7 +4925,19 @@ function gearTris(m, teeth, width, axis) {
   const tipR = pitchR + 0.85 * m
   const hh = width / 2
   const mm = Math.max(0.2, m)
-  const outline = gearOutline(T, pitchR, rootR, tipR)
+  // outline: 4 pts per tooth — root/tip flanks at angular half-widths scaled
+  // by radius so tooth thickness stays credible at root and tip
+  const aPitch = Math.PI / (2 * T)              // half-thickness angle at pitch
+  const aRoot = Math.min(aPitch * pitchR / rootR, (Math.PI / T) * 0.42)
+  const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
+  const outline = []
+  for (let i = 0; i < T; i += 1) {
+    const a = (i / T) * Math.PI * 2
+    outline.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
+    outline.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
+    outline.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
+    outline.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
+  }
   const N = outline.length
   // proper rotations only (det=+1) — a mirrored map flips every face inward
   const map = (x, y, z) => axis === 'z' ? [x, y, z] : axis === 'y' ? [x, z, -y] : [z, x, y]
@@ -6639,9 +5831,6 @@ function toGLB(tris) {
     steel: { c: [0.376, 0.424, 0.478], m: 0.85, r: 0.4 },
     brass: { c: [0.737, 0.596, 0.29], m: 0.8, r: 0.4 },
     pcb: { c: [0.125, 0.376, 0.275], m: 0.0, r: 0.7 },
-    copper: { c: [0.59, 0.33, 0.13], m: 0.15, r: 0.6 },
-    silk: { c: [0.93, 0.94, 0.92], m: 0.0, r: 0.8 },
-    pcbblue: { c: [0.05, 0.11, 0.30], m: 0.0, r: 0.6 },
     rubber: { c: [0.149, 0.165, 0.188], m: 0.0, r: 0.95 },
     glass: { c: [0.439, 0.839, 0.91], m: 0.0, r: 0.15 },
     servo: { c: [0.118, 0.133, 0.165], m: 0.3, r: 0.6 },
@@ -7615,9 +6804,7 @@ function benchOverlay(design, mat) {
  * Runs in design space (mm); the page's chassis transform carries it.
  */
 function wireOverlay(design, harness) {
-  // Scenes carry per-machine homes (harness.home === null) — one shared home
-  // point would draw wires to a fictional driver bay, so cables stay off.
-  if (!harness || !harness.home || !harness.rows || !harness.rows.length) return null
+  if (!harness || !harness.rows || !harness.rows.length) return null
   const chains = chainsFor(design)
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const colFor = {
@@ -8042,7 +7229,7 @@ function toURDF(design, analysis) {
     // studio pitch joints read positive = UP, i.e. they rotate by −angle about
     // +y; URDF has no sign convention, so the axis itself carries the flip.
     // Slides keep their raw axis — linear displacement has no pitch inversion.
-    const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
+    const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
     const axU = axisVec(j.axis).map((v) => v * sgn)
     L.push(`    <axis xyz="${axU.map((v) => r6(v)).join(' ')}"/>`)
     // effort and velocity must be real: a zero effort limit means the joint
@@ -8129,7 +7316,7 @@ function toMJCF(design, analysis) {
       const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
       const pos = [pv[0] - pp[0], pv[1] - pp[1], pv[2] - pp[2]].map((v) => r4(v / 1000)).join(' ')
       // same pitch inversion as URDF: studio +angle is −rotation about +y
-      const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
+      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
       const axis = axisVec(j.axis).map((v) => v * sgn)
       const axisStr = axis.map((v) => r4(v)).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
@@ -9550,30 +8737,19 @@ function fixSuggestions(s) {
   // solver's problem, only provable outsiders get the prescription.
   if (s.reach && s.reach.c && s.reach.r) {
     let worst = null
-    const deskById = new Map(DESK_PROPS.map((p) => [p.id, p]))
     for (const p of DESK_PROPS) {
       const dx = Math.max(Math.abs(p.pos[0] - s.reach.c[0]) - p.size[0] / 2, 0)
       const dy = Math.max(Math.abs(p.pos[1] - s.reach.c[1]) - p.size[1] / 2, 0)
       const dz = Math.max(Math.abs(p.pos[2] - s.reach.c[2]) - p.size[2] / 2, 0)
       const gap = Math.hypot(dx, dy, dz) - s.reach.r
-      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap, sphere: true }
-    }
-    // the bound sphere is an outer bound — a prop inside it can still be
-    // unreachable at every joint angle (analysis IK-probes each prop). Those
-    // get the same prescription, sized by the solver's miss distance.
-    for (const u of s.reach.unreachable || []) {
-      const p = deskById.get(u.id)
-      if (p && (!worst || u.miss > worst.gap)) worst = { prop: p, gap: u.miss, sphere: false }
+      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap }
     }
     if (worst) {
       const arch = brief.archetype || ''
       const DEF = { arm: 450, robot: 450, humanoid: 620 }
       const cur = brief.reachMm || DEF[arch] || 450
       const next = Math.min(1200, Math.ceil((cur + worst.gap * 1.2) / 20) * 20)
-      const how = worst.sphere
-        ? `sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound`
-        : `is inside the ${Math.round(s.reach.r)}mm bound but no joint solve reaches it (~${Math.round(worst.gap)}mm miss)`
-      push('warn', `Fix reach: ${worst.prop.name} ${how} — lengthen the arm`,
+      push('warn', `Fix reach: ${worst.prop.name} sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound — lengthen the arm`,
         next > cur ? { reachMm: next } : null)
     }
   }
@@ -9867,7 +9043,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
-  { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
+  { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 90mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 92, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400, battery: 'lipo3s' } },
@@ -9876,7 +9052,6 @@ const PRESETS = [
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
-  { id: 'scene', label: 'Workshop scene', brief: { archetype: 'scene', mission: 'a lineup: pick-and-place arm, survey rover and a sensor node sharing one bench', scene: SCENE_DEFAULT } },
   // The spec card: nodes/joints ARE the design — agents author these through
   // rigforge_build, humans through build codes. This starter is a real machine
   // (pan-tilt survey mast) so the card is never an empty promise.
@@ -9906,7 +9081,6 @@ const PRESETS = [
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
   const rules = [
-    ['scene', /workshop|scene|lineup|fleet|multiple machines|several (robots|machines)|all (the )?(machines|robots)/],
     ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
     ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
     ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
@@ -9975,8 +9149,7 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'scene' ? buildScene(b)
-    : b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
@@ -10765,10 +9938,6 @@ const MAT = {
   steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
   brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
   pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
-  // a board reads as a board when you can see copper and white ink on it
-  copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
-  silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
-  pcbblue: { alb: L(22, 46, 96), spec: 0.3, shine: 40, metal: 0.0, glow: 0.03, rough: 0.5 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
@@ -10869,6 +10038,27 @@ function project(p, cam, target, w, h) {
   const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
   const s = cam.ortho ? f : f * (cam.dist / (depth > 1 ? depth : 1))
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
+}
+
+/**
+ * Where a screen pixel lands on a horizontal plane at height z0. This is the
+ * inverse of project() for the one case dragging needs: the user's pointer is
+ * a ray, and the part lives on a plane, so they meet in exactly one place.
+ */
+function unprojectToPlane(px, py, z0, cam, target, w, h) {
+  const b = cam._basis || camBasis(cam, target)
+  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
+  const dx = (px - w / 2) / (f * cam.dist)
+  const dy = -(py - h / 2) / (f * cam.dist)
+  const dir = [
+    -b.back[0] + b.x[0] * dx + b.y[0] * dy,
+    -b.back[1] + b.x[1] * dx + b.y[1] * dy,
+    -b.back[2] + b.x[2] * dx + b.y[2] * dy,
+  ]
+  if (Math.abs(dir[2]) < 1e-6) return null
+  const t = (z0 - b.eye[2]) / dir[2]
+  if (t <= 0) return null
+  return [b.eye[0] + dir[0] * t, b.eye[1] + dir[1] * t]
 }
 
 /** Material for a triangle, with the multicolour-print tint applied to shells. */
@@ -11703,7 +10893,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, onGrab, onMoveNode, onDropNode, movedCount, onResetMoves }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const paintRef = useRef(null)
@@ -11778,11 +10968,16 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
-    // the fly-through drives the camera object in place and repaints directly:
-    // pushing a React state update at 60Hz re-rendered the whole studio and cost
-    // us 46 of the 60 frames a second
-    globalThis.__rfPaint = () => { cam._basis = null; schedule() }
-    globalThis.__rfCam = () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist })
+    // a probe for tests and for the interaction harness: what is under this pixel
+    globalThis.__rfPick = (px, py) => {
+      const cv = ref.current
+      if (!cv || !glRef.current || !glRef.current.pick) return null
+      const r = cv.getBoundingClientRect()
+      const hit = glRef.current.pick(mesh, px * (cv.width / r.width), py * (cv.height / r.height))
+      if (!hit) return null
+      const node = design.nodes.find((n) => n.id === hit.node)
+      return { node: hit.node, mat: hit.mat, grabbable: !!(node && !node.joint) }
+    }
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -11824,11 +11019,63 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)
 
+  // the drag state carries which kind of drag it is: an orbit of the camera, or
+  // a part being carried. A part under the pointer before the button went down
+  // is a grabbable thing — that is the hand.
+  const grab = useRef(null)
+
+  const nodeUnder = (e) => {
+    const cv = ref.current
+    if (!cv || !glRef.current || !glRef.current.pick) return null
+    const rect = cv.getBoundingClientRect()
+    const px = (e.clientX - rect.left) * (cv.width / rect.width)
+    const py = (e.clientY - rect.top) * (cv.height / rect.height)
+    const hit = glRef.current.pick(mesh, px, py)
+    if (!hit) return null
+    return design.nodes.find((n) => n.id === hit.node && !n.joint) || null
+  }
+
   const onDown = (e) => {
+    const node = nodeUnder(e)
+    if (node) {
+      grab.current = {
+        node,
+        z0: node.pos[2],
+        rect: ref.current.getBoundingClientRect(),
+        start: unprojectToPlane(
+          e.clientX - ref.current.getBoundingClientRect().left,
+          e.clientY - ref.current.getBoundingClientRect().top,
+          node.pos[2], cam, target, ref.current.width, ref.current.height,
+        ),
+        last: null,
+      }
+      if (onGrab) onGrab(node.id)
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      e.preventDefault()
+      return
+    }
     drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, moved: 0, cx: e.clientX, cy: e.clientY }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const onMove = (e) => {
+    const g = grab.current
+    if (g) {
+      const cv = ref.current
+      const rect = g.rect
+      const p = unprojectToPlane(
+        e.clientX - rect.left, e.clientY - rect.top,
+        g.z0, cam, target, cv.width, cv.height,
+      )
+      if (!p || !g.start) return
+      // 1mm snap: a part that cannot sit on the integer millimetre is a part
+      // you cannot dimension, and this is a drawing, so the grid is the truth
+      const dx = Math.round(p[0] - g.start[0])
+      const dy = Math.round(p[1] - g.start[1])
+      if (g.last && g.last[0] === dx && g.last[1] === dy) return
+      g.last = [dx, dy]
+      if (onMoveNode) onMoveNode(g.node.id, dx, dy)
+      return
+    }
     const d = drag.current
     if (!d) return
     const dx = e.clientX - d.x
@@ -11841,10 +11088,22 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
     })
   }
   const onUp = (e) => {
+    if (grab.current) {
+      const g = grab.current
+      grab.current = null
+      if (g.last && (g.last[0] !== 0 || g.last[1] !== 0) && onDropNode) onDropNode(g.node.id, g.last[0], g.last[1])
+      // a press with no movement is still a click: it opens the inspector
+      else inspectAt(e)
+      return
+    }
     const d = drag.current
     drag.current = null
     // a click, not a drag: pick the part under the pointer
-    if (!d || d.moved > 5 || !glRef.current || !glRef.current.pick) return
+    if (!d || d.moved > 5) return
+    inspectAt(e)
+  }
+  const inspectAt = (e) => {
+    if (!glRef.current || !glRef.current.pick) return
     const cv = ref.current
     if (!cv) return
     const rect = cv.getBoundingClientRect()
@@ -11923,6 +11182,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    // what you moved, and the way back. A part you can carry but not put back is
+    // a trap, not a tool.
+    movedCount ? h('div', { style: S.moveChip, 'data-rf': 'movedchip' },
+      h('span', {}, `${movedCount} part${movedCount > 1 ? 's' : ''} moved · mass and checks recomputed`),
+      h('button', { style: S.moveChipBtn, onClick: onResetMoves, title: 'put everything back' }, 'RESET'),
+    ) : null,
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
     // viewport into a sheet an engineer can hand to a client.
@@ -11935,13 +11200,7 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
-      // A board is FR4 with copper and ENIG, not a 3D-printed part: the title block
-      // on a PCB drawing that says "PETG (FDM)" is simply wrong, and it is the
-      // first thing a hardware person reads.
-      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'),
-        h('span', { style: S.tbVal }, design.pcb
-          ? 'FR4 1.6mm · 2 layers · ENIG'
-          : `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
       h('div', { style: S.tbRow },
         h('span', { style: S.tbKey }, 'STATUS'),
         h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
@@ -13274,14 +12533,19 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
-  viewPlay: {
-    padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
-    background: 'rgba(255,106,26,0.10)', color: C.accent,
-    fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
-  },
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  moveChip: {
+    position: 'absolute', left: '12px', bottom: '96px', display: 'flex', alignItems: 'center',
+    gap: '8px', padding: '5px 8px 5px 10px', borderRadius: '6px',
+    border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.10)',
+    fontFamily: C.mono, fontSize: '9.5px', color: C.accent, letterSpacing: '0.04em', zIndex: 6,
+  },
+  moveChipBtn: {
+    padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'rgba(255,106,26,0.22)',
+    color: C.accent, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
@@ -13329,12 +12593,8 @@ const S = {
 
   // ── spec rail ───────────────────────────────────────────────────────────
   tabs: {
-    // nine tabs do not fit a 376px column: measured 490px of labels, so CODE and
-    // STEPS used to render past the edge with no affordance that they existed.
-    // Wrapping to two rows keeps every tab visible; scrolling hid a fifth of the
-    // product behind a gesture nobody performs.
-    display: 'flex', flexWrap: 'wrap', gap: '1px 2px', padding: '0 4px 2px',
-    borderBottom: `1px solid ${C.line}`, background: C.panel,
+    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
+    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
   },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
@@ -14366,42 +13626,6 @@ const CAM_FOR = (dims) => {
   return { ...CAM0, dist: clamp(diag * 1.06, 300, 5200) }
 }
 
-// ── the fly-through ────────────────────────────────────────────────────────
-// The first thing you should be able to do with a design is *look at it like a
-// thing*, not like a drawing. Seven camera keys: close on a detail, pull out,
-// drop through the machine, rise, settle on the iso the app opens with. Distance
-// is a multiple of the fitted distance so it works at 90mm and at 3 metres.
-const FLY_KEYS = [
-  [0.00, { yaw: 1.62, pitch: 0.05, d: 0.26 }],
-  [0.16, { yaw: 1.15, pitch: 0.14, d: 0.58 }],
-  [0.32, { yaw: 0.62, pitch: 0.26, d: 0.92 }],
-  [0.46, { yaw: 0.18, pitch: 0.10, d: 0.14 }],
-  [0.58, { yaw: -0.34, pitch: 0.52, d: 0.72 }],
-  [0.78, { yaw: -0.86, pitch: 0.68, d: 1.22 }],
-  [1.00, { yaw: CAM0.yaw, pitch: CAM0.pitch, d: 1.00 }],
-]
-const FLY_MS = 11000
-const ease = (t) => t * t * (3 - 2 * t)
-
-function flyAt(t, base) {
-  const k = FLY_KEYS
-  let i = 0
-  while (i < k.length - 2 && t > k[i + 1][0]) i += 1
-  const [t0, a] = k[i]
-  const [t1, b] = k[i + 1]
-  const u = ease(Math.max(0, Math.min(1, (t - t0) / (t1 - t0 || 1))))
-  // shortest way round, so the orbit never whips backwards through a full turn
-  let dy = b.yaw - a.yaw
-  while (dy > Math.PI) dy -= Math.PI * 2
-  while (dy < -Math.PI) dy += Math.PI * 2
-  return {
-    yaw: a.yaw + dy * u,
-    pitch: a.pitch + (b.pitch - a.pitch) * u,
-    dist: base.dist * (a.d + (b.d - a.d) * u),
-    ortho: false,
-  }
-}
-
 function StatChip({ k, v, color, title }) {
   return h('div', { style: S.statChip, title },
     h('span', { style: S.statKey }, k),
@@ -14922,7 +14146,39 @@ function Studio() {
   const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
-  const { design, analysis } = spec
+  // ── hands ─────────────────────────────────────────────────────────────────
+  // A part can be picked up and put down somewhere else. Geometry moves every
+  // frame (30ms mesh rebuild); the analysis is recomputed ONCE on release,
+  // because analyze() costs 190-245ms and a number that lags the part is a
+  // number that lies about it.
+  const [moves, setMoves] = useState({})
+  const [reAnalysis, setReAnalysis] = useState(null)
+  const design = useMemo(() => {
+    const ids = Object.keys(moves)
+    if (!ids.length) return spec.design
+    return {
+      ...spec.design,
+      nodes: spec.design.nodes.map((n) => {
+        const m = moves[n.id]
+        return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+      }),
+    }
+  }, [spec, moves])
+  const movesKey = useMemo(() => JSON.stringify(moves), [moves])
+  const analysis = reAnalysis && reAnalysis.key === movesKey ? reAnalysis.value : spec.analysis
+  const dropNode = useCallback((id, dx, dy) => {
+    const next = { ...moves, [id]: [dx, dy] }
+    setMoves(next)
+    const nodes = spec.design.nodes.map((n) => {
+      const m = next[n.id]
+      return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+    })
+    setReAnalysis({ key: JSON.stringify(next), value: analyze({ ...spec.design, nodes }) })
+    // instrumentation for the interaction harness: a drop must recompute, and a
+    // test that cannot see the recompute cannot tell a tool from a screenshot
+    globalThis.__rfStats = { ...(globalThis.__rfStats || {}), drops: ((globalThis.__rfStats || {}).drops || 0) + 1 }
+  }, [moves, spec])
+  useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
@@ -14932,50 +14188,6 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [flyOn, setFlyOn] = useState(false)
-  const flyRaf = useRef(0)
-  const camRef = useRef(null)
-  useEffect(() => { camRef.current = cam }, [cam])
-  const stopFly = useCallback(() => {
-    cancelAnimationFrame(flyRaf.current)
-    flyRaf.current = 0
-    setFlyOn(false)
-  }, [])
-  const startFly = useCallback(() => {
-    cancelAnimationFrame(flyRaf.current)
-    const base = CAM_FOR(analysis.dims)
-    const t0 = performance.now()
-    setFlyOn(true)
-    const step = () => {
-      const t = Math.min(1, (performance.now() - t0) / FLY_MS)
-      const f = flyAt(t, base)
-      const live = camRef.current
-      if (live) {
-        live.yaw = f.yaw
-        live.pitch = f.pitch
-        live.dist = f.dist
-        live.ortho = false
-        if (globalThis.__rfPaint) globalThis.__rfPaint()
-      }
-      if (t < 1) flyRaf.current = requestAnimationFrame(step)
-      else { flyRaf.current = 0; setCam({ ...f }); setFlyOn(false) }
-    }
-    flyRaf.current = requestAnimationFrame(step)
-  }, [analysis.dims])
-  // any deliberate camera move cancels the flight: the flight is a suggestion
-  useEffect(() => () => cancelAnimationFrame(flyRaf.current), [])
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-        e.preventDefault()
-        flyOn ? stopFly() : startFly()
-      }
-      if (e.key === 'Escape' && flyOn) stopFly()
-    }
-    window.addEventListener('keydown', onKey)
-    globalThis.__rfFly = () => startFly()
-    return () => window.removeEventListener('keydown', onKey)
-  }, [flyOn, startFly, stopFly])
   const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
@@ -16323,7 +15535,14 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, {
+          mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis,
+          overlay: benchOvWorld, focus: camFocus,
+          onMoveNode: (id, dx, dy) => setMoves((m) => ({ ...m, [id]: [dx, dy] })),
+          onDropNode: dropNode,
+          movedCount: Object.keys(moves).length,
+          onResetMoves: () => { setMoves({}); setReAnalysis(null) },
+        }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -16589,13 +15808,6 @@ function Studio() {
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
-          h('button', {
-            style: flyOn ? S.viewChipOn : S.viewPlay,
-            'aria-pressed': flyOn,
-            title: 'fly-through — close on a detail, through the machine, out to iso (F)',
-            onClick: () => (flyOn ? stopFly() : startFly()),
-          }, flyOn ? 'MOVE' : 'FLY'),
-          h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
             VIEWS.map(([label, yaw, pitch]) => {
               const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02

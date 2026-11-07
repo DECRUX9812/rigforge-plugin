@@ -593,7 +593,39 @@ function Studio() {
   const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
-  const { design, analysis } = spec
+  // ── hands ─────────────────────────────────────────────────────────────────
+  // A part can be picked up and put down somewhere else. Geometry moves every
+  // frame (30ms mesh rebuild); the analysis is recomputed ONCE on release,
+  // because analyze() costs 190-245ms and a number that lags the part is a
+  // number that lies about it.
+  const [moves, setMoves] = useState({})
+  const [reAnalysis, setReAnalysis] = useState(null)
+  const design = useMemo(() => {
+    const ids = Object.keys(moves)
+    if (!ids.length) return spec.design
+    return {
+      ...spec.design,
+      nodes: spec.design.nodes.map((n) => {
+        const m = moves[n.id]
+        return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+      }),
+    }
+  }, [spec, moves])
+  const movesKey = useMemo(() => JSON.stringify(moves), [moves])
+  const analysis = reAnalysis && reAnalysis.key === movesKey ? reAnalysis.value : spec.analysis
+  const dropNode = useCallback((id, dx, dy) => {
+    const next = { ...moves, [id]: [dx, dy] }
+    setMoves(next)
+    const nodes = spec.design.nodes.map((n) => {
+      const m = next[n.id]
+      return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+    })
+    setReAnalysis({ key: JSON.stringify(next), value: analyze({ ...spec.design, nodes }) })
+    // instrumentation for the interaction harness: a drop must recompute, and a
+    // test that cannot see the recompute cannot tell a tool from a screenshot
+    globalThis.__rfStats = { ...(globalThis.__rfStats || {}), drops: ((globalThis.__rfStats || {}).drops || 0) + 1 }
+  }, [moves, spec])
+  useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
@@ -1994,7 +2026,14 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, {
+          mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis,
+          overlay: benchOvWorld, focus: camFocus,
+          onMoveNode: (id, dx, dy) => setMoves((m) => ({ ...m, [id]: [dx, dy] })),
+          onDropNode: dropNode,
+          movedCount: Object.keys(moves).length,
+          onResetMoves: () => { setMoves({}); setReAnalysis(null) },
+        }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
