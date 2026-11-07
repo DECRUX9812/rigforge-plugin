@@ -149,5 +149,11 @@ function buildRover(brief) {
     motor,
     battery,
   })
+  // The camera head pans on a real servo that is already in the BOM; without the
+  // actuator row the pan joint has no torque and no part name downstream.
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: 0, servo: 'mg90s', ratio: 1, effective: PARTS.mg90s.torque,
+  }))
+
   return d
 }
