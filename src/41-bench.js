@@ -491,7 +491,11 @@ function workspaceMap(design, analysis, opts = {}) {
   if (!tip) return null
   const sphere = armReachBound(tip)
   if (!sphere) return null
-  const payloadG = opts.payloadG != null ? opts.payloadG : 300
+  // The load this map is drawn against has to be the load the machine was asked
+  // to carry. It defaulted to a 300g dummy while the motion sim used the brief's
+  // payloadKg, so the same machine was certified against two different weights.
+  const briefPayloadG = Math.round(((design.brief && design.brief.payloadKg) || 0) * 1000)
+  const payloadG = opts.payloadG != null ? opts.payloadG : briefPayloadG > 0 ? briefPayloadG : 300
   const dirs = opts.dirs || 42
   const radii = opts.radii || [0.45, 0.65, 0.85]
   const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
