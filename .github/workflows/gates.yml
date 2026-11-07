@@ -34,6 +34,13 @@ jobs:
         # "describe it and get it" is the first promise: a sentence that lands on
         # the wrong builder is the product failing at step one.
         run: node tests/brief.mjs
+      - name: every preset exports every format (when the gate exists)
+        # one machine exporting says nothing about the other twelve: a board that
+        # emits an empty STL or a drone with no URDF is a hole nobody sees
+        run: |
+          if [ -f tests/presets-export.mjs ]; then
+            node tests/presets-export.mjs
+          fi
       - name: every preset builds (when the gate exists)
         # the width of the product is its preset list. Exercising the two I am
         # working on says nothing about the other eleven.
