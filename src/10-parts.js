@@ -577,6 +577,11 @@ const PARTS = {
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
   },
+  clamp_m6: {
+    name: 'Bench clamp, M6 (steel)', cat: 'mech', price: 2.4, mass: 38, volts: 0,
+    conn: 'M6 T-bolt, 12mm slot', sku: 'M6 hold-down clamp set', src: 'amzn',
+    note: 'A bench arm is not free-standing: it bolts to the table. Two of these carry the overturning moment at full extension.',
+  },
   extlead_300: {
     name: 'Servo extension lead 300mm (JR)', cat: 'mech', price: 2, mass: 12, volts: 0,
     conn: 'JR 3-pin extension', sku: 'servo extension cable 300mm JR', src: 'ali',

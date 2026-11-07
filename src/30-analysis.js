@@ -463,7 +463,19 @@ function analyze(design) {
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
   } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
-    checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
+    const limitA = Number(design.brief && design.brief.limitA) || 0
+    if (limitA > 0 && limitA <= power.bat.maxA) {
+      checks.push({
+        level: 'ok',
+        msg: `Stall/peak is ${fmt(power.peak, 1)}A, but the driver is limited to ${fmt(limitA, 1)}A in firmware — a jam is clamped below the pack's ${power.bat.maxA}A burst instead of browning out the MCU. Stalls now arrive as a stall warning, not a reboot.`,
+      })
+    } else {
+      checks.push({
+        level: 'warn',
+        fix: { id: 'current-limit', label: `Limit to ${fmt(power.bat.maxA * 0.8, 0)}A`, patch: { limitA: Math.round(power.bat.maxA * 0.8 * 10) / 10 } },
+        msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.`,
+      })
+    }
   }
   if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
@@ -517,10 +529,21 @@ function analyze(design) {
   }
   if (overhang.brim && overhang.brim.length) {
     const names = overhang.brim.slice(0, 3).map((p) => `${prettyPart(p.id)} (${Math.round(p.contact * 100)}%)`).join(', ')
-    checks.push({
-      level: 'warn',
-      msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
-    })
+    // A warning you cannot act on is a fact, not advice. Applying the fix sets
+    // brief.brim, which travels into the print pack and the spec — so the ack
+    // here is a claim about a real artefact, not a dismissed banner.
+    if (design.brief && design.brief.brim) {
+      checks.push({
+        level: 'ok',
+        msg: `Brim enabled in the print pack for ${overhang.brim.length} part(s) — ${names}. The 3MF and the spec sheet both carry the setting.`,
+      })
+    } else {
+      checks.push({
+        level: 'warn',
+        fix: { id: 'brim', label: 'Add a brim', patch: { brim: true } },
+        msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
+      })
+    }
   }
   const wall = wallReport(design)
   if (wall.thin.length) {

@@ -93,6 +93,13 @@ function buildArm(brief) {
     return { servo, ratio }
   }
 
+  // A 420mm serial arm on a 150mm base cannot stand on its own: at full
+  // extension its centre of mass sits outside the plate. Real ones are bolted
+  // down, so the clamps are part of the machine and the bench test asks whether
+  // the base lifts, not whether the arm balances like a rover.
+  d.fixedBase = true
+  addPart(d, 'clamp_m6', 2, 'bench clamps — carries the overturning moment')
+
   d.actuators = []
   const sized = (label, need, key) => {
     const pick = pickServo(need, key, label)
@@ -145,7 +152,7 @@ function buildArm(brief) {
   bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
   bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
 
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85)
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85, undefined, 30)
 
   box(d, 'upper-arm', [L1, ARM_SEG.w, ARM_SEG.h], [L1 / 2, 0, baseH], 'shell', { joint: 'shoulder', print: true })
   for (const sy of [-1, 1]) {
@@ -160,7 +167,7 @@ function buildArm(brief) {
   bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
   bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
 
-  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140)
+  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140, undefined, -55)
 
   box(d, 'forearm', [L2, ARM_SEG.w - 6, ARM_SEG.h - 4], [L1 + L2 / 2, 0, baseH], 'shell', { joint: 'elbow', print: true })
   for (const sy of [-1, 1]) {

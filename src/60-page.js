@@ -383,7 +383,7 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest, onFix }) {
   // The primary CTA is picked by meaning: the export list keeps growing, and
   // selecting the "print pack" by index once shipped a whole-machine STL under a
   // button that promised a zip.
@@ -467,7 +467,16 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
             },
           },
             h('span', { style: { color: levelColor(c.level), flex: '0 0 auto', fontFamily: C.mono } }, c.level === 'fail' ? '✕' : '!'),
-            h('span', {}, c.msg)))))
+            h('span', { style: { flex: '1' } }, c.msg),
+            // a warning you cannot act on is a fact, not advice
+            c.fix
+              ? h('button', {
+                style: { ...S.btn, height: '24px', padding: '0 8px', fontSize: '10px', flex: '0 0 auto', whiteSpace: 'nowrap', borderColor: levelColor(c.level), color: levelColor(c.level) },
+                title: `apply this fix: ${c.fix.label}`,
+                'aria-label': `Apply fix: ${c.fix.label}`,
+                onClick: () => onFix(c.fix),
+              }, `↳ ${c.fix.label}`)
+              : null))))
       : null),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '7px' } },
       h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
@@ -573,6 +582,24 @@ function Studio() {
   const [advanced, setAdvanced] = useState(false)
   const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
+  const menuRef = useRef(null)
+  // An Export menu that survives a click on the viewport is a menu the user has
+  // to dismiss by clicking Export again. Outside click and Escape both close it.
+  useEffect(() => {
+    if (!menu) return undefined
+    const onDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenu(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(false) }
+    // capture phase: the viewport's own pointer handlers stop propagation, so a
+    // bubble-phase listener never hears the click that should dismiss the menu
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
@@ -1768,7 +1795,7 @@ function Studio() {
           h('span', { style: { ...S.dot, background: link === 'live' ? C.green : link === 'offline' ? C.red : C.faint } }),
           'Ask Hermes'),
 
-        h('div', { style: { position: 'relative' } },
+        h('div', { style: { position: 'relative' }, ref: menuRef },
           h('button', { style: S.btn, onClick: () => setMenu((m) => !m), 'aria-expanded': !!menu }, 'Export ▾'),
           menu
             ? h('div', { style: S.menu },
@@ -2070,7 +2097,19 @@ function Studio() {
               }, '×'))
           })
           : h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, padding: '2px 0 4px' } },
-            'Nothing saved yet. Press SAVE and the build lands here with its own build code.'),
+            h('div', { style: { marginBottom: '6px' } }, 'Nothing saved yet. Press SAVE and the build lands here with its own build code.'),
+            // An empty shelf is where a first-time user stops. Give them something
+            // to open with one click instead of a sentence about saving.
+            h('button', {
+              style: { ...S.btn, height: '26px', padding: '0 9px', fontSize: '10.5px' },
+              title: 'open a worked example so the shelf is not empty',
+              'aria-label': 'Load a sample build into the shelf',
+              onClick: () => {
+                const sample = PRESETS.find((p) => p.id === 'robot') || PRESETS[0]
+                setBrief({ ...DEFAULT_BRIEF, ...sample.brief })
+                setMission(sample.brief.mission || sample.label)
+              },
+            }, '↳ load a sample build')),
 
         h('div', { style: { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, fontSize: '10px', color: C.faint, lineHeight: 1.5 } },
           'Deterministic engine: torque, current, mass and print time are computed, not narrated. The agent redesigns; the maths here is yours.')),
@@ -2621,6 +2660,10 @@ function Studio() {
             onCompare: () => setCompareOpen(true),
             onTest: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('test') },
             onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+            // Applying a fix edits the BRIEF, not the rendered design: the build is
+            // pure, so the recompute is the same one every other control goes
+            // through and cannot drift from it.
+            onFix: (fix) => { if (fix && fix.patch) setBrief((cur) => ({ ...cur, ...fix.patch })) },
           }))
           : h('div', {
             style: S.tabs, role: 'tablist',

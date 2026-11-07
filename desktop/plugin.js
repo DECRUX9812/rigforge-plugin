@@ -611,6 +611,11 @@ const PARTS = {
     conn: 'power runs to ~7A', sku: '18AWG silicone wire red black', src: 'amzn',
     note: 'The motor-rail wire. 22AWG on a 4A rail is a heater, not a wire.',
   },
+  clamp_m6: {
+    name: 'Bench clamp, M6 (steel)', cat: 'mech', price: 2.4, mass: 38, volts: 0,
+    conn: 'M6 T-bolt, 12mm slot', sku: 'M6 hold-down clamp set', src: 'amzn',
+    note: 'A bench arm is not free-standing: it bolts to the table. Two of these carry the overturning moment at full extension.',
+  },
   extlead_300: {
     name: 'Servo extension lead 300mm (JR)', cat: 'mech', price: 2, mass: 12, volts: 0,
     conn: 'JR 3-pin extension', sku: 'servo extension cable 300mm JR', src: 'ali',
@@ -1073,9 +1078,13 @@ function bend(d, id, R, r, deg, pos, rot, mat, extra) {
  * A revolute joint. `parent` defaults to the previously declared joint (a
  * serial chain); a branching machine passes it explicitly.
  */
-function joint(d, id, label, axis, pivot, min, max, parent) {
+function joint(d, id, label, axis, pivot, min, max, parent, restAngle) {
   const fallback = d.joints.length ? d.joints[d.joints.length - 1].id : null
-  d.joints.push({ id, label, axis, pivot, angle: 0, min, max, parent: parent === undefined ? fallback : parent })
+  // A joint's rest pose is a design decision, not always zero: a serial arm built
+  // flat out along +X stands with its centre of mass 55mm outside its own base
+  // plate, so the first thing the product told the user was "fails pre-print".
+  const angle = Number.isFinite(restAngle) ? restAngle : 0
+  d.joints.push({ id, label, axis, pivot, angle, min, max, parent: parent === undefined ? fallback : parent })
 }
 
 /**
@@ -1426,6 +1435,13 @@ function buildArm(brief) {
     return { servo, ratio }
   }
 
+  // A 420mm serial arm on a 150mm base cannot stand on its own: at full
+  // extension its centre of mass sits outside the plate. Real ones are bolted
+  // down, so the clamps are part of the machine and the bench test asks whether
+  // the base lifts, not whether the arm balances like a rover.
+  d.fixedBase = true
+  addPart(d, 'clamp_m6', 2, 'bench clamps — carries the overturning moment')
+
   d.actuators = []
   const sized = (label, need, key) => {
     const pick = pickServo(need, key, label)
@@ -1478,7 +1494,7 @@ function buildArm(brief) {
   bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
   bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
 
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85)
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [0, 0, baseH], -85, 85, undefined, 30)
 
   box(d, 'upper-arm', [L1, ARM_SEG.w, ARM_SEG.h], [L1 / 2, 0, baseH], 'shell', { joint: 'shoulder', print: true })
   for (const sy of [-1, 1]) {
@@ -1493,7 +1509,7 @@ function buildArm(brief) {
   bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
   bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
 
-  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140)
+  joint(d, 'elbow', 'Elbow pitch', 'y', [L1, 0, baseH], -140, 140, undefined, -55)
 
   box(d, 'forearm', [L2, ARM_SEG.w - 6, ARM_SEG.h - 4], [L1 + L2 / 2, 0, baseH], 'shell', { joint: 'elbow', print: true })
   for (const sy of [-1, 1]) {
@@ -4749,7 +4765,19 @@ function analyze(design) {
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
   } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
-    checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
+    const limitA = Number(design.brief && design.brief.limitA) || 0
+    if (limitA > 0 && limitA <= power.bat.maxA) {
+      checks.push({
+        level: 'ok',
+        msg: `Stall/peak is ${fmt(power.peak, 1)}A, but the driver is limited to ${fmt(limitA, 1)}A in firmware — a jam is clamped below the pack's ${power.bat.maxA}A burst instead of browning out the MCU. Stalls now arrive as a stall warning, not a reboot.`,
+      })
+    } else {
+      checks.push({
+        level: 'warn',
+        fix: { id: 'current-limit', label: `Limit to ${fmt(power.bat.maxA * 0.8, 0)}A`, patch: { limitA: Math.round(power.bat.maxA * 0.8 * 10) / 10 } },
+        msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.`,
+      })
+    }
   }
   if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
@@ -4803,10 +4831,21 @@ function analyze(design) {
   }
   if (overhang.brim && overhang.brim.length) {
     const names = overhang.brim.slice(0, 3).map((p) => `${prettyPart(p.id)} (${Math.round(p.contact * 100)}%)`).join(', ')
-    checks.push({
-      level: 'warn',
-      msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
-    })
+    // A warning you cannot act on is a fact, not advice. Applying the fix sets
+    // brief.brim, which travels into the print pack and the spec — so the ack
+    // here is a claim about a real artefact, not a dismissed banner.
+    if (design.brief && design.brief.brim) {
+      checks.push({
+        level: 'ok',
+        msg: `Brim enabled in the print pack for ${overhang.brim.length} part(s) — ${names}. The 3MF and the spec sheet both carry the setting.`,
+      })
+    } else {
+      checks.push({
+        level: 'warn',
+        fix: { id: 'brim', label: 'Add a brim', patch: { brim: true } },
+        msg: `${overhang.brim.length} part(s) touch the bed on under 30% of their footprint — ${names}. Give the slicer a brim or raft, or the first layer can lift mid-print.`,
+      })
+    }
   }
   const wall = wallReport(design)
   if (wall.thin.length) {
@@ -7883,8 +7922,25 @@ function benchReport(design, analysis, opts = {}) {
   const worst = torques.reduce((a, b) => (b.needNm / Math.max(b.stallNm, 1e-6)) > (a.needNm / Math.max(a.stallNm, 1e-6)) ? b : a, torques[0] || { needNm: 0, stallNm: 1, label: '—', joint: '—' })
   const verdicts = []
   const status = (ok, warn, label, detail) => verdicts.push({ label, status: ok ? 'pass' : warn ? 'warn' : 'fail', detail })
-  status(flatMm > 15, flatMm > 0, 'Stability (flat)', `${Math.round(flatMm)}mm CoM margin inside the ${hull.length}-point support polygon · ${Math.round(massG)}g`)
-  status(slopeMm > 0, slopeMm > -10, `Stability @ ${slopeDeg}° slope`, `${Math.round(slopeMm)}mm margin on the ramp plane`)
+  // A fixed-base machine is bolted to the bench, so "does the CoM sit inside the
+  // foot print" is the wrong question — a serial arm's CoM leaves the plate the
+  // moment it extends. The real question is whether the fixings can carry the
+  // overturning moment, and the clamps are in the BOM when they can.
+  const fixed = !!design.fixedBase
+  if (fixed) {
+    const clamps = (design.parts || []).filter((p) => p.key === 'clamp_m6').reduce((n, p) => n + p.qty, 0)
+    const overhangMm = Math.max(0, -flatMm)
+    // holding moment of two M6 clamps on a 150mm plate, derated 2×: ~120 N·m
+    const holdingNm = clamps * 60
+    const tipNm = (massG / 1000) * 9.81 * (overhangMm / 1000 + 0.05)
+    const ok = clamps >= 2 && holdingNm > tipNm * 2
+    status(ok, ok, 'Base stability (bolted)', clamps
+      ? `${clamps}× M6 clamps hold ${Math.round(holdingNm)} N·m against a ${tipNm.toFixed(1)} N·m overturning moment; CoM sits ${Math.round(overhangMm)}mm past the plate, which is normal for a fixed-base arm at rest.`
+      : `CoM sits ${Math.round(overhangMm)}mm outside the base plate and nothing holds it down — clamp or bolt the base, or the arm lifts off the bench at full extension.`)
+  } else {
+    status(flatMm > 15, flatMm > 0, 'Stability (flat)', `${Math.round(flatMm)}mm CoM margin inside the ${hull.length}-point support polygon · ${Math.round(massG)}g`)
+    status(slopeMm > 0, slopeMm > -10, `Stability @ ${slopeDeg}° slope`, `${Math.round(slopeMm)}mm margin on the ramp plane`)
+  }
   const tj = torques.length ? torques.reduce((a, b) => (a.margin < b.margin ? a : b)) : null
   if (tj) status(tj.margin > 1.5, tj.margin > 1.0, 'Worst joint torque', `${tj.label}: needs ${tj.needNm.toFixed(2)} N·m, stall ${tj.stallNm.toFixed(2)} N·m → ${tj.margin.toFixed(1)}× margin`)
   else status(true, true, 'Actuators', 'no gravity-loaded revolute joints')
@@ -13678,6 +13734,10 @@ const C = {
 const GLOBAL_CSS = `
 [data-rf="root"] * { box-sizing: border-box; }
 [data-rf="root"] button, [data-rf="root"] [role="button"] { font: inherit; }
+/* WCAG 2.2 target size (minimum) is 24x24. Inline styles set explicit heights on
+   the dense rows — a pose chip is 18px, a compass button 23px — and min-height
+   beats height, so one rule lifts every control without touching its look. */
+[data-rf="root"] button, [data-rf="root"] [role="button"] { min-height: 24px; }
 [data-rf="root"] button:focus-visible,
 [data-rf="root"] input:focus-visible,
 [data-rf="root"] textarea:focus-visible,
@@ -13984,15 +14044,20 @@ const S = {
     fontWeight: 600,
   },
   viewChip: {
-    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    // WCAG 2.2 target size is 24x24: these sat at 23px and are the most-used
+    // controls in the product (the overlay row).
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '24px', padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
   viewPlay: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: '24px',
     padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
     background: 'rgba(255,106,26,0.10)', color: C.accent,
     fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewChipOn: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: '24px',
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
@@ -15453,7 +15518,7 @@ function CommandPalette({ open, commands, onClose }) {
 }
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
-function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest, onFix }) {
   // The primary CTA is picked by meaning: the export list keeps growing, and
   // selecting the "print pack" by index once shipped a whole-machine STL under a
   // button that promised a zip.
@@ -15537,7 +15602,16 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
             },
           },
             h('span', { style: { color: levelColor(c.level), flex: '0 0 auto', fontFamily: C.mono } }, c.level === 'fail' ? '✕' : '!'),
-            h('span', {}, c.msg)))))
+            h('span', { style: { flex: '1' } }, c.msg),
+            // a warning you cannot act on is a fact, not advice
+            c.fix
+              ? h('button', {
+                style: { ...S.btn, height: '24px', padding: '0 8px', fontSize: '10px', flex: '0 0 auto', whiteSpace: 'nowrap', borderColor: levelColor(c.level), color: levelColor(c.level) },
+                title: `apply this fix: ${c.fix.label}`,
+                'aria-label': `Apply fix: ${c.fix.label}`,
+                onClick: () => onFix(c.fix),
+              }, `↳ ${c.fix.label}`)
+              : null))))
       : null),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '7px' } },
       h('div', { style: S.simpleLabel }, 'WHAT TO BUY'),
@@ -15643,6 +15717,24 @@ function Studio() {
   const [advanced, setAdvanced] = useState(false)
   const [allMachines, setAllMachines] = useState(false)
   const [menu, setMenu] = useState(false)
+  const menuRef = useRef(null)
+  // An Export menu that survives a click on the viewport is a menu the user has
+  // to dismiss by clicking Export again. Outside click and Escape both close it.
+  useEffect(() => {
+    if (!menu) return undefined
+    const onDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenu(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setMenu(false) }
+    // capture phase: the viewport's own pointer handlers stop propagation, so a
+    // bubble-phase listener never hears the click that should dismiss the menu
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
   const [shelf, setShelf] = useState(() => (CTX && CTX.storage.get('shelf', [])) || [])
   const [certHistory, setCertHistory] = useState(() => (CTX && CTX.storage.get('certHistory', [])) || [])
   const [link, setLink] = useState('idle') // 'live' | 'offline' | 'idle'
@@ -16838,7 +16930,7 @@ function Studio() {
           h('span', { style: { ...S.dot, background: link === 'live' ? C.green : link === 'offline' ? C.red : C.faint } }),
           'Ask Hermes'),
 
-        h('div', { style: { position: 'relative' } },
+        h('div', { style: { position: 'relative' }, ref: menuRef },
           h('button', { style: S.btn, onClick: () => setMenu((m) => !m), 'aria-expanded': !!menu }, 'Export ▾'),
           menu
             ? h('div', { style: S.menu },
@@ -17140,7 +17232,19 @@ function Studio() {
               }, '×'))
           })
           : h('div', { style: { fontSize: '10.5px', color: C.faint, lineHeight: 1.5, padding: '2px 0 4px' } },
-            'Nothing saved yet. Press SAVE and the build lands here with its own build code.'),
+            h('div', { style: { marginBottom: '6px' } }, 'Nothing saved yet. Press SAVE and the build lands here with its own build code.'),
+            // An empty shelf is where a first-time user stops. Give them something
+            // to open with one click instead of a sentence about saving.
+            h('button', {
+              style: { ...S.btn, height: '26px', padding: '0 9px', fontSize: '10.5px' },
+              title: 'open a worked example so the shelf is not empty',
+              'aria-label': 'Load a sample build into the shelf',
+              onClick: () => {
+                const sample = PRESETS.find((p) => p.id === 'robot') || PRESETS[0]
+                setBrief({ ...DEFAULT_BRIEF, ...sample.brief })
+                setMission(sample.brief.mission || sample.label)
+              },
+            }, '↳ load a sample build')),
 
         h('div', { style: { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${C.line}`, fontSize: '10px', color: C.faint, lineHeight: 1.5 } },
           'Deterministic engine: torque, current, mass and print time are computed, not narrated. The agent redesigns; the maths here is yours.')),
@@ -17691,6 +17795,10 @@ function Studio() {
             onCompare: () => setCompareOpen(true),
             onTest: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('test') },
             onEngineer: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+            // Applying a fix edits the BRIEF, not the rendered design: the build is
+            // pure, so the recompute is the same one every other control goes
+            // through and cannot drift from it.
+            onFix: (fix) => { if (fix && fix.patch) setBrief((cur) => ({ ...cur, ...fix.patch })) },
           }))
           : h('div', {
             style: S.tabs, role: 'tablist',

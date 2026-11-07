@@ -40,6 +40,10 @@ const C = {
 const GLOBAL_CSS = `
 [data-rf="root"] * { box-sizing: border-box; }
 [data-rf="root"] button, [data-rf="root"] [role="button"] { font: inherit; }
+/* WCAG 2.2 target size (minimum) is 24x24. Inline styles set explicit heights on
+   the dense rows — a pose chip is 18px, a compass button 23px — and min-height
+   beats height, so one rule lifts every control without touching its look. */
+[data-rf="root"] button, [data-rf="root"] [role="button"] { min-height: 24px; }
 [data-rf="root"] button:focus-visible,
 [data-rf="root"] input:focus-visible,
 [data-rf="root"] textarea:focus-visible,
@@ -346,15 +350,20 @@ const S = {
     fontWeight: 600,
   },
   viewChip: {
-    padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
+    // WCAG 2.2 target size is 24x24: these sat at 23px and are the most-used
+    // controls in the product (the overlay row).
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '24px', padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
   viewPlay: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: '24px',
     padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
     background: 'rgba(255,106,26,0.10)', color: C.accent,
     fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewChipOn: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: '24px',
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },

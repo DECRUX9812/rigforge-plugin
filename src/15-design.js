@@ -355,9 +355,13 @@ function bend(d, id, R, r, deg, pos, rot, mat, extra) {
  * A revolute joint. `parent` defaults to the previously declared joint (a
  * serial chain); a branching machine passes it explicitly.
  */
-function joint(d, id, label, axis, pivot, min, max, parent) {
+function joint(d, id, label, axis, pivot, min, max, parent, restAngle) {
   const fallback = d.joints.length ? d.joints[d.joints.length - 1].id : null
-  d.joints.push({ id, label, axis, pivot, angle: 0, min, max, parent: parent === undefined ? fallback : parent })
+  // A joint's rest pose is a design decision, not always zero: a serial arm built
+  // flat out along +X stands with its centre of mass 55mm outside its own base
+  // plate, so the first thing the product told the user was "fails pre-print".
+  const angle = Number.isFinite(restAngle) ? restAngle : 0
+  d.joints.push({ id, label, axis, pivot, angle, min, max, parent: parent === undefined ? fallback : parent })
 }
 
 /**
