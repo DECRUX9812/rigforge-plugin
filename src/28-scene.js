@@ -123,6 +123,12 @@ function buildScene(brief) {
       if (nj.axis !== j.axis) nj.axis0 = j.axis
       d.joints.push(nj)
     }
+    // Carry the sub-machine's actuators with the same label prefix the joints got.
+    // The bench matches by label, so a scene that renames joints but drops
+    // actuators reports no torque margins at all — every joint reads unmeasurable.
+    for (const a of sd.actuators || []) {
+      d.actuators.push({ ...a, label: `${label} · ${a.label}`, category: a.category })
+    }
     for (const p of sd.parts || []) addPart(d, p.key, p.qty, `${label}: ${p.role || 'part'}`)
     // A machine that fails its own checks fails the scene — the lineup is
     // only as buildable as its weakest member.

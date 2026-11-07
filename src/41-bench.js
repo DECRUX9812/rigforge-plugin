@@ -535,7 +535,10 @@ function workspaceMap(design, analysis, opts = {}) {
       const tp = benchNodeWorld(posed, chainsFor(posed), tipNode)
       const tor = benchTorqueMargins(posed, mat, [{ joint: tipNode.joint, pos: [tp[0], tp[1], tp[2] - 35], massG: payloadG }])
       const worst = tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity })
-      const ok = worst.margin >= 1
+      // An EMPTY margin list used to read as "infinitely strong" and counted every
+      // reachable target as liftable. It means the torque model could not resolve
+      // this joint at all — that is unknown, not capable.
+      const ok = tor.length > 0 && worst.margin >= 1
       if (ok) lift += 1
       pts.push({ p: target, lift: ok })
     }
