@@ -485,6 +485,18 @@ check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table',
 })
 
 // ── 14. the machines we ship as presets are buildable as shown ──────────────
+check('bench and motion share one payload number, not two', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const briefG = Math.round((design.brief.payloadKg || 0) * 1000)
+  const ws = A.workspaceMap(design, analysis, {})
+  assert(ws, 'arm has no workspace map')
+  assert(briefG > 0, `arm brief declares no payload (${briefG}g)`)
+  assert(ws.stats.payloadG === briefG,
+    `workspace lifts ${ws.stats.payloadG}g while the brief asks for ${briefG}g`)
+  return `workspace and certification both use the brief's ${briefG}g (${ws.stats.lift}/${ws.stats.total} targets lift it)`
+})
+
 check('every preset builds with zero failures', () => {
   eachPreset((p, { analysis }) => {
     const fails = analysis.checks.filter((c) => c.level === 'fail')
