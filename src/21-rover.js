@@ -53,9 +53,9 @@ function buildRover(brief) {
 
   // sensor mast + head
   rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
-  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true })
-  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
-  cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true, joint: 'head-pan' })
+  elec(d, 'head-tof', 'vl53l0x', [wheelbase * 0.34 + 37, 0, z0 + chassisH + 167], [2, 0, 1], { joint: 'head-pan' })
+  elec(d, 'head-cam', 'ov2640', [wheelbase * 0.34 + 48, 26, z0 + chassisH + 173], null, { joint: 'head-pan' })
 
   // the BOM's electronics are real parts, not implied: controller + IMU on
   // the deck, and the second VL53L0X faces down under the rear bumper as the
@@ -74,7 +74,7 @@ function buildRover(brief) {
   elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
   // XT60 at the pack feed, between the fuse and the drivers
   elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
-  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
+  elec(d, 'tof-drop', 'vl53l0x', [-wheelbase / 2 - 6, 0, z0 - 8])
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
@@ -116,6 +116,7 @@ function buildRover(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
+  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'jst_kit', 1, 'connectors')
   addPart(d, 'xt60', 1, 'pack connector')

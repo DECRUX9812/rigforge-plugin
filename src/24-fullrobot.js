@@ -176,9 +176,9 @@ function buildFullRobot(brief) {
   const headX = wheelbase / 2 + 2
   const headY = 0
   box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
-  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
-  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
-  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
+  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true, joint: 'head-pan' })
+  elec(d, 'tof', 'vl53l0x', [headX + 33, -14, deckZ + 58], [2, 0, 1], { joint: 'head-pan' })
+  elec(d, 'cam', 'ov2640', [headX + 44, 16, deckZ + 62], null, { joint: 'head-pan' })
   joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
   // ── drive sizing ────────────────────────────────────────────────────────
@@ -201,6 +201,7 @@ function buildFullRobot(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
+  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'mg90s', 1, 'head pan')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'bearing608', 2, 'turret + shoulder')
