@@ -49,6 +49,14 @@ const TABLE = [
   ['a sensor node in a box', 'iot'],
   ['a production line of three machines', 'scene'],
   ['an assembly line with a rover and an arm', 'scene'],
+  // adversarial: several nouns at once. First-rule-wins got some of these wrong
+  // because list order, not evidence, decided the answer.
+  ['a robot arm on a rover that drives around the yard', 'robot'],
+  ['a quadruped with a gripper that opens doors', 'quadruped'],
+  ['a drone with four propellers and a camera', 'drone'],
+  ['a weather station with a small solar panel', 'iot'],
+  ['a 5 dof arm with a gripper for sorting bolts', 'arm'],
+  ['a track driven rover with a camera mast', 'rover'],
 ]
 
 // The parser is allowed to emit these; every one of them must have a builder,
