@@ -451,12 +451,18 @@ check('CPL: every placement has designator, layer and coordinates', () => {
 // ── 12b. board courtyards are manufacturable, and bad briefs fail loudly ─────
 check('board fit: pcb courtyards clear outline, keep-outs and each other', () => {
   const p = A.PRESETS.find((x) => x.id === 'pcb')
-  const { analysis } = A.composeDesign({ ...p.brief })
+  const { design, analysis } = A.composeDesign({ ...p.brief })
   const fitFails = analysis.checks.filter((c) => c.level === 'fail' && /courtyard|keep-out|connector zone|drill-to-copper/.test(c.msg))
   assert(fitFails.length === 0, `default ${analysis.checks && ''}board has ${fitFails.length} fit failures: ${fitFails[0] && fitFails[0].msg}`)
   const small = A.composeDesign({ ...p.brief, reachMm: 60 }).analysis
   assert(small.checks.some((c) => c.level === 'fail' && /courtyard/.test(c.msg)), 'a 60mm outline should fail courtyard fit, not silently clamp')
-  return 'default clean · 60mm honestly refused'
+  // SMT assembly needs vision targets: two fiducial pads on a diagonal, drawn
+  // as geometry and proven clear of every courtyard by the fit audit
+  const fids = (design.pcb && design.pcb.fiducials) || []
+  assert(fids.length === 2, `default board should carry 2 fiducials, got ${fids.length}`)
+  assert(Math.sign(fids[0].x) !== Math.sign(fids[1].x) && Math.sign(fids[0].y) !== Math.sign(fids[1].y), 'fiducials should sit on a diagonal for rotation vision')
+  for (const f of fids) assert((design.nodes || []).some((n) => n.id === f.id), `fiducial ${f.id} should exist as board geometry`)
+  return 'default clean · 60mm honestly refused · 2 diagonal fiducials'
 })
 
 // ── 13. wiring: the wire carries the stall case, the fuse never exceeds it ──

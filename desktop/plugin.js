@@ -3447,6 +3447,85 @@ function auditBoardFit(d, placed, W, H) {
       }
     }
   }
+
+  // 5 — pick-and-place access: a machine passive closer than ~2mm to the
+  // outline leaves no room for the nozzle, and courtyards nearer than ~0.5mm
+  // leave no room to work between them. Hand-placed modules are exempt —
+  // an iron doesn't need nozzle clearance.
+  for (const { p, bb } of boxes) {
+    if (p.kind !== 'passive') continue
+    const edgeGap = Math.min(bb[0] - bx0, bb[1] - by0, bx1 - bb[2], by1 - bb[3])
+    if (edgeGap < 2) {
+      d.checks.push({ level: 'warn', msg: `${name(p)} courtyard sits ${Math.max(0, edgeGap).toFixed(1)}mm from the board edge — pick-and-place nozzles need ~2mm.` })
+    }
+  }
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].bb, b = boxes[j].bb
+    const gx = Math.max(a[0] - b[2], b[0] - a[2], 0)
+    const gy = Math.max(a[1] - b[3], b[1] - a[3], 0)
+    const gap = Math.hypot(gx, gy)
+    if (gap > 0 && gap < 0.5 && (boxes[i].p.kind === 'passive' || boxes[j].p.kind === 'passive')) {
+      d.checks.push({ level: 'warn', msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards are ${gap.toFixed(2)}mm apart — under the ~0.5mm a placement nozzle needs between parts.` })
+    }
+  }
+
+  // 6 — fiducials: machine assembly wants two bare-copper marks on a diagonal
+  // for vision alignment. They are board features, not placements, so they
+  // get their own keep-out check against every courtyard.
+  for (const f of d.pcb.fiducials || []) {
+    const fb = [f.x - 1.6, f.y - 1.6, f.x + 1.6, f.y + 1.6]
+    for (const { p, bb } of boxes) {
+      if (bb[0] < fb[2] && bb[2] > fb[0] && bb[1] < fb[3] && bb[3] > fb[1]) {
+        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard covers fiducial ${f.id} — the assembler's vision target must stay bare.` })
+        break
+      }
+    }
+  }
+}
+
+/**
+ * Pick-and-place fiducials: two 1mm bare-copper marks the assembler's vision
+ * uses for panel alignment — they belong on a diagonal so rotation is
+ * observable. Scan the usable field on a coarse grid, keep spots whose 3.2mm
+ * keep-out box clears every courtyard, the antenna keep-out, the USB zone and
+ * the drill pads, then take the best-separated pair. Returns [] when the
+ * layout genuinely has no room — the caller says so honestly.
+ */
+function placeFiducials(placed, W, H) {
+  const edge = 0.3, margin = 4 // fiducial centre stays this far off the outline
+  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
+  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
+  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
+  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
+  const boxes = placed.map((p) => ({ bb: placedAabb(p, courtyardOf(p)) }))
+  const clear = (x, y) => {
+    const fb = [x - 1.6, y - 1.6, x + 1.6, y + 1.6]
+    if (fb[0] < bx0 || fb[1] < by0 || fb[2] > bx1 || fb[3] > by1) return false
+    const hit = (k) => fb[0] < k[2] && fb[2] > k[0] && fb[1] < k[3] && fb[3] > k[1]
+    if (hit(keepout) || hit(usb)) return false
+    for (const b of boxes) if (hit(b.bb)) return false
+    for (const [hx, hy] of holes) if (Math.hypot(hx - x, hy - y) < 4) return false
+    return true
+  }
+  const spots = []
+  for (let x = -W / 2 + margin; x <= W / 2 - margin; x += 3) {
+    for (let y = -H / 2 + margin; y <= H / 2 - margin; y += 3) {
+      if (clear(x, y)) spots.push([x, y])
+    }
+  }
+  // best diagonal pair: maximise separation, prefer opposite corners
+  let best = null
+  for (let i = 0; i < spots.length; i++) for (let j = i + 1; j < spots.length; j++) {
+    const sep = Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1])
+    const diag = Math.sign(spots[i][0]) !== Math.sign(spots[j][0]) && Math.sign(spots[i][1]) !== Math.sign(spots[j][1]) ? 1 : 0
+    const score = sep + diag * 20
+    if (sep >= 20 && (!best || score > best.score)) best = { a: spots[i], b: spots[j], score }
+  }
+  if (!best) return []
+  return [
+    { id: 'fid-1', x: Math.round(best.a[0] * 10) / 10, y: Math.round(best.a[1] * 10) / 10 },
+    { id: 'fid-2', x: Math.round(best.b[0] * 10) / 10, y: Math.round(best.b[1] * 10) / 10 },
+  ]
 }
 
 function buildPcb(brief) {
@@ -3498,7 +3577,13 @@ function buildPcb(brief) {
     placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
   }
   d.pcb = { placed, W, H, T }
+  d.pcb.fiducials = placeFiducials(placed, W, H)
   auditBoardFit(d, placed, W, H)
+  // bare-copper fiducial pads: the assembler's vision targets, drawn as the
+  // 1mm pads they are — audit already proved no courtyard covers them
+  for (const f of d.pcb.fiducials) {
+    cyl(d, f.id, 0.5, 0.2, [f.x, f.y, T / 2 + 0.1], 'z', 'brass')
+  }
 
   // ── BOM ────────────────────────────────────────────────────────────────
   addPart(d, brief.mcu || 'esp32s3', 1, 'U1 controller')
@@ -3518,6 +3603,9 @@ function buildPcb(brief) {
   const machinePlaced = placed.filter((p) => p.kind === 'passive').length
   // joints on the board itself: two per passive, and a header row per module
   d.pcb.joints = placed.reduce((n, p) => n + (p.kind === 'passive' ? 2 : 8), 0)
+  d.notes.push(d.pcb.fiducials.length === 2
+    ? 'Two fiducial pads give the assembler vision a diagonal reference — bare copper, no paste.'
+    : 'No room for fiducial pads in this layout — hand-place the passives or panelize for machine assembly.')
   d.notes.push(`${placed.length} placements: ${handPlaced} modules you solder or socket, ${machinePlaced} passives a pick-and-place machine does in seconds.`)
   d.notes.push(W > 100
     ? `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — over the 100mm cheap-tier width, so the next fab price band.`
