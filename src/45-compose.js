@@ -150,6 +150,18 @@ function parseBrief(text) {
   if (mm && !(out.wheelMm && parseInt(mm[1], 10) === out.wheelMm)) out.reachMm = parseInt(mm[1], 10)
   const cm = text.match(/(\d{1,3})\s*cm/i)
   if (!mm && cm) out.reachMm = parseInt(cm[1], 10) * 10
+  // Metres and inches are how most of the world actually specifies a machine.
+  // Only mm/cm were understood, so "a 2m gantry" and "a 7 inch drone" silently
+  // kept the default size — the sentence named a size and the design ignored it.
+  const metres = text.match(/(\d+(?:[.,]\d+)?)\s*(?:m\b(?!m)|metres?\b|meters?\b)/i)
+  if (!mm && !cm && metres) out.reachMm = Math.round(parseFloat(metres[1].replace(',', '.')) * 1000)
+  const inchRaw = text.match(/(\d+(?:[.,]\d+)?)\s*(?:inch(?:es)?|in\b|")/i)
+  if (inchRaw) {
+    const inchMm = Math.round(parseFloat(inchRaw[1].replace(',', '.')) * 25.4)
+    // on a flying machine the inch number IS the prop size — "a 7 inch drone"
+    if (out.archetype === 'drone') out.propMm = clamp(inchMm, 90, 220)
+    else if (!mm && !cm && !metres) out.reachMm = inchMm
+  }
   const dof = text.match(/([3-6])\s*(?:dof|degrees? of freedom|axis)/i)
   if (dof) out.dof = parseInt(dof[1], 10)
   if (/petg/i.test(text)) out.material = 'petg'
