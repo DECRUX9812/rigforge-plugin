@@ -922,14 +922,26 @@ check('electronics: BOM parts stay clear of the mechanism at every pose', () => 
     gantry: ['ctrl-base', 'ctrl-wall-y-1', 'ctrl-wall-y1', 'ctrl-wall-x-1', 'ctrl-wall-x1', 'drv8825-a', 'drv8825-b', 'drv8825-c', 'esp32', 'buck5a', 'fuse', 'cap1000', 'rocker', 'xt60'],
   }
   const bbOf = (design, chains, n) => {
-    const w = A.benchNodeWorld(design, chains, n)
     let sx, sy, sz
     if (n.kind === 'cyl' || n.kind === 'cone' || n.kind === 'ring') {
       const r = n.radius || n.outer || 10
       const h = n.height || n.outer || 10
       if (n.axis === 'x') { sx = h; sy = 2 * r; sz = 2 * r } else if (n.axis === 'y') { sx = 2 * r; sy = h; sz = 2 * r } else { sx = 2 * r; sy = 2 * r; sz = h }
     } else { [sx, sy, sz] = n.size || [10, 10, 10] }
-    return { x0: w[0] - sx / 2, y0: w[1] - sy / 2, z0: w[2] - sz / 2, x1: w[0] + sx / 2, y1: w[1] + sy / 2, z1: w[2] + sz / 2 }
+    const half = [sx / 2, sy / 2, sz / 2]
+    const np = n.pos || [0, 0, 0]
+    const j = n.joint ? design.joints.find((jj) => jj.id === n.joint) : null
+    const chain = j ? chains.get(j.id) : null
+    const s = A.slideDisp(design, n)
+    // posed AABB: node.rot about the centre, then the joint chain, then slide —
+    // the same order the mesh builder uses, so a rotated link can't hide a hit
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]
+    for (let c = 0; c < 8; c++) {
+      const off = A.rotEuler([half[0] * (c & 1 ? 1 : -1), half[1] * (c & 2 ? 1 : -1), half[2] * (c & 4 ? 1 : -1)], n.rot)
+      const w = A.applyChain(chain, [np[0] + off[0], np[1] + off[1], np[2] + off[2]])
+      for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], w[i] + s[i]); max[i] = Math.max(max[i], w[i] + s[i]) }
+    }
+    return { x0: min[0], y0: min[1], z0: min[2], x1: max[0], y1: max[1], z1: max[2] }
   }
   const hits = []
   for (const [arch, ids] of Object.entries(EXPECTED)) {
