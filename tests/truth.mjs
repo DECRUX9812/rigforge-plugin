@@ -1995,6 +1995,8 @@ check('drone: the props clear the frame and each other', () => {
   const propMm = design.drone.propMm
   assert(closest > propMm + 4, `closest motor spacing ${closest.toFixed(1)}mm vs prop Ø${propMm}mm — blades would intersect`)
   return `closest pair ${closest.toFixed(0)}mm apart, prop Ø${propMm}mm`
+})
+
 check('scale: the reference figure is exactly 1.75m tall and stands clear of the design', () => {
   const p = A.PRESETS.find((x) => x.id === 'arm')
   const { design } = A.composeDesign({ ...p.brief })
