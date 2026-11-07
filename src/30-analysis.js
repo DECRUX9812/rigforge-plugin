@@ -391,10 +391,22 @@ function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
-  const harness = harnessAnalysis(design)
+  // A scene is several independent machines, not one bus: each member already
+  // passed its own power/pin/harness checks inside composeDesign, so the merged
+  // totals must not be judged against a single pack or a single MCU.
+  const isScene = design.archetype === 'scene'
+  if (isScene) {
+    power.bat = null
+    power.runtimeMin = null
+    power.wiring = []
+    power.systems = (design.parts || []).filter((p) => PARTS[p.key]?.cat === 'battery').length
+    design.checks = design.checks || []
+    design.checks.push({ level: 'ok', msg: `Scene power: ${power.systems} independent pack(s) — each machine's runtime and wiring are certified in its own report, not summed onto one bus.` })
+  }
+  const harness = isScene ? (design._sceneHarness || null) : harnessAnalysis(design)
   // A joint the stock lead cannot reach is not a note — it is a part you must
   // buy. Put the extension in the BOM so cost and shopping list stay honest.
-  if (harness && harness.needExt && !design._harnessed) {
+  if (!isScene && harness && harness.needExt && !design._harnessed) {
     design._harnessed = true
     addPart(design, 'extlead_300', harness.needExt, `${harness.needExt} joint run(s) exceed stock servo lead`)
   }
@@ -441,22 +453,22 @@ function analyze(design) {
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
   }
-  if (power.bat && power.typ > power.bat.maxA) {
+  if (!isScene && power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
-  } else if (power.bat && power.peak > power.bat.maxA * 2) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 2) {
     // Far beyond the pack's burst is not a caution, it is the wrong pack: the
     // protection circuit trips or the cells sag before the machine moves.
     checks.push({
       level: 'fail',
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
-  } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }
-  if (power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
+  if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
   }
-  if (pins.used > pins.mcu.pinBudget) {
+  if (!isScene && pins.used > pins.mcu.pinBudget) {
     checks.push({ level: 'fail', msg: `Pin map wants ${pins.used} GPIO, ${pins.mcu.name} exposes ${pins.mcu.pinBudget}. Move the motors to an I2C driver or drop a sensor.` })
   }
   if (printGrams > 900) {
@@ -541,6 +553,31 @@ function analyze(design) {
   } else if (harness) {
     checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
   }
+  // ── drones: thrust margin and hover time ─────────────────────────────────
+  // A quad has two numbers that decide whether it flies at all: how much lift
+  // four discs make against its own weight, and how many minutes that buys.
+  // Both come from momentum theory in droneReport(), not from a lookup table.
+  let drone = null
+  if (design.drone) {
+    drone = droneReport(design.drone, totalMassG)
+    const twr = drone.twr
+    if (twr < 1.0) {
+      checks.push({ level: 'fail', msg: `Lift-to-weight is ${twr.toFixed(2)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g of thrust for a ${Math.round(totalMassG)}g machine. It cannot leave the ground. Bigger props, more voltage, or less mass.` })
+    } else if (twr < 1.5) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight is ${twr.toFixed(2)}:1. It will hover, but with almost no control authority — a quad wants 2:1 minimum and 3:1 to handle wind.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
+    }
+    if (drone.hoverThrottle > 0.75) {
+      checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
+    }
+    if (drone.minutes < 3) {
+      checks.push({ level: 'warn', msg: `Hover endurance is ${drone.minutes.toFixed(1)} min on ${design.drone.mah}mAh — short even for FPV. A bigger pack costs mass, which costs hover power: check the trade before buying.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Hover endurance ${drone.minutes.toFixed(1)} min at ${drone.hoverAmps.toFixed(1)}A on ${design.drone.mah}mAh (80% usable), drawing ${Math.round(drone.hoverWatts)}W.` })
+    }
+  }
+
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -567,6 +604,7 @@ function analyze(design) {
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
+    drone,
     dims,
     checks,
     mcu: pins.mcu,

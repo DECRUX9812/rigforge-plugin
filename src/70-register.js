@@ -55,20 +55,26 @@ const plugin = {
       // console unavailable (SSR/test harness) — never fatal
     }
 
-    ctx.contribution(ROUTES_AREA, {
+    // The host's surface is ctx.register({ id, area, … }) — one call per area.
+    // ctx.contribution() was an older shape that no longer exists: calling it
+    // throws, the loader drops the whole plugin, and the user sees "rigforge
+    // failed to register" with no page at all.
+    ctx.register({
       id: 'rigforge.page',
-      data: { path: ROUTE },
-      title: 'Rigforge',
+      area: ROUTES_AREA,
+      data: { path: ROUTE, title: 'Rigforge' },
       render: () => h(Studio),
     })
 
-    ctx.contribution(SIDEBAR_NAV_AREA, {
+    ctx.register({
       id: 'rigforge.nav',
+      area: SIDEBAR_NAV_AREA,
       data: { path: ROUTE, label: 'Rigforge', codicon: 'circuit-board' },
     })
 
-    const quick = (id, label, keywords, brief, detail) => ctx.contribution(PALETTE_AREA, {
+    const quick = (id, label, keywords, brief, detail) => ctx.register({
       id,
+      area: PALETTE_AREA,
       data: {
         label,
         keywords,
@@ -93,8 +99,9 @@ const plugin = {
     quick('rigforge.quad', 'Rigforge: new quadruped', ['quadruped', 'walking', 'servos'], PRESETS[2].brief, '12-servo gait machine')
     quick('rigforge.gadget', 'Rigforge: new ESP32 device', ['esp32', 'sensor', 'enclosure'], PRESETS[4].brief, 'Desk device with a printed case')
 
-    ctx.contribution(TRANSCRIPT_DIRECTIVE_AREA, {
+    ctx.register({
       id: 'rigforge.directive',
+      area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: 'rigforge',
         render: (props) => h(DirectiveCard, { attrs: props.attrs || {} }),

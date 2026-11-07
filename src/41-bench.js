@@ -338,7 +338,9 @@ function benchOverlay(design, mat) {
  * Runs in design space (mm); the page's chassis transform carries it.
  */
 function wireOverlay(design, harness) {
-  if (!harness || !harness.rows || !harness.rows.length) return null
+  // Scenes carry per-machine homes (harness.home === null) — one shared home
+  // point would draw wires to a fictional driver bay, so cables stay off.
+  if (!harness || !harness.home || !harness.rows || !harness.rows.length) return null
   const chains = chainsFor(design)
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const colFor = {

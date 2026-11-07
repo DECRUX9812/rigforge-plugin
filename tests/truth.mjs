@@ -1859,6 +1859,66 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   return `7 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · gantry PROBE/EXTREME resolve · unknown→null`
 })
 
+// ── 27b. scene mode: machines share a bench without sharing a bus ──────────
+check('scene mode: machines compose on one bench, keep own kinematics and BOM', () => {
+  const { design, analysis } = A.composeDesign({ archetype: 'scene' })
+  // several machines merged, joint ids namespaced so nothing collides
+  const prefixes = [...new Set(design.joints.map((j) => j.id.split('-')[0]))]
+  assert(prefixes.length >= 2, `scene should span multiple machines, got ${prefixes}`)
+  const ids = design.joints.map((j) => j.id)
+  assert(new Set(ids).size === ids.length, 'scene joint ids must be unique')
+  const nodeIds = design.nodes.map((n) => n.id)
+  assert(new Set(nodeIds).size === nodeIds.length, 'scene node ids must be unique')
+  // every machine floors on the bench and keeps a real footprint
+  const bb = A.boundsOf(design.nodes)
+  assert(bb.min[2] >= -0.5, `scene dips below the bench: zmin ${bb.min[2]}`)
+  for (const pre of prefixes) {
+    const ns = design.nodes.filter((n) => n.id.startsWith(pre + '-'))
+    assert(ns.length > 10, `${pre}: machine lost its nodes in the merge`)
+  }
+  // kinematics survive: posing a prefixed joint moves its links in world space
+  const j = design.joints.find((jj) => /-(elbow|shoulder|head-pan)$/.test(jj.id))
+  assert(j, 'scene should expose member joints')
+  const tagged = design.nodes.filter((n) => n.joint === j.id)
+  assert(tagged.length, `${j.id}: no nodes ride the joint`)
+  // A node centred exactly on its joint's pivot legitimately does not translate
+  // when that joint rotates — it spins in place. The honest claim is therefore
+  // not "this node moves" but "everything riding this joint is not pivot-centred":
+  // at least one link has to swing, or the joint drives nothing.
+  const chains = A.chainsFor(design, j.id)
+  const rest = j.angle || 0
+  const before = tagged.map((n) => A.benchNodeWorld(design, chains, n))
+  j.angle = rest + 25
+  const after = tagged.map((n) => A.benchNodeWorld(design, chains, n))
+  j.angle = rest
+  const moves = tagged.map((n, i) => ({
+    id: n.id,
+    mm: Math.hypot(after[i][0] - before[i][0], after[i][1] - before[i][1], after[i][2] - before[i][2]),
+  }))
+  const swung = moves.sort((a, b) => b.mm - a.mm)[0]
+  assert(swung.mm > 1, `${j.id}: nothing riding the joint moves under 25° — every node is pivot-centred (${moves.length} nodes)`)
+  // the BOM keeps per-machine provenance and the merged totals reconcile
+  const roles = new Set(design.parts.map((p) => String(p.role || '').split(':')[0]))
+  assert(roles.size >= prefixes.length, `BOM roles should name each machine, got ${[...roles]}`)
+  assert(analysis.cost > 50 && analysis.mass.totalG > 500, 'scene totals should reflect all members')
+  // power is per-machine: no single pack is asked to carry the whole lineup
+  assert(analysis.power.systems >= prefixes.length - 1, `expected per-machine power systems, got ${analysis.power.systems}`)
+  // honest refusals: empty scene fails, bad slots are skipped, nesting refused
+  const empty = A.composeDesign({ archetype: 'scene', scene: [] })
+  assert(empty.design.checks.some((c) => c.level === 'fail'), 'empty scene must fail, not default silently')
+  const bad = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm' }, { preset: 'not-a-machine' }] })
+  assert(bad.design.notes.some((n) => n.includes('not-a-machine')), 'bad slot should be named in notes')
+  assert(!bad.design.checks.some((c) => c.level === 'fail'), 'one bad slot must not sink the lineup')
+  const nested = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'scene' }, { preset: 'arm' }] })
+  assert(nested.design.joints.every((jj) => !jj.id.startsWith('s1-s') || jj.id.split('-').length > 2), 'scene-in-scene must be refused')
+  // determinism and member-check propagation
+  const again = A.composeDesign({ archetype: 'scene' })
+  assert(JSON.stringify(again.design.joints) === JSON.stringify(design.joints), 'scene must be deterministic')
+  const overloaded = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm', payloadKg: 99 }, { preset: 'iot' }] })
+  assert(overloaded.design.checks.some((c) => c.level === 'fail' && /arm/i.test(c.msg)), 'member failure must fail the scene')
+  return `${prefixes.length} machines · ${design.nodes.length} nodes · ${design.joints.length} joints · ${analysis.power.systems} power systems`
+})
+
 // ── 28. baked occlusion is real occlusion ──────────────────────────────────
 check('baked AO: an enclosed corner is darker than open sky, and the bake is deterministic', () => {
   const quad = (a, b, c, d, mat) => [
@@ -1887,6 +1947,74 @@ check('baked AO: an enclosed corner is darker than open sky, and the bake is det
     assert(Math.abs(aoCorner[i] - again[i]) < 1e-6, 'bake is not deterministic')
   }
   return `open ${mOpen.toFixed(2)} vs crevice ${mCorner.toFixed(2)}`
+})
+
+check('drone: lift-to-weight and hover endurance recompute from the geometry, not from the display', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  assert(p, 'no drone preset')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const d = analysis.drone
+  assert(d, 'drone analysis missing')
+  // recompute both numbers the way a physics text would, from published constants
+  const RHO = 1.225
+  const D = design.drone.propMm / 1000
+  const area = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = design.drone.cells * 3.7 * 0.9
+  const rpm = design.drone.kv * vPack * 0.85
+  const vExit = (rpm / 60) * pitch * 0.72
+  const thrustG = (4 * 0.5 * RHO * area * vExit * vExit * 1000) / 9.81
+  const twr = thrustG / analysis.mass.totalG
+  assert(Math.abs(twr - d.twr) < 0.02, `twr recompute ${twr.toFixed(3)} vs claimed ${d.twr.toFixed(3)}`)
+  assert(Math.abs(thrustG - d.thrustG) < 2, `thrust ${thrustG.toFixed(1)}g vs claimed ${d.thrustG.toFixed(1)}g`)
+  // endurance is capacity over current, with 80% usable
+  const minutes = ((design.drone.mah / 1000) * 0.8 * 60) / d.hoverAmps
+  assert(Math.abs(minutes - d.minutes) < 0.02, `endurance ${minutes.toFixed(2)} vs claimed ${d.minutes.toFixed(2)}`)
+  // hover current must be the power the discs need, at the pack voltage
+  const tHover = (analysis.mass.totalG / 1000) * 9.81 / 4
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * RHO * area)
+  const amps = ((4 * pHover) / 0.55) / vPack
+  assert(Math.abs(amps - d.hoverAmps) < 0.02, `hover amps ${amps.toFixed(2)} vs ${d.hoverAmps.toFixed(2)}`)
+  return `${Math.round(thrustG)}g thrust · ${twr.toFixed(1)}:1 · ${minutes.toFixed(1)} min`
+})
+
+check('drone: the props clear the frame and each other', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  const { design } = A.composeDesign({ ...p.brief })
+  const motors = design.nodes.filter((n) => /-motor$/.test(n.id))
+  assert(motors.length === 4, `expected 4 motors, got ${motors.length}`)
+  // nearest pair of motor axes must be wider than one prop, or the blades hit
+  let closest = Infinity
+  for (let i = 0; i < motors.length; i += 1) {
+    for (let j = i + 1; j < motors.length; j += 1) {
+      const dx = motors[i].pos[0] - motors[j].pos[0]
+      const dy = motors[i].pos[1] - motors[j].pos[1]
+      closest = Math.min(closest, Math.hypot(dx, dy))
+    }
+  }
+  const propMm = design.drone.propMm
+  assert(closest > propMm + 4, `closest motor spacing ${closest.toFixed(1)}mm vs prop Ø${propMm}mm — blades would intersect`)
+  return `closest pair ${closest.toFixed(0)}mm apart, prop Ø${propMm}mm`
+})
+
+check('scale: the reference figure is exactly 1.75m tall and stands clear of the design', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const { design } = A.composeDesign({ ...p.brief })
+  const ov = A.scaleFigureOverlay(design.nodes)
+  assert(ov && ov.data.length, 'no scale figure produced')
+  let minZ = Infinity, maxZ = -Infinity, minX = Infinity
+  for (let i = 0; i < ov.data.length; i += 6) {
+    const z = ov.data[i + 2]
+    const x = ov.data[i]
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+    if (x < minX) minX = x
+  }
+  const h = maxZ - minZ
+  assert(Math.abs(h - A.SCALE_HUMAN_MM) < 1, `figure is ${h.toFixed(1)}mm tall, claimed ${A.SCALE_HUMAN_MM}`)
+  const b = A.boundsOf(design.nodes)
+  assert(minX > b.max[0], `figure starts at ${minX.toFixed(0)}mm, inside the design's ${b.max[0].toFixed(0)}mm edge`)
+  return `${h.toFixed(1)}mm tall · clears the design by ${(minX - b.max[0]).toFixed(0)}mm`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────

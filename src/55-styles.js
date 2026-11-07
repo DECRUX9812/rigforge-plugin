@@ -349,9 +349,24 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
+  viewPlay: {
+    padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
+    background: 'rgba(255,106,26,0.10)', color: C.accent,
+    fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
+  },
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  moveChip: {
+    position: 'absolute', left: '12px', bottom: '96px', display: 'flex', alignItems: 'center',
+    gap: '8px', padding: '5px 8px 5px 10px', borderRadius: '6px',
+    border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.10)',
+    fontFamily: C.mono, fontSize: '9.5px', color: C.accent, letterSpacing: '0.04em', zIndex: 6,
+  },
+  moveChipBtn: {
+    padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'rgba(255,106,26,0.22)',
+    color: C.accent, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
@@ -399,8 +414,12 @@ const S = {
 
   // ── spec rail ───────────────────────────────────────────────────────────
   tabs: {
-    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
-    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+    // nine tabs do not fit a 376px column: measured 490px of labels, so CODE and
+    // STEPS used to render past the edge with no affordance that they existed.
+    // Wrapping to two rows keeps every tab visible; scrolling hid a fifth of the
+    // product behind a gesture nobody performs.
+    display: 'flex', flexWrap: 'wrap', gap: '1px 2px', padding: '0 4px 2px',
+    borderBottom: `1px solid ${C.line}`, background: C.panel,
   },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,

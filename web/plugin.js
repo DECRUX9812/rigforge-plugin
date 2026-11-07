@@ -309,6 +309,62 @@ const PARTS = {
     dims: [70, 35, 14], conn: 'XT30 + JST-XH balance', sku: '2S 1000mAh 30C LiPo XT30', src: 'amzn',
     note: 'Light and punchy. Needs a proper balance charger and a LiPo bag.',
   },
+  motor2207: {
+    name: '2207 2450KV brushless motor',
+    cat: 'actuator', price: 14, mass: 32, volts: 14.8,
+    dims: [28, 28, 32], shaft: 'Ø5mm M5 prop thread', mount: '16×16mm or 19×19mm',
+    sku: '2207 2450KV 3-6S brushless', src: 'amzn',
+    note: 'The 5-inch class standard. One per corner, and they all have to be the same.',
+  },
+  motor2806: {
+    name: '2806.5 1300KV brushless motor',
+    cat: 'actuator', price: 26, mass: 48, volts: 22.2,
+    dims: [34, 34, 34], shaft: 'Ø5mm', mount: '19×19mm',
+    sku: '2806.5 1300KV 6S', src: 'amzn',
+    note: 'The 7-inch long-range class: more disk, less revs, quieter.',
+  },
+  prop5: {
+    name: '5×4.3 3-blade propeller set',
+    cat: 'mech', price: 3, mass: 16, volts: 0,
+    dims: [127, 127, 8], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '5043 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Two CW, two CCW. Fit them the wrong way and the quad flips on arm.',
+  },
+  prop7: {
+    name: '7×3.5 3-blade propeller set',
+    cat: 'mech', price: 5, mass: 26, volts: 0,
+    dims: [178, 178, 9], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '7035 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Longer blades at lower revs: more efficient hover, slower top end.',
+  },
+  esc4in1: {
+    name: '4-in-1 45A BLHeli_S ESC',
+    cat: 'driver', price: 34, mass: 14, volts: 22.2, curr: { idle: 0.1, typ: 1.5, peak: 180 },
+    dims: [36, 36, 8], conn: 'solder pads, 4× motor + XT60 input',
+    sku: '45A 4-in-1 ESC 2-6S 30.5×30.5', src: 'amzn',
+    note: 'One board for four motors. Mount it under the flight controller, airflow across it.',
+  },
+  fc405: {
+    name: 'F405 flight controller',
+    cat: 'mcu', price: 42, mass: 9, volts: 5, curr: { idle: 0.12, typ: 0.35, peak: 0.8 },
+    dims: [36, 36, 8], pins: 12, conn: '30.5×30.5 stack, 8 motor/servo outputs',
+    sku: 'F405 V3 flight controller', src: 'amzn',
+    note: 'Runs the loop at 8kHz and the PID loop you will spend a weekend tuning.',
+  },
+  lipo4s: {
+    name: 'LiPo 4S 1500mAh 100C',
+    cat: 'battery', price: 30, mass: 190, volts: 14.8, mah: 1500, maxA: 150,
+    dims: [75, 35, 30], conn: 'XT60 + JST-XH balance',
+    sku: '4S 1500mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Short, hot flights. Land at 3.5V/cell or the pack puffs.',
+  },
+  lipo6s: {
+    name: 'LiPo 6S 1300mAh 100C',
+    cat: 'battery', price: 38, mass: 210, volts: 22.2, mah: 1300, maxA: 130,
+    dims: [78, 38, 32], conn: 'XT60 + JST-XH balance',
+    sku: '6S 1300mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Long range builds run 6S: less current for the same watts, cooler ESC.',
+  },
   lipo3s: {
     name: 'LiPo 3S 2200mAh 30C',
     cat: 'battery', price: 25, mass: 180, volts: 11.1, mah: 2200, maxA: 40,
@@ -1693,6 +1749,156 @@ function buildRover(brief) {
     battery,
   })
   return d
+}
+
+// ── drone: disk loading, thrust and hover time ──────────────────────────────
+// A quadcopter is not a robot with wheels: every gram is either thrust margin or
+// flight time, and the two trade against each other. The geometry here is the
+// easy part (four arms, four motors, four props). The interesting part is the
+// arithmetic in droneReport(): how much lift four discs of this size actually
+// make, at what throttle it hovers, and how many minutes that buys on the pack.
+
+const DRONE_AIR_RHO = 1.225 // kg/m³ at sea level, 15°C
+const DRONE_PROP_SLIP = 0.72 // real exit velocity is ~72% of geometric pitch speed
+const DRONE_FOM = 0.55 // figure of merit: motor + ESC + prop, lumped
+
+/**
+ * Momentum theory, no fudge factors beyond the two constants above.
+ *   thrust  T = ½·ρ·A·v²        (v = exit velocity through the disc)
+ *   power   P = T^1.5 / √(2ρA)   (ideal induced power)
+ * Everything the product claims about a quad comes out of those two lines, so a
+ * design that says 12 minutes has 12 minutes of arithmetic behind it.
+ */
+function droneReport(params, massG) {
+  const D = params.propMm / 1000
+  const A = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = params.cells * 3.7 * 0.9
+  const rpm = params.kv * vPack * 0.85
+  const vExit = (rpm / 60) * pitch * DRONE_PROP_SLIP
+  const tOne = 0.5 * DRONE_AIR_RHO * A * vExit * vExit // N
+  const thrustG = (4 * tOne * 1000) / 9.81
+  const massKg = Math.max(0.001, massG / 1000)
+  const weightN = massKg * 9.81
+  // hover: each motor carries a quarter of the weight
+  const tHover = weightN / 4
+  const vHover = Math.sqrt((2 * tHover) / (DRONE_AIR_RHO * A))
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * DRONE_AIR_RHO * A) // W, ideal, per motor
+  const pElec = (4 * pHover) / DRONE_FOM
+  const amps = pElec / vPack
+  const minutes = ((params.mah / 1000) * 0.8 * 60) / amps
+  return {
+    propMm: params.propMm,
+    diskAreaM2: A,
+    vExit,
+    thrustG,
+    twr: thrustG / massG,
+    hoverThrottle: vHover / vExit,
+    hoverAmps: amps,
+    hoverWatts: pElec,
+    minutes,
+    tipSpeed: Math.PI * D * (rpm / 60),
+  }
+}
+
+function buildDrone(brief) {
+  const d = newDesign('drone', brief)
+  // the prop size is the whole design: 5" and 7" are different machines, not a
+  // style choice. Take it from propMm, else from the reach slider the UI shows.
+  const wanted = brief.propMm || brief.reachMm || 127
+  const propKey = wanted >= 160 ? 'prop7' : 'prop5'
+  const propMm = propKey === 'prop7' ? 178 : 127
+  const motorKey = propKey === 'prop7' ? 'motor2806' : 'motor2207'
+  const kv = propKey === 'prop7' ? 1300 : 2450
+  const battKey = brief.battery === 'lipo6s' ? 'lipo6s' : propKey === 'prop7' ? 'lipo6s' : 'lipo4s'
+  const batt = PARTS[battKey]
+  const cells = Math.round(batt.volts / 3.7)
+
+  // motor diagonal: a 5" quad carries props that just clear each other, so the
+  // diagonal is the prop diameter plus a margin — 1.78× is the real-world ratio
+  const diagonal = clamp(Math.round(propMm * 1.78), 160, 900)
+  const armLen = Math.round(diagonal / 2 - 18)
+  const core = Math.round(diagonal * 0.42)
+  const payload = clampPayload(d, brief.payloadKg || 0, 0, 6)
+
+  d.title = `${propMm}mm ${propKey === 'prop7' ? '7' : '5'}-inch quad`
+  d.subtitle = `${diagonal}mm motor diagonal · ${batt.name.split(' ').slice(0, 2).join(' ')} · ${payload}kg payload`
+  d.metrics = {}
+
+  const zArm = 6
+  const zTop = 20
+
+  // ── plates and arms: the frame, printed ───────────────────────────────────
+  splitBox(d, 'plate-bottom', [core, core, 3], [0, 0, 3], 2, 'shell', 256, { print: true })
+  splitBox(d, 'plate-top', [Math.round(core * 0.72), Math.round(core * 0.72), 3], [0, 0, zTop], 2, 'shell', 256, { print: true })
+  for (let i = 0; i < 4; i += 1) {
+    const ang = (Math.PI / 4) + (i * Math.PI) / 2
+    const cx = Math.cos(ang)
+    const sy = Math.sin(ang)
+    const mid = armLen / 2 + 10
+    box(d, `arm-${i}`, [armLen, 14, 5], [cx * mid, sy * mid, zArm], 'shell', {
+      print: true,
+      rot: [0, 0, ang],
+    })
+    // motor mount pad, slightly wider than the arm so the bolts have material
+    cyl(d, `arm-pad-${i}`, 13, 4, [cx * (armLen + 12), sy * (armLen + 12), zArm + 2], 'z', 'shell', { print: true })
+
+    // motor: stator can + bell, then the prop on top of the bell
+    const mx = cx * (armLen + 12)
+    const my = sy * (armLen + 12)
+    cyl(d, `${nameOf(i)}-motor`, 13.5, 26, [mx, my, zArm + 15], 'z', 'metal')
+    cyl(d, `${nameOf(i)}-bell`, 14.5, 10, [mx, my, zArm + 30], 'z', 'steel')
+    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent')
+    for (let b = 0; b < 3; b += 1) {
+      const ba = (b * 2 * Math.PI) / 3
+      // a blade: length from the hub, thin, pitched a few degrees out of flat
+      box(d, `${nameOf(i)}-blade-${b}`, [propMm * 0.46, 11, 1.6],
+        [mx + Math.cos(ba) * propMm * 0.24, my + Math.sin(ba) * propMm * 0.24, zArm + 37],
+        'rubber', { rot: [0.18, 0, ba] })
+    }
+    // leg: the frame has to stand on something
+    cyl(d, `leg-${i}`, 4.5, 22, [cx * (core / 2 - 6), sy * (core / 2 - 6), -8], 'z', 'shell', { print: true })
+  }
+
+  // ── the stack: ESC under the flight controller, both on the 30.5 grid ─────
+  elec(d, 'esc', 'esc4in1', [0, 0, zArm + 6], null)
+  elec(d, 'fc', 'fc405', [0, 0, zArm + 14], null)
+  box(d, 'stack-standoff-a', [3, 3, 8], [15, 15, zArm + 10], 'steel')
+  box(d, 'stack-standoff-b', [3, 3, 8], [-15, -15, zArm + 10], 'steel')
+
+  // ── battery on top, strapped, with the camera out front ───────────────────
+  const bd = PARTS[battKey].dims
+  box(d, 'battery', [bd[0], bd[1], bd[2]], [0, Math.round(core * 0.06), zTop + 3 + bd[2] / 2], 'pcb')
+  // the pack is held by straps, and a pack without straps is a pack that leaves
+  // the frame on the first punch-out
+  for (const s of [-1, 1]) {
+    box(d, `strap-${s > 0 ? 'a' : 'b'}`, [11, bd[1] + 10, 3],
+      [s * Math.round(bd[0] * 0.26), Math.round(core * 0.06), zTop + 3 + bd[2] + 1.5], 'accent')
+  }
+  box(d, 'strap-lock', [16, 6, 6], [0, Math.round(core * 0.06) - bd[1] / 2 - 4, zTop + 3 + bd[2] + 1], 'pcb')
+  box(d, 'cam-bracket', [26, 8, 22], [core * 0.42, 0, zTop + 4], 'shell', { print: true, rot: [0.5, 0, 0] })
+  elec(d, 'cam', 'ov2640', [Math.round(core * 0.46), 0, zTop + 14], [0, 2, 1])
+  cyl(d, 'antenna', 1.4, 46, [0, -Math.round(core * 0.34), zTop + 26], 'z', 'steel')
+  cyl(d, 'antenna-tip', 3.2, 6, [0, -Math.round(core * 0.34), zTop + 48], 'z', 'accent')
+
+  // ── what you buy ─────────────────────────────────────────────────────────
+  addPart(d, motorKey, 4, 'Drive')
+  addPart(d, propKey, 4, 'Lift')
+  addPart(d, 'esc4in1', 1, 'Drive')
+  addPart(d, 'fc405', 1, 'Flight control')
+  addPart(d, battKey, 1, 'Power')
+  addPart(d, 'ov2640', 1, 'FPV')
+  addPart(d, 'xt60', 1, 'Power')
+  addPart(d, 'm3_screws', 16, 'Frame')
+
+  d.drone = {
+    propMm, kv, cells, mah: batt.mah, motors: 4, propKey, motorKey, battery: battKey, payloadKg: payload,
+  }
+  return d
+}
+
+function nameOf(i) {
+  return ['prop-fl', 'prop-fr', 'prop-rr', 'prop-rl'][i] || `prop-${i}`
 }
 
 // ── quadruped: the machine everyone wants and nobody budgets for ────────────
@@ -3343,6 +3549,180 @@ function buildGantry(brief) {
   return d
 }
 
+// ── scene: several machines sharing one bench ──────────────────────────────
+// A workshop lineup is a real deliverable — the rover beside the arm it feeds,
+// the sensor node watching both. Each machine is built through the normal
+// pipeline (own analysis, own BOM), then merged into ONE design: ids prefixed,
+// placement baked as yaw + offset. Cost, mass, pin budget, power and print
+// packing are then computed over the whole scene — two machines cannot
+// silently share a pin or a watt.
+//
+// v1 transforms are yaw-about-Z + translation only. Arbitrary orientation
+// would have to rotate every joint axis AND every node euler; yaw covers
+// "machines side by side on a bench" honestly, and the spec says so.
+
+const SCENE_GAP = 140 // mm of clear floor between machine envelopes
+const SCENE_DEFAULT = [
+  { preset: 'arm', label: 'pick & place arm' },
+  { preset: 'rover', label: 'survey rover' },
+  { preset: 'iot', label: 'sensor node' },
+]
+
+/** Resolve a scene slot to a composed machine. spec.preset may be a PRESETS
+ *  id ('arm') or an archetype ('rover'); other spec fields override the
+ *  preset's brief. 'scene' itself is refused — recursion is not a machine. */
+function sceneMachine(spec, material) {
+  if (!spec || typeof spec !== 'object') return null
+  const preset = PRESETS.find((p) => p.id === spec.preset || p.brief.archetype === spec.preset || p.id === spec.archetype)
+  const arch = preset ? preset.brief.archetype : spec.archetype || spec.preset
+  // composeDesign falls through to the arm builder for unknown archetypes —
+  // a scene slot must name a real machine or be refused, not silently arm.
+  const BUILDABLE = ['arm', 'rover', 'quadruped', 'gripper', 'gadget', 'robot', 'humanoid', 'gantry', 'iot', 'pcb', 'custom']
+  if (!arch || arch === 'scene' || !BUILDABLE.includes(arch)) return null
+  const brief = { ...(preset ? preset.brief : { archetype: arch }), ...spec }
+  delete brief.scene
+  delete brief.preset
+  // Material is a scene-level decision — print packing and cost assume one
+  // filament, so a slot cannot quietly order a different one.
+  brief.material = material || brief.material || 'petg'
+  return { spec, label: spec.label || (preset ? preset.id : arch), out: composeDesign(brief) }
+}
+
+/** Bake one machine into the scene frame: translate its bounding-box anchor
+ *  to the slot centre, floor its lowest point at z=0, yaw about that anchor. */
+function sceneBake(design, slot, yawRad) {
+  const bb = boundsOf(design.nodes)
+  const anchor = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, bb.min[2]]
+  const c = Math.cos(yawRad), s = Math.sin(yawRad)
+  const R = (p) => [
+    c * (p[0] - anchor[0]) - s * (p[1] - anchor[1]) + slot.x,
+    s * (p[0] - anchor[0]) + c * (p[1] - anchor[1]) + slot.y,
+    p[2] - anchor[2] + slot.z,
+  ]
+  // 'z' survives a z-yaw as the letter (sign conventions and exporters read
+  // it); 'x'/'y' become vectors and keep their model letter in axis0 so the
+  // pitch-joint sign check still knows what it was. yaw=0 leaves axes alone.
+  const axisFor = (axis) => {
+    if (Math.abs(s) < 1e-12 && Math.abs(c - 1) < 1e-12) return axis
+    const v = axisVec3(axis)
+    const rv = [c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]]
+    if (Math.abs(rv[0]) < 1e-9 && Math.abs(rv[1]) < 1e-9 && Math.abs(Math.abs(rv[2]) - 1) < 1e-9) return 'z'
+    return rv
+  }
+  return { R, axisFor, prefix: slot.prefix }
+}
+
+function buildScene(brief) {
+  // An omitted scene means the default lineup; an empty one is a user error
+  // and must fail honestly rather than quietly materialising three machines.
+  const specs = brief.scene == null ? SCENE_DEFAULT
+    : Array.isArray(brief.scene) ? brief.scene : [brief.scene]
+  const d = newDesign('scene', brief)
+  const machines = []
+  const sceneMat = brief.material || 'petg'
+  for (const raw of specs) {
+    const spec = typeof raw === 'string' ? { preset: raw } : raw
+    const m = sceneMachine(spec, sceneMat)
+    if (m) machines.push(m)
+    else d.notes.push(`Scene slot skipped — '${raw && (raw.preset || raw.archetype || raw)}' is not a buildable machine.`)
+  }
+  if (!machines.length) {
+    d.checks.push({ level: 'fail', msg: 'Scene has no machines — name presets in brief.scene.' })
+    return d
+  }
+
+  // auto-layout: a row along X, envelopes separated by SCENE_GAP, all facing
+  // the same way unless a spec asks for yaw
+  const widths = machines.map(({ out }) => {
+    const bb = boundsOf(out.design.nodes)
+    return { w: bb.max[0] - bb.min[0] }
+  })
+  const total = widths.reduce((a, w) => a + w.w, 0) + SCENE_GAP * (machines.length - 1)
+  let cursor = -total / 2
+  const slots = machines.map((m, i) => {
+    const slot = { x: cursor + widths[i].w / 2, y: 0, z: 0, prefix: `s${i}-` }
+    cursor += widths[i].w + SCENE_GAP
+    return slot
+  })
+
+  machines.forEach(({ spec, label, out }, i) => {
+    const yaw = ((spec.yaw || 0) * Math.PI) / 180
+    const { R, axisFor, prefix } = sceneBake(out.design, slots[i], yaw)
+    const sd = out.design
+
+    for (const n of sd.nodes || []) {
+      d.nodes.push({
+        ...n,
+        id: prefix + n.id,
+        pos: R(n.pos || [0, 0, 0]),
+        // scene yaw about Z composes with the node euler as rz += yaw —
+        // rotEuler applies rx→ry→rz, so Rz(θ)·R_node = Rz(θ+rz)·Ry·Rx
+        rot: n.rot ? [n.rot[0], n.rot[1], n.rot[2] + yaw] : n.rot,
+        joint: n.joint ? prefix + n.joint : n.joint,
+        slide: n.slide ? { ...n.slide, joint: prefix + n.slide.joint } : n.slide,
+      })
+    }
+    for (const j of sd.joints || []) {
+      const nj = {
+        ...j,
+        id: prefix + j.id,
+        label: `${label} · ${j.label || j.id}`,
+        pivot: R(j.pivot || [0, 0, 0]),
+        parent: j.parent ? prefix + j.parent : null,
+        axis: axisFor(j.axis),
+      }
+      if (nj.axis !== j.axis) nj.axis0 = j.axis
+      d.joints.push(nj)
+    }
+    for (const p of sd.parts || []) addPart(d, p.key, p.qty, `${label}: ${p.role || 'part'}`)
+    // A machine that fails its own checks fails the scene — the lineup is
+    // only as buildable as its weakest member.
+    for (const c of (out.design.checks || []).filter((c) => c.level === 'fail'))
+      d.checks.push({ level: 'fail', msg: `${label}: ${c.msg}` })
+    const subWarn = (out.design.checks || []).filter((c) => c.level === 'warn').length
+    if (subWarn) d.notes.push(`${label}: ${subWarn} build warning(s) — see its standalone report.`)
+    d.notes.push(`${label} — ${Math.round(out.analysis.mass.totalG)}g · $${out.analysis.cost.toFixed(0)} · placed at x=${Math.round(slots[i].x)}${spec.yaw ? ` yaw ${spec.yaw}°` : ''}`)
+  })
+
+  // Harness is per-machine, not per-scene: each member's stock-lead runs were
+  // measured in its own composeDesign, and yaw+translate preserves every
+  // distance, so those rows stay true in the scene frame. Ids get the slot
+  // prefix so they resolve against the merged joint table.
+  const hRows = []
+  const hHomes = []
+  const hDrops = []
+  let needExt = 0
+  machines.forEach(({ label, out }, i) => {
+    const h = out.analysis && out.analysis.harness
+    if (!h) return
+    const prefix = slots[i].prefix
+    for (const r of h.rows || []) hRows.push({ ...r, id: prefix + r.id, label: `${label} · ${r.label || r.id}` })
+    hHomes.push({ label, home: h.home })
+    hDrops.push(...(h.dropBad || []))
+    needExt += h.needExt || 0
+  })
+  if (hRows.length) {
+    d._sceneHarness = {
+      // home stays null: there is no single driver bay in a lineup — the
+      // cable overlay needs per-machine homes and stays off for scenes.
+      home: null, homes: hHomes, rows: hRows,
+      worst: hRows.reduce((a, b) => (b.run > (a ? a.run : -1) ? b : a), null),
+      needExt, dropBad: hDrops,
+      minLead: Math.min(...machines.map((m) => m.out.analysis.harness?.minLead ?? Infinity).filter(isFinite)),
+      maxLead: Math.max(...machines.map((m) => m.out.analysis.harness?.maxLead ?? -Infinity).filter((v) => v > -Infinity)),
+      busOnly: machines.every((m) => m.out.analysis.harness?.busOnly),
+      note: 'Per-machine harnesses — runs measured inside each member, not across the bench.',
+    }
+  }
+
+  d.title = `Workshop scene · ${machines.length} machine${machines.length > 1 ? 's' : ''}`
+  d.subtitle = machines.map((m) => m.label).join(' + ')
+  d.metrics = { machines: machines.length }
+  d.notes.push('Each machine keeps its own kinematics under prefixed ids (s0-, s1-…) — pose presets, single-arm IK and per-machine teleop do not span the scene.')
+  d.notes.push('Scene transforms are yaw + offset only; every machine prints in the scene material.')
+  return d
+}
+
 // ── pcb: the board itself, not just the machine around it ───────────────────
 // A small custom board: the MCU module, its sensors, power and connectors, laid
 // out on a real outline with mounting holes, silkscreen and the passive parts
@@ -3542,7 +3922,7 @@ function buildPcb(brief) {
   rbox(d, 'board', [W, H, T], [0, 0, 0], 2, 'pcb', { print: false })
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `hole-${sx}${sy}`, 1.6, T + 1, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), 0], 'z', 'rubber')
-    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'brass')
+    cyl(d, `hole-pad-${sx}${sy}`, 3, 0.2, [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5), T / 2 + 0.1], 'z', 'copper')
   }
   // USB-C and the antenna keep-out as silkscreen blocks the eye can read
   box(d, 'usb', [9, 7.5, 3], [-W / 2 + 1, 0, T / 2 + 1.5], 'metal')
@@ -3550,6 +3930,107 @@ function buildPcb(brief) {
   rbox(d, 'keepout', [14, 9, 0.25], [W / 2 - 9, H / 2 - 7, T / 2 + 0.2], 1, 'steel')
 
   // ── placed parts: modules, then the passives ───────────────────────────
+  const rotPt = (dx, dy, deg) => {
+    const r = (deg * Math.PI) / 180
+    const c = Math.cos(r)
+    const sn = Math.sin(r)
+    return [dx * c - dy * sn, dx * sn + dy * c]
+  }
+  const at = (x, y, rot) => (dx, dy) => {
+    const [rx, ry] = rotPt(dx, dy, rot)
+    return [x + rx, y + ry]
+  }
+
+  // ── components that look like the thing you would actually buy ────────────
+  // A devkit is a board with a shield can, a USB-C shell and two rows of 2.54mm
+  // pins. An OLED is glass in a frame with a four-pin header. A rocker is a
+  // black box with a lever. None of that is a rounded cuboid, and the rounded
+  // cuboid is exactly why the board read as clay.
+  const pinHeader = (d, id, x, y, rot, n, pitch, z0, along) => {
+    const P = at(x, y, rot)
+    const span = (n - 1) * pitch
+    const rail = along === 'x' ? [span + 2.2, 2.54, 1.3] : [2.54, span + 2.2, 1.3]
+    box(d, `${id}-rail`, rail, [x, y, z0 + 0.65], 'rubber')
+    for (let i = 0; i < n; i += 1) {
+      const t = i * pitch - span / 2
+      const [px, py] = along === 'x' ? P(t, 0) : P(0, t)
+      box(d, `${id}-p${i}`, [1.1, 1.1, 2.6], [px, py, z0 + 1.3], 'copper')
+    }
+  }
+
+  const component = (d, des, key, x, y, rot, sx, sy, h, T) => {
+    const z0 = T / 2
+    const P = at(x, y, rot)
+    switch (key) {
+      case 'esp32s3': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.6], [x, y, z0 + 0.8], 0.6, 'pcbblue')
+        box(d, `${des}-can`, [sx * 0.42, sy * 0.55, 1.4], [x - sx * 0.06, y, z0 + 2.3], 'metal')
+        box(d, `${des}-usbc`, [7.5, 4.2, 2.8], [x + sx / 2 - 2.6, y, z0 + 1.7], 'metal')
+        box(d, `${des}-usbc-in`, [4, 2.2, 1.8], [x + sx / 2 - 1.2, y, z0 + 1.7], 'rubber')
+        const n = Math.max(4, Math.floor((sy - 5) / 2.54) + 1)
+        const pitch = 2.54
+        for (const s of [-1, 1]) {
+          const [rx, ry] = P(0, s * (sy / 2 - 2.4))
+          pinHeader(d, `${des}-hdr${s > 0 ? 'a' : 'b'}`, rx, ry, rot, n, pitch, z0, 'y')
+        }
+        for (const s of [-1, 1]) {
+          const [bx, by] = P(-sx * 0.2, s * sy * 0.34)
+          box(d, `${des}-btn${s > 0 ? 'a' : 'b'}`, [3.2, 3.2, 1.8], [bx, by, z0 + 1.7], 'rubber')
+        }
+        break
+      }
+      case 'ssd1306': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.4], [x, y, z0 + 0.7], 0.5, 'rubber')
+        box(d, `${des}-glass`, [sx * 0.86, sy * 0.62, 0.7], [x, y + sy * 0.06, z0 + 1.7], 'glass')
+        box(d, `${des}-bezel`, [sx * 0.92, sy * 0.10, 0.9], [x, y - sy * 0.36, z0 + 1.7], 'rubber')
+        const [hx, hy] = P(0, -sy / 2 + 1.6)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'x')
+        break
+      }
+      case 'bme280': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcb')
+        const [hx, hy] = P(-sx / 2 + 1.5, 0)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
+        box(d, `${des}-chip`, [3.2, 3.2, 1.1], [P(sx * 0.1, 0)[0], P(sx * 0.1, 0)[1], z0 + 1.2], 'metal')
+        break
+      }
+      case 'ina219': {
+        rbox(d, `${des}-pcb`, [sx, sy, 1.2], [x, y, z0 + 0.6], 0.4, 'pcbblue')
+        box(d, `${des}-shunt`, [6.5, 4, 1.4], [P(-sx * 0.1, -sy * 0.12)[0], P(-sx * 0.1, -sy * 0.12)[1], z0 + 1.3], 'rubber')
+        box(d, `${des}-ic`, [4, 4, 1.0], [P(sx * 0.22, sy * 0.2)[0], P(sx * 0.22, sy * 0.2)[1], z0 + 1.1], 'rubber')
+        const [hx, hy] = P(-sx / 2 + 1.5, 0)
+        pinHeader(d, `${des}-hdr`, hx, hy, rot, 4, 2.54, z0, 'y')
+        break
+      }
+      case 'jst_kit': {
+        box(d, `${des}-body`, [14, 8.5, 6], [x, y, z0 + 3], 'shell')
+        for (let i = 0; i < 4; i += 1) {
+          const [px, py] = P((i - 1.5) * 2.5, 0)
+          box(d, `${des}-pin${i}`, [0.8, 0.8, 1.2], [px, py, z0 + 6.4], 'brass')
+        }
+        const col = ['accent', 'rubber', 'brass']
+        for (let i = 0; i < 3; i += 1) {
+          const yoff = (i - 1) * 2.5
+          for (let sgi = 0; sgi < 3; sgi += 1) {
+            const len = 9
+            const [px, py] = P(sx / 2 + 2 + sgi * len, yoff)
+            box(d, `${des}-lead${i}-${sgi}`, [len, 1.7, 1.7], [px, py, z0 + 3 - sgi * 0.6], col[i])
+          }
+        }
+        break
+      }
+      case 'rocker': {
+        box(d, `${des}-shell`, [sx, sy, h * 0.7], [x, y, z0 + h * 0.35], 'rubber')
+        box(d, `${des}-lever`, [sx * 0.62, sy * 0.5, 3.2], [x, y, z0 + h * 0.7 + 1.4], 'copper')
+        box(d, `${des}-rim`, [sx * 0.9, sy * 0.12, 1.2], [x, y - sy * 0.4, z0 + h * 0.7], 'rubber')
+        break
+      }
+      default: {
+        rbox(d, `${des}-body`, [sx, sy, Math.max(2, h)], [x, y, z0 + Math.max(2, h) / 2], 0.4, 'rubber')
+      }
+    }
+  }
+
   const placed = []
   const FIELD_X = W / 2 - 6, FIELD_Y = H / 2 - 6
   for (const [des, key, fx, fy, rot, pkg] of PCB_PARTS) {
@@ -3560,12 +4041,10 @@ function buildPcb(brief) {
     const [l, w, h] = part.dims || [10, 10, 3]
     const sx = Math.max(3, l * 0.86)
     const sy = Math.max(3, w * 0.86)
-    rbox(d, `part-${des}`, [sx, sy, Math.max(2, h)], [x, y, T / 2 + Math.max(2, h) / 2], 0.4, 'pcb', {
-      rot: [0, 0, (rot * Math.PI) / 180],
-    })
+    component(d, `part-${des}`, key, x, y, rot, sx, sy, Math.max(2, h), T)
     // a pin-1 marker: the one detail that says "this is a real footprint"
     box(d, `pin1-${des}`, [1.2, 1.2, 0.6], [x - sx / 2 + 1.5, y - sy / 2 + 1.5, T / 2 + Math.max(2, h) + 0.3], 'brass')
-    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
+    placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module', sz: [sx, sy], h: Math.max(2, h) })
   }
   for (const [des, pkg, fx, fy, rot, why] of PCB_PASSIVES) {
     const x = Math.round(fx * FIELD_X)
@@ -3574,8 +4053,91 @@ function buildPcb(brief) {
     box(d, `pass-${des}`, [size[0], size[1], 0.5], [x, y, T / 2 + 0.25], 'metal', {
       rot: [0, 0, (rot * Math.PI) / 180],
     })
-    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
+    placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why, sz: size })
   }
+  // ── the detail that makes it read as a board, not a green slab ──────────
+  // Pads (ENIG), a white silkscreen outline around every placement, and copper
+  // traces leaving each pad toward the controller. A real board hides its
+  // traces under the mask, but a board with none at all reads as plastic.
+  const rot2 = (dx, dy, deg) => {
+    const r = (deg * Math.PI) / 180
+    const c = Math.cos(r)
+    const sn = Math.sin(r)
+    return [dx * c - dy * sn, dx * sn + dy * c]
+  }
+  const hub = [0, Math.round(0.08 * (H / 2 - 12))]
+  for (const p of placed) {
+    const [sx, sy] = p.sz || [4, 3]
+    const deg = p.rot || 0
+    const zPad = T / 2 + 0.14
+    const zSilk = T / 2 + 0.07
+    const zTrace = T / 2 + 0.05
+
+    // pads: two ends on a passive, a pin row down each long side on a module
+    const pads = []
+    if (p.kind === 'passive') {
+      // pads sit at the ends of the body, half exposed — an SMD joint is a
+      // fillet at the edge, not a decal hidden under the part
+      for (const s of [-1, 1]) pads.push([s * (sx / 2 + 0.35), 0])
+    } else {
+      // a module is soldered by a pin row along each long side, and the pads
+      // must stick out past the body or the body simply hides them
+      const n = p.pkg && /MODULE/.test(p.pkg) ? 6 : 4
+      for (let i = 0; i < n; i += 1) {
+        const t = (i / (n - 1) - 0.5) * sx * 0.8
+        pads.push([t, -(sy / 2 + 0.55)], [t, sy / 2 + 0.55])
+      }
+    }
+    pads.forEach(([dx, dy], i) => {
+      const [rx, ry] = rot2(dx, dy, deg)
+      box(d, `pad-${p.des}-${i}`, [1.5, 1.0, 0.22], [p.x + rx, p.y + ry, zPad], 'copper')
+    })
+
+    // silkscreen: four thin bars framing the footprint, just outside the part
+    const halfW = sx / 2 + 0.6
+    const halfH = sy / 2 + 0.6
+    const bars = [
+      [[halfW * 2 + 0.6, 0.5, 0.14], [0, -halfH]],
+      [[halfW * 2 + 0.6, 0.5, 0.14], [0, halfH]],
+      [[0.5, halfH * 2, 0.14], [-halfW, 0]],
+      [[0.5, halfH * 2, 0.14], [halfW, 0]],
+    ]
+    bars.forEach(([size, off], i) => {
+      const [rx, ry] = rot2(off[0], off[1], deg)
+      box(d, `silk-${p.des}-${i}`, size, [p.x + rx, p.y + ry, zSilk], 'silk')
+    })
+
+    // traces: one Manhattan run from the first pad toward the controller
+    const [px0, py0] = rot2(pads[0][0], pads[0][1], deg)
+    const ax = p.x + px0
+    const ay = p.y + py0
+    const midX = (ax + hub[0]) / 2
+    box(d, `trace-${p.des}-a`, [Math.abs(hub[0] - ax) + 0.4, 0.55, 0.12], [midX, ay, zTrace], 'copper')
+    box(d, `trace-${p.des}-b`, [0.55, Math.abs(hub[1] - ay) + 0.4, 0.12], [hub[0], (ay + hub[1]) / 2, zTrace], 'copper')
+  }
+
+  // copper pour ring inside the outline — a real 2-layer board is mostly copper
+  const inset = 2.4
+  for (const [w, h, x, y] of [
+    [W - inset * 2, 2.2, 0, H / 2 - inset],
+    [W - inset * 2, 2.2, 0, -H / 2 + inset],
+    [2.2, H - inset * 2, -W / 2 + inset, 0],
+    [2.2, H - inset * 2, W / 2 - inset, 0],
+  ]) {
+    box(d, `pour-${x}-${y}`, [w, h, 0.05], [x, y, T / 2 + 0.02], 'copper')
+  }
+
+  // the module itself: a metal shield can on the controller, glass on the display
+  const u1 = placed.find((p) => p.des === 'U1')
+  if (u1) {
+    box(d, 'u1-shield', [u1.sz[0] * 0.62, u1.sz[1] * 0.7, 0.7], [u1.x, u1.y, T / 2 + u1.h + 0.35], 'metal')
+    box(d, 'u1-antenna', [u1.sz[0] * 0.5, 1.2, 0.5], [u1.x, u1.y + u1.sz[1] * 0.42, T / 2 + u1.h + 0.25], 'brass')
+  }
+  const u3 = placed.find((p) => p.des === 'U3')
+  if (u3) {
+    box(d, 'u3-glass', [u3.sz[0] * 0.78, u3.sz[1] * 0.62, 0.4], [u3.x, u3.y, T / 2 + u3.h + 0.2], 'glass')
+  }
+
   d.pcb = { placed, W, H, T }
   d.pcb.fiducials = placeFiducials(placed, W, H)
   auditBoardFit(d, placed, W, H)
@@ -4015,10 +4577,22 @@ function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
   const power = powerBudget(design)
-  const harness = harnessAnalysis(design)
+  // A scene is several independent machines, not one bus: each member already
+  // passed its own power/pin/harness checks inside composeDesign, so the merged
+  // totals must not be judged against a single pack or a single MCU.
+  const isScene = design.archetype === 'scene'
+  if (isScene) {
+    power.bat = null
+    power.runtimeMin = null
+    power.wiring = []
+    power.systems = (design.parts || []).filter((p) => PARTS[p.key]?.cat === 'battery').length
+    design.checks = design.checks || []
+    design.checks.push({ level: 'ok', msg: `Scene power: ${power.systems} independent pack(s) — each machine's runtime and wiring are certified in its own report, not summed onto one bus.` })
+  }
+  const harness = isScene ? (design._sceneHarness || null) : harnessAnalysis(design)
   // A joint the stock lead cannot reach is not a note — it is a part you must
   // buy. Put the extension in the BOM so cost and shopping list stay honest.
-  if (harness && harness.needExt && !design._harnessed) {
+  if (!isScene && harness && harness.needExt && !design._harnessed) {
     design._harnessed = true
     addPart(design, 'extlead_300', harness.needExt, `${harness.needExt} joint run(s) exceed stock servo lead`)
   }
@@ -4065,22 +4639,22 @@ function analyze(design) {
   if (adjusted.length) {
     checks.push({ level: 'warn', msg: `Handed in with adjustments: ${adjusted.join('; ')}.` })
   }
-  if (power.bat && power.typ > power.bat.maxA) {
+  if (!isScene && power.bat && power.typ > power.bat.maxA) {
     checks.push({ level: 'fail', msg: `Continuous draw ${fmt(power.typ, 1)}A is over what ${power.bat.name} can deliver (${power.bat.maxA}A) — this pack will sag or trip.` })
-  } else if (power.bat && power.peak > power.bat.maxA * 2) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 2) {
     // Far beyond the pack's burst is not a caution, it is the wrong pack: the
     // protection circuit trips or the cells sag before the machine moves.
     checks.push({
       level: 'fail',
       msg: `Peak ${fmt(power.peak, 1)}A is ${fmt(power.peak / power.bat.maxA, 1)}× the ${power.bat.name}'s ${power.bat.maxA}A burst. This pack cannot run this machine — pick a high-C LiPo (30C+) or put two packs in parallel.`,
     })
-  } else if (power.bat && power.peak > power.bat.maxA * 1.6) {
+  } else if (!isScene && power.bat && power.peak > power.bat.maxA * 1.6) {
     checks.push({ level: 'warn', msg: `Stall/peak ${fmt(power.peak, 1)}A exceeds the pack's ${power.bat.maxA}A burst — add a current limit so a jam does not brown out the MCU.` })
   }
-  if (power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
+  if (!isScene && power.bat && power.runtimeMin != null && power.runtimeMin < 10 && design.archetype !== 'gadget') {
     checks.push({ level: 'warn', msg: `Runtime is ${Math.round(power.runtimeMin)} min at typical load — use a bigger pack or a tethered supply.` })
   }
-  if (pins.used > pins.mcu.pinBudget) {
+  if (!isScene && pins.used > pins.mcu.pinBudget) {
     checks.push({ level: 'fail', msg: `Pin map wants ${pins.used} GPIO, ${pins.mcu.name} exposes ${pins.mcu.pinBudget}. Move the motors to an I2C driver or drop a sensor.` })
   }
   if (printGrams > 900) {
@@ -4165,6 +4739,31 @@ function analyze(design) {
   } else if (harness) {
     checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
   }
+  // ── drones: thrust margin and hover time ─────────────────────────────────
+  // A quad has two numbers that decide whether it flies at all: how much lift
+  // four discs make against its own weight, and how many minutes that buys.
+  // Both come from momentum theory in droneReport(), not from a lookup table.
+  let drone = null
+  if (design.drone) {
+    drone = droneReport(design.drone, totalMassG)
+    const twr = drone.twr
+    if (twr < 1.0) {
+      checks.push({ level: 'fail', msg: `Lift-to-weight is ${twr.toFixed(2)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g of thrust for a ${Math.round(totalMassG)}g machine. It cannot leave the ground. Bigger props, more voltage, or less mass.` })
+    } else if (twr < 1.5) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight is ${twr.toFixed(2)}:1. It will hover, but with almost no control authority — a quad wants 2:1 minimum and 3:1 to handle wind.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
+    }
+    if (drone.hoverThrottle > 0.75) {
+      checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
+    }
+    if (drone.minutes < 3) {
+      checks.push({ level: 'warn', msg: `Hover endurance is ${drone.minutes.toFixed(1)} min on ${design.drone.mah}mAh — short even for FPV. A bigger pack costs mass, which costs hover power: check the trade before buying.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Hover endurance ${drone.minutes.toFixed(1)} min at ${drone.hoverAmps.toFixed(1)}A on ${design.drone.mah}mAh (80% usable), drawing ${Math.round(drone.hoverWatts)}W.` })
+    }
+  }
+
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -4191,6 +4790,7 @@ function analyze(design) {
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
+    drone,
     dims,
     checks,
     mcu: pins.mcu,
@@ -4841,7 +5441,9 @@ function chainFrames(chain) {
     const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
     const a = axisVec3(j.axis)
     // Pitch joints read positive = UP (same sign convention applyChain had).
-    const sign = j.axis === 'y' ? -1 : 1
+    // axis0 preserves the model letter when a scene yaw turned axis into a
+    // vector — the pitch check must still recognise it.
+    const sign = (j.axis0 || j.axis) === 'y' ? -1 : 1
     const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
     const pivotW = [
       Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
@@ -4898,7 +5500,7 @@ function slideDisp(design, node) {
   let j = j0, own = true
   while (j && j.slide && !seen.has(j.id)) {
     seen.add(j.id)
-    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+    const dir = axisVec3(j.axis)
     const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
     out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
     own = false
@@ -6269,6 +6871,9 @@ function toGLB(tris) {
     steel: { c: [0.376, 0.424, 0.478], m: 0.85, r: 0.4 },
     brass: { c: [0.737, 0.596, 0.29], m: 0.8, r: 0.4 },
     pcb: { c: [0.125, 0.376, 0.275], m: 0.0, r: 0.7 },
+    copper: { c: [0.59, 0.33, 0.13], m: 0.15, r: 0.6 },
+    silk: { c: [0.93, 0.94, 0.92], m: 0.0, r: 0.8 },
+    pcbblue: { c: [0.05, 0.11, 0.30], m: 0.0, r: 0.6 },
     rubber: { c: [0.149, 0.165, 0.188], m: 0.0, r: 0.95 },
     glass: { c: [0.439, 0.839, 0.91], m: 0.0, r: 0.15 },
     servo: { c: [0.118, 0.133, 0.165], m: 0.3, r: 0.6 },
@@ -7242,7 +7847,9 @@ function benchOverlay(design, mat) {
  * Runs in design space (mm); the page's chassis transform carries it.
  */
 function wireOverlay(design, harness) {
-  if (!harness || !harness.rows || !harness.rows.length) return null
+  // Scenes carry per-machine homes (harness.home === null) — one shared home
+  // point would draw wires to a fictional driver bay, so cables stay off.
+  if (!harness || !harness.home || !harness.rows || !harness.rows.length) return null
   const chains = chainsFor(design)
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const colFor = {
@@ -7667,7 +8274,7 @@ function toURDF(design, analysis) {
     // studio pitch joints read positive = UP, i.e. they rotate by −angle about
     // +y; URDF has no sign convention, so the axis itself carries the flip.
     // Slides keep their raw axis — linear displacement has no pitch inversion.
-    const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+    const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
     const axU = axisVec(j.axis).map((v) => v * sgn)
     L.push(`    <axis xyz="${axU.map((v) => r6(v)).join(' ')}"/>`)
     // effort and velocity must be real: a zero effort limit means the joint
@@ -7754,7 +8361,7 @@ function toMJCF(design, analysis) {
       const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
       const pos = [pv[0] - pp[0], pv[1] - pp[1], pv[2] - pp[2]].map((v) => r4(v / 1000)).join(' ')
       // same pitch inversion as URDF: studio +angle is −rotation about +y
-      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+      const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
       const axis = axisVec(j.axis).map((v) => v * sgn)
       const axisStr = axis.map((v) => r4(v)).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
@@ -9492,6 +10099,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
+  { id: 'drone', label: 'FPV drone', brief: { archetype: 'drone', mission: 'a 5-inch FPV quad that carries a camera for 6 minutes', reachMm: 127, payloadKg: 0.2, battery: 'lipo4s' } },
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
@@ -9501,6 +10109,7 @@ const PRESETS = [
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
+  { id: 'scene', label: 'Workshop scene', brief: { archetype: 'scene', mission: 'a lineup: pick-and-place arm, survey rover and a sensor node sharing one bench', scene: SCENE_DEFAULT } },
   // The spec card: nodes/joints ARE the design — agents author these through
   // rigforge_build, humans through build codes. This starter is a real machine
   // (pan-tilt survey mast) so the card is never an empty promise.
@@ -9530,6 +10139,7 @@ const PRESETS = [
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
   const rules = [
+    ['scene', /workshop|scene|lineup|fleet|multiple machines|several (robots|machines)|all (the )?(machines|robots)/],
     ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
     ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
     ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
@@ -9598,7 +10208,9 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'scene' ? buildScene(b)
+    : b.archetype === 'drone' ? buildDrone(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
@@ -10343,6 +10955,101 @@ function createAutotest(teleop, arms) {
   return subs.length === 1 ? subs[0].at : sequenceAutotest(subs)
 }
 
+// ── scale: a person, standing next to the machine ───────────────────────────
+// Every number in this product is in millimetres, and millimetres are not a
+// unit anyone can feel. A 1750mm human silhouette beside the design turns
+// "568 × 150 × 121 mm" into "knee height" or "taller than you", which is the
+// question people actually ask when they look at a CAD render.
+//
+// Drawn as a wireframe out of the same line buffer as the bench overlay: no new
+// render path, no fake studio props, just a figure at true scale. If the figure
+// and the machine disagree, one of them is lying, and that is worth seeing.
+
+const SCALE_HUMAN_MM = 1750
+// How far past the machine's own bounding box the figure reaches: gap + half a
+// shoulder width + the ladder. The camera has to frame this or the reference is
+// drawn off-screen, which is the same as not drawing it.
+const SCALE_EXTRA_MM = 820
+
+// Segment boxes for a 1750mm adult, roughly 7.5 heads. [w, d, h, x, y, z]
+const SCALE_PARTS = [
+  [180, 180, 220, 0, 0, 1640], // head
+  [90, 90, 60, 0, 0, 1500], // neck
+  [400, 220, 480, 0, 0, 1240], // chest
+  [340, 200, 140, 0, 0, 940], // hips
+  [110, 110, 320, 255, 0, 1180], // upper arm R
+  [110, 110, 320, -255, 0, 1180], // upper arm L
+  [100, 100, 300, 285, 0, 880], // forearm R
+  [100, 100, 300, -285, 0, 880], // forearm L
+  [150, 150, 430, 105, 0, 680], // thigh R
+  [150, 150, 430, -105, 0, 680], // thigh L
+  [130, 130, 430, 105, 0, 250], // shin R
+  [130, 130, 430, -105, 0, 250], // shin L
+  [110, 240, 80, 105, 30, 40], // foot R
+  [110, 240, 80, -105, 30, 40], // foot L
+]
+
+const SCALE_EDGES = [
+  [0, 1], [1, 3], [3, 2], [2, 0], // bottom face
+  [4, 5], [5, 7], [7, 6], [6, 4], // top face
+  [0, 4], [1, 5], [2, 6], [3, 7], // verticals
+]
+
+/**
+ * Wireframe figure standing beside the design, plus a 1m tick ladder at its
+ * feet so the eye has something to count. Returns the same {data, verts}
+ * shape the GL overlay pass expects: interleaved x,y,z,r,g,b, GL_LINES.
+ */
+function scaleFigureOverlay(nodes, opts) {
+  if (!nodes || !nodes.length) return null
+  const height = (opts && opts.heightMm) || SCALE_HUMAN_MM
+  const k = height / SCALE_HUMAN_MM
+  const b = boundsOf(nodes)
+  if (!Number.isFinite(b.min[0])) return null
+  const gap = (opts && opts.gapMm) || 320
+  const ox = b.max[0] + gap + 300 * k
+  const oy = (b.min[1] + b.max[1]) / 2
+  const floor = Math.min(0, b.min[2])
+  const col = [0.42, 0.72, 0.92]
+
+  const arr = []
+  const seg = (a, c) => {
+    arr.push(a[0], a[1], a[2], col[0], col[1], col[2], c[0], c[1], c[2], col[0], col[1], col[2])
+  }
+  for (const [w, d, h, x, y, z] of SCALE_PARTS) {
+    const hw = (w / 2) * k
+    const hd = (d / 2) * k
+    const hh = (h / 2) * k
+    const cx = ox + x * k
+    const cy = oy + y * k
+    const cz = floor + z * k
+    const corner = [
+      [cx - hw, cy - hd, cz - hh], [cx + hw, cy - hd, cz - hh],
+      [cx + hw, cy + hd, cz - hh], [cx - hw, cy + hd, cz - hh],
+      [cx - hw, cy - hd, cz + hh], [cx + hw, cy - hd, cz + hh],
+      [cx + hw, cy + hd, cz + hh], [cx - hw, cy + hd, cz + hh],
+    ]
+    for (const [i, j] of SCALE_EDGES) seg(corner[i], corner[j])
+  }
+
+  // 1m ladder behind the figure: ten ticks, the 500mm one longer
+  const lx = ox - 420 * k
+  for (let i = 0; i <= 10; i += 1) {
+    const z = floor + i * 100 * k
+    const len = i % 5 === 0 ? 150 * k : 70 * k
+    seg([lx, oy, z], [lx + len, oy, z])
+  }
+  seg([lx, oy, floor], [lx, oy, floor + height])
+
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
+/** Total height of the emitted figure, for tests and for the HUD. */
+function scaleFigureHeight(opts) {
+  const k = ((opts && opts.heightMm) || SCALE_HUMAN_MM) / SCALE_HUMAN_MM
+  return 1750 * k
+}
+
 // ── viewport: a software 3D renderer, because a CAD view cannot be a DIV ────
 // Painter's algorithm on 2D canvas: sub-millisecond for these meshes, no
 // WebGL context to lose, no three.js to ship. Shading is a three-light studio
@@ -10387,6 +11094,10 @@ const MAT = {
   steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
   brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
   pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  // a board reads as a board when you can see copper and white ink on it
+  copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
+  silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
+  pcbblue: { alb: L(22, 46, 96), spec: 0.3, shine: 40, metal: 0.0, glow: 0.03, rough: 0.5 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
@@ -10487,6 +11198,27 @@ function project(p, cam, target, w, h) {
   const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
   const s = cam.ortho ? f : f * (cam.dist / (depth > 1 ? depth : 1))
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
+}
+
+/**
+ * Where a screen pixel lands on a horizontal plane at height z0. This is the
+ * inverse of project() for the one case dragging needs: the user's pointer is
+ * a ray, and the part lives on a plane, so they meet in exactly one place.
+ */
+function unprojectToPlane(px, py, z0, cam, target, w, h) {
+  const b = cam._basis || camBasis(cam, target)
+  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
+  const dx = (px - w / 2) / (f * cam.dist)
+  const dy = -(py - h / 2) / (f * cam.dist)
+  const dir = [
+    -b.back[0] + b.x[0] * dx + b.y[0] * dy,
+    -b.back[1] + b.x[1] * dx + b.y[1] * dy,
+    -b.back[2] + b.x[2] * dx + b.y[2] * dy,
+  ]
+  if (Math.abs(dir[2]) < 1e-6) return null
+  const t = (z0 - b.eye[2]) / dir[2]
+  if (t <= 0) return null
+  return [b.eye[0] + dir[0] * t, b.eye[1] + dir[1] * t]
 }
 
 /** Material for a triangle, with the multicolour-print tint applied to shells. */
@@ -11321,7 +12053,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, onGrab, onMoveNode, onDropNode, movedCount, onResetMoves }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const paintRef = useRef(null)
@@ -11396,6 +12128,21 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
+    // the fly-through drives the camera object in place and repaints directly:
+    // pushing a React state update at 60Hz re-rendered the whole studio and cost
+    // us 46 of the 60 frames a second
+    globalThis.__rfPaint = () => { cam._basis = null; schedule() }
+    globalThis.__rfCam = () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist })
+    // a probe for tests and for the interaction harness: what is under this pixel
+    globalThis.__rfPick = (px, py) => {
+      const cv = ref.current
+      if (!cv || !glRef.current || !glRef.current.pick) return null
+      const r = cv.getBoundingClientRect()
+      const hit = glRef.current.pick(mesh, px * (cv.width / r.width), py * (cv.height / r.height))
+      if (!hit) return null
+      const node = design.nodes.find((n) => n.id === hit.node)
+      return { node: hit.node, mat: hit.mat, grabbable: !!(node && !node.joint) }
+    }
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -11437,11 +12184,63 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)
 
+  // the drag state carries which kind of drag it is: an orbit of the camera, or
+  // a part being carried. A part under the pointer before the button went down
+  // is a grabbable thing — that is the hand.
+  const grab = useRef(null)
+
+  const nodeUnder = (e) => {
+    const cv = ref.current
+    if (!cv || !glRef.current || !glRef.current.pick) return null
+    const rect = cv.getBoundingClientRect()
+    const px = (e.clientX - rect.left) * (cv.width / rect.width)
+    const py = (e.clientY - rect.top) * (cv.height / rect.height)
+    const hit = glRef.current.pick(mesh, px, py)
+    if (!hit) return null
+    return design.nodes.find((n) => n.id === hit.node && !n.joint) || null
+  }
+
   const onDown = (e) => {
+    const node = nodeUnder(e)
+    if (node) {
+      grab.current = {
+        node,
+        z0: node.pos[2],
+        rect: ref.current.getBoundingClientRect(),
+        start: unprojectToPlane(
+          e.clientX - ref.current.getBoundingClientRect().left,
+          e.clientY - ref.current.getBoundingClientRect().top,
+          node.pos[2], cam, target, ref.current.width, ref.current.height,
+        ),
+        last: null,
+      }
+      if (onGrab) onGrab(node.id)
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      e.preventDefault()
+      return
+    }
     drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, moved: 0, cx: e.clientX, cy: e.clientY }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const onMove = (e) => {
+    const g = grab.current
+    if (g) {
+      const cv = ref.current
+      const rect = g.rect
+      const p = unprojectToPlane(
+        e.clientX - rect.left, e.clientY - rect.top,
+        g.z0, cam, target, cv.width, cv.height,
+      )
+      if (!p || !g.start) return
+      // 1mm snap: a part that cannot sit on the integer millimetre is a part
+      // you cannot dimension, and this is a drawing, so the grid is the truth
+      const dx = Math.round(p[0] - g.start[0])
+      const dy = Math.round(p[1] - g.start[1])
+      if (g.last && g.last[0] === dx && g.last[1] === dy) return
+      g.last = [dx, dy]
+      if (onMoveNode) onMoveNode(g.node.id, dx, dy)
+      return
+    }
     const d = drag.current
     if (!d) return
     const dx = e.clientX - d.x
@@ -11454,10 +12253,22 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
     })
   }
   const onUp = (e) => {
+    if (grab.current) {
+      const g = grab.current
+      grab.current = null
+      if (g.last && (g.last[0] !== 0 || g.last[1] !== 0) && onDropNode) onDropNode(g.node.id, g.last[0], g.last[1])
+      // a press with no movement is still a click: it opens the inspector
+      else inspectAt(e)
+      return
+    }
     const d = drag.current
     drag.current = null
     // a click, not a drag: pick the part under the pointer
-    if (!d || d.moved > 5 || !glRef.current || !glRef.current.pick) return
+    if (!d || d.moved > 5) return
+    inspectAt(e)
+  }
+  const inspectAt = (e) => {
+    if (!glRef.current || !glRef.current.pick) return
     const cv = ref.current
     if (!cv) return
     const rect = cv.getBoundingClientRect()
@@ -11536,6 +12347,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    // what you moved, and the way back. A part you can carry but not put back is
+    // a trap, not a tool.
+    movedCount ? h('div', { style: S.moveChip, 'data-rf': 'movedchip' },
+      h('span', {}, `${movedCount} part${movedCount > 1 ? 's' : ''} moved · mass and checks recomputed`),
+      h('button', { style: S.moveChipBtn, onClick: onResetMoves, title: 'put everything back' }, 'RESET'),
+    ) : null,
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
     // viewport into a sheet an engineer can hand to a client.
@@ -11548,7 +12365,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
-      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      // A board is FR4 with copper and ENIG, not a 3D-printed part: the title block
+      // on a PCB drawing that says "PETG (FDM)" is simply wrong, and it is the
+      // first thing a hardware person reads.
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'),
+        h('span', { style: S.tbVal }, design.pcb
+          ? 'FR4 1.6mm · 2 layers · ENIG'
+          : `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
       h('div', { style: S.tbRow },
         h('span', { style: S.tbKey }, 'STATUS'),
         h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },
@@ -12881,9 +13704,24 @@ const S = {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'transparent',
     color: C.faint, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
   },
+  viewPlay: {
+    padding: '4px 10px', borderRadius: '5px', border: `1px solid rgba(255,106,26,0.45)`,
+    background: 'rgba(255,106,26,0.10)', color: C.accent,
+    fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.08em', cursor: 'pointer',
+  },
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
+  },
+  moveChip: {
+    position: 'absolute', left: '12px', bottom: '96px', display: 'flex', alignItems: 'center',
+    gap: '8px', padding: '5px 8px 5px 10px', borderRadius: '6px',
+    border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.10)',
+    fontFamily: C.mono, fontSize: '9.5px', color: C.accent, letterSpacing: '0.04em', zIndex: 6,
+  },
+  moveChipBtn: {
+    padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'rgba(255,106,26,0.22)',
+    color: C.accent, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
@@ -12931,8 +13769,12 @@ const S = {
 
   // ── spec rail ───────────────────────────────────────────────────────────
   tabs: {
-    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
-    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+    // nine tabs do not fit a 376px column: measured 490px of labels, so CODE and
+    // STEPS used to render past the edge with no affordance that they existed.
+    // Wrapping to two rows keeps every tab visible; scrolling hid a fifth of the
+    // product behind a gesture nobody performs.
+    display: 'flex', flexWrap: 'wrap', gap: '1px 2px', padding: '0 4px 2px',
+    borderBottom: `1px solid ${C.line}`, background: C.panel,
   },
   tab: {
     padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
@@ -13964,6 +14806,42 @@ const CAM_FOR = (dims) => {
   return { ...CAM0, dist: clamp(diag * 1.06, 300, 5200) }
 }
 
+// ── the fly-through ────────────────────────────────────────────────────────
+// The first thing you should be able to do with a design is *look at it like a
+// thing*, not like a drawing. Seven camera keys: close on a detail, pull out,
+// drop through the machine, rise, settle on the iso the app opens with. Distance
+// is a multiple of the fitted distance so it works at 90mm and at 3 metres.
+const FLY_KEYS = [
+  [0.00, { yaw: 1.62, pitch: 0.05, d: 0.26 }],
+  [0.16, { yaw: 1.15, pitch: 0.14, d: 0.58 }],
+  [0.32, { yaw: 0.62, pitch: 0.26, d: 0.92 }],
+  [0.46, { yaw: 0.18, pitch: 0.10, d: 0.14 }],
+  [0.58, { yaw: -0.34, pitch: 0.52, d: 0.72 }],
+  [0.78, { yaw: -0.86, pitch: 0.68, d: 1.22 }],
+  [1.00, { yaw: CAM0.yaw, pitch: CAM0.pitch, d: 1.00 }],
+]
+const FLY_MS = 11000
+const ease = (t) => t * t * (3 - 2 * t)
+
+function flyAt(t, base) {
+  const k = FLY_KEYS
+  let i = 0
+  while (i < k.length - 2 && t > k[i + 1][0]) i += 1
+  const [t0, a] = k[i]
+  const [t1, b] = k[i + 1]
+  const u = ease(Math.max(0, Math.min(1, (t - t0) / (t1 - t0 || 1))))
+  // shortest way round, so the orbit never whips backwards through a full turn
+  let dy = b.yaw - a.yaw
+  while (dy > Math.PI) dy -= Math.PI * 2
+  while (dy < -Math.PI) dy += Math.PI * 2
+  return {
+    yaw: a.yaw + dy * u,
+    pitch: a.pitch + (b.pitch - a.pitch) * u,
+    dist: base.dist * (a.d + (b.d - a.d) * u),
+    ortho: false,
+  }
+}
+
 function StatChip({ k, v, color, title }) {
   return h('div', { style: S.statChip, title },
     h('span', { style: S.statKey }, k),
@@ -14336,9 +15214,14 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     },
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
         benchOk ? 'BENCH ✓' : 'BENCH !'),
-      h('span', {}, benchOk
-        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
-        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
+      h('span', {}, design.archetype === 'drone'
+        // a quad does not climb ramps: it either has thrust margin or it does not
+        ? (analysis.drone
+          ? `Hovers at ${Math.round(analysis.drone.hoverThrottle * 100)}% throttle with ${analysis.drone.twr.toFixed(1)}:1 lift-to-weight, ${analysis.drone.minutes.toFixed(1)} min of hover on the pack.`
+          : 'Flight report unavailable for this design.')
+        : benchOk
+          ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+          : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -14484,7 +15367,39 @@ function Studio() {
   const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
-  const { design, analysis } = spec
+  // ── hands ─────────────────────────────────────────────────────────────────
+  // A part can be picked up and put down somewhere else. Geometry moves every
+  // frame (30ms mesh rebuild); the analysis is recomputed ONCE on release,
+  // because analyze() costs 190-245ms and a number that lags the part is a
+  // number that lies about it.
+  const [moves, setMoves] = useState({})
+  const [reAnalysis, setReAnalysis] = useState(null)
+  const design = useMemo(() => {
+    const ids = Object.keys(moves)
+    if (!ids.length) return spec.design
+    return {
+      ...spec.design,
+      nodes: spec.design.nodes.map((n) => {
+        const m = moves[n.id]
+        return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+      }),
+    }
+  }, [spec, moves])
+  const movesKey = useMemo(() => JSON.stringify(moves), [moves])
+  const analysis = reAnalysis && reAnalysis.key === movesKey ? reAnalysis.value : spec.analysis
+  const dropNode = useCallback((id, dx, dy) => {
+    const next = { ...moves, [id]: [dx, dy] }
+    setMoves(next)
+    const nodes = spec.design.nodes.map((n) => {
+      const m = next[n.id]
+      return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+    })
+    setReAnalysis({ key: JSON.stringify(next), value: analyze({ ...spec.design, nodes }) })
+    // instrumentation for the interaction harness: a drop must recompute, and a
+    // test that cannot see the recompute cannot tell a tool from a screenshot
+    globalThis.__rfStats = { ...(globalThis.__rfStats || {}), drops: ((globalThis.__rfStats || {}).drops || 0) + 1 }
+  }, [moves, spec])
+  useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
@@ -14494,7 +15409,58 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
+  const [flyOn, setFlyOn] = useState(false)
+  const flyRaf = useRef(0)
+  const camRef = useRef(null)
+  useEffect(() => { camRef.current = cam }, [cam])
+  const stopFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    flyRaf.current = 0
+    setFlyOn(false)
+  }, [])
+  const startFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    const base = CAM_FOR(analysis.dims)
+    const t0 = performance.now()
+    setFlyOn(true)
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLY_MS)
+      const f = flyAt(t, base)
+      const live = camRef.current
+      if (live) {
+        live.yaw = f.yaw
+        live.pitch = f.pitch
+        live.dist = f.dist
+        live.ortho = false
+        if (globalThis.__rfPaint) globalThis.__rfPaint()
+      }
+      if (t < 1) flyRaf.current = requestAnimationFrame(step)
+      else { flyRaf.current = 0; setCam({ ...f }); setFlyOn(false) }
+    }
+    flyRaf.current = requestAnimationFrame(step)
+  }, [analysis.dims])
+  // any deliberate camera move cancels the flight: the flight is a suggestion
+  useEffect(() => () => cancelAnimationFrame(flyRaf.current), [])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        flyOn ? stopFly() : startFly()
+      }
+      if (e.key === 'Escape' && flyOn) stopFly()
+    }
+    window.addEventListener('keydown', onKey)
+    globalThis.__rfFly = () => startFly()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [flyOn, startFly, stopFly])
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false, scale: true })
+  // the camera must fit the machine AND the scale figure, so the framing box is
+  // the machine's dims plus the figure's reach
+  const frameDims = useMemo(() => {
+    const d = analysis.dims.slice()
+    if (opts.scale) d[0] += SCALE_EXTRA_MM
+    return d
+  }, [analysis.dims, opts.scale])
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
@@ -14548,8 +15514,8 @@ function Studio() {
   }, [pose])
 
   useEffect(() => {
-    setCam((c) => ({ ...c, dist: CAM_FOR(analysis.dims).dist }))
-  }, [analysis.dims[0], analysis.dims[1], analysis.dims[2]])
+    setCam((c) => ({ ...c, dist: CAM_FOR(frameDims).dist }))
+  }, [frameDims[0], frameDims[1], frameDims[2]])
 
   useEffect(() => {
     if (CTX) CTX.storage.set('lastBrief', brief)
@@ -15104,7 +16070,10 @@ function Studio() {
   const camFocus = useMemo(() => {
     if (!chassis) return null
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
-    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    // frame the machine AND the 1.75m figure standing beside it, or the scale
+    // reference is drawn outside the frustum and might as well not exist
+    const shift = opts.scale ? SCALE_EXTRA_MM / 2 : 0
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2 + shift
     const cy = (machBounds.min[1] + machBounds.max[1]) / 2
     const cz = (machBounds.min[2] + machBounds.max[2]) / 2
     return [
@@ -15112,7 +16081,7 @@ function Studio() {
       cx * sn + cy * c + chassis.y * 1000,
       terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
     ]
-  }, [chassis, machBounds, benchEnv])
+  }, [chassis, machBounds, benchEnv, opts.scale])
   // floor contact-shadow radius tracks the machine, not the (possibly huge) course
   const subjectR = useMemo(() => {
     const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
@@ -15139,6 +16108,20 @@ function Studio() {
     }
     return { data: out, verts: rawOv.verts }
   }, [rawOv, chassis, benchEnv])
+  // One line buffer for everything drawn in world space: the bench overlay and
+  // the 1.75m scale figure. Two buffers would mean two draw calls and a second
+  // place for the geometry to lie about itself.
+  const ovAll = useMemo(() => {
+    const fig = opts.scale ? scaleFigureOverlay(design.nodes) : null
+    const bench = benchOvWorld
+    if (!fig && !bench) return null
+    if (!fig) return bench
+    if (!bench) return fig
+    const data = new Float32Array(bench.data.length + fig.data.length)
+    data.set(bench.data, 0)
+    data.set(fig.data, bench.data.length)
+    return { data, verts: bench.verts + fig.verts }
+  }, [benchOvWorld, design.nodes, opts.scale])
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
@@ -15841,7 +16824,14 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, {
+          mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis,
+          overlay: ovAll, focus: camFocus,
+          onMoveNode: (id, dx, dy) => setMoves((m) => ({ ...m, [id]: [dx, dy] })),
+          onDropNode: dropNode,
+          movedCount: Object.keys(moves).length,
+          onResetMoves: () => { setMoves({}); setReAnalysis(null) },
+        }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -16107,6 +17097,13 @@ function Studio() {
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+          h('button', {
+            style: flyOn ? S.viewChipOn : S.viewPlay,
+            'aria-pressed': flyOn,
+            title: 'fly-through — close on a detail, through the machine, out to iso (F)',
+            onClick: () => (flyOn ? stopFly() : startFly()),
+          }, flyOn ? 'MOVE' : 'FLY'),
+          h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
             VIEWS.map(([label, yaw, pitch]) => {
               const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
@@ -16120,7 +17117,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
@@ -16695,20 +17692,26 @@ const plugin = {
       // console unavailable (SSR/test harness) — never fatal
     }
 
-    ctx.contribution(ROUTES_AREA, {
+    // The host's surface is ctx.register({ id, area, … }) — one call per area.
+    // ctx.contribution() was an older shape that no longer exists: calling it
+    // throws, the loader drops the whole plugin, and the user sees "rigforge
+    // failed to register" with no page at all.
+    ctx.register({
       id: 'rigforge.page',
-      data: { path: ROUTE },
-      title: 'Rigforge',
+      area: ROUTES_AREA,
+      data: { path: ROUTE, title: 'Rigforge' },
       render: () => h(Studio),
     })
 
-    ctx.contribution(SIDEBAR_NAV_AREA, {
+    ctx.register({
       id: 'rigforge.nav',
+      area: SIDEBAR_NAV_AREA,
       data: { path: ROUTE, label: 'Rigforge', codicon: 'circuit-board' },
     })
 
-    const quick = (id, label, keywords, brief, detail) => ctx.contribution(PALETTE_AREA, {
+    const quick = (id, label, keywords, brief, detail) => ctx.register({
       id,
+      area: PALETTE_AREA,
       data: {
         label,
         keywords,
@@ -16733,8 +17736,9 @@ const plugin = {
     quick('rigforge.quad', 'Rigforge: new quadruped', ['quadruped', 'walking', 'servos'], PRESETS[2].brief, '12-servo gait machine')
     quick('rigforge.gadget', 'Rigforge: new ESP32 device', ['esp32', 'sensor', 'enclosure'], PRESETS[4].brief, 'Desk device with a printed case')
 
-    ctx.contribution(TRANSCRIPT_DIRECTIVE_AREA, {
+    ctx.register({
       id: 'rigforge.directive',
+      area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: 'rigforge',
         render: (props) => h(DirectiveCard, { attrs: props.attrs || {} }),
