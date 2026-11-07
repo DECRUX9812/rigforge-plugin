@@ -1964,27 +1964,32 @@ check('drone: lift-to-weight and hover endurance recompute from the geometry, no
   const { design, analysis } = A.composeDesign({ ...p.brief })
   const d = analysis.drone
   assert(d, 'drone analysis missing')
-  // recompute both numbers the way a physics text would, from published constants
+  // independent re-derivation of the load-limited operating point:
+  //   motor torque falls with speed   τ = τs(1 − ω/ω0)
+  //   prop drag torque rises with it  τ = kp·ω²
   const RHO = 1.225
   const D = design.drone.propMm / 1000
   const area = (Math.PI * D * D) / 4
   const pitch = D * 0.86
   const vPack = design.drone.cells * 3.7 * 0.9
-  const rpm = design.drone.kv * vPack * 0.85
-  const vExit = (rpm / 60) * pitch * 0.72
-  const thrustG = (4 * 0.5 * RHO * area * vExit * vExit * 1000) / 9.81
+  const omega0 = (design.drone.kv * vPack * 2 * Math.PI) / 60
+  const vPerRad = (pitch * 0.72) / (2 * Math.PI)
+  const cT = 0.5 * RHO * area * vPerRad * vPerRad
+  const kp = Math.pow(cT, 1.5) / (0.55 * Math.sqrt(2 * RHO * area))
+  const tau = 1.10 * (design.drone.motorMassG / 32)
+  const omega = (-(tau / omega0) + Math.sqrt(Math.pow(tau / omega0, 2) + 4 * kp * tau)) / (2 * kp)
+  const thrustG = (4 * cT * omega * omega * 1000) / 9.81
+  assert(omega < omega0, `operating point ${Math.round((omega * 60) / (2 * Math.PI))}rpm exceeds the motor's no-load speed`)
+  assert(Math.abs(thrustG - d.thrustG) < 2, `thrust ${thrustG.toFixed(1)}g vs claimed ${d.thrustG.toFixed(1)}g`)
   const twr = thrustG / analysis.mass.totalG
   assert(Math.abs(twr - d.twr) < 0.02, `twr recompute ${twr.toFixed(3)} vs claimed ${d.twr.toFixed(3)}`)
-  assert(Math.abs(thrustG - d.thrustG) < 2, `thrust ${thrustG.toFixed(1)}g vs claimed ${d.thrustG.toFixed(1)}g`)
-  // endurance is capacity over current, with 80% usable
-  const minutes = ((design.drone.mah / 1000) * 0.8 * 60) / d.hoverAmps
-  assert(Math.abs(minutes - d.minutes) < 0.02, `endurance ${minutes.toFixed(2)} vs claimed ${d.minutes.toFixed(2)}`)
-  // hover current must be the power the discs need, at the pack voltage
   const tHover = (analysis.mass.totalG / 1000) * 9.81 / 4
   const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * RHO * area)
   const amps = ((4 * pHover) / 0.55) / vPack
   assert(Math.abs(amps - d.hoverAmps) < 0.02, `hover amps ${amps.toFixed(2)} vs ${d.hoverAmps.toFixed(2)}`)
-  return `${Math.round(thrustG)}g thrust · ${twr.toFixed(1)}:1 · ${minutes.toFixed(1)} min`
+  const minutes = ((design.drone.mah / 1000) * 0.8 * 60) / d.hoverAmps
+  assert(Math.abs(minutes - d.minutes) < 0.02, `endurance ${minutes.toFixed(2)} vs claimed ${d.minutes.toFixed(2)}`)
+  return `${Math.round(thrustG)}g thrust · ${twr.toFixed(1)}:1 · ${Math.round((omega * 60) / (2 * Math.PI))}rpm · ${minutes.toFixed(1)} min`
 })
 
 check('drone: the props clear the frame and each other', () => {

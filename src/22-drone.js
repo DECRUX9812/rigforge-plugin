@@ -8,6 +8,11 @@
 const DRONE_AIR_RHO = 1.225 // kg/m³ at sea level, 15°C
 const DRONE_PROP_SLIP = 0.72 // real exit velocity is ~72% of geometric pitch speed
 const DRONE_FOM = 0.55 // figure of merit: motor + ESC + prop, lumped
+// Stall torque per 32g motor class, calibrated so a 2207 on 4S with a 5x4.3
+// tri-blade lands on the published ~1.2kg of static thrust per motor. Every
+// other prop and pack then follows from the same two equations instead of a
+// per-size lookup nobody could check.
+const DRONE_TAU_REF = 1.10 // N·m at 32g
 
 /**
  * Momentum theory, no fudge factors beyond the two constants above.
@@ -21,9 +26,29 @@ function droneReport(params, massG) {
   const A = (Math.PI * D * D) / 4
   const pitch = D * 0.86
   const vPack = params.cells * 3.7 * 0.9
-  const rpm = params.kv * vPack * 0.85
-  const vExit = (rpm / 60) * pitch * DRONE_PROP_SLIP
-  const tOne = 0.5 * DRONE_AIR_RHO * A * vExit * vExit // N
+  const omega0 = (params.kv * vPack * 2 * Math.PI) / 60 // rad/s, no-load
+
+  // Thrust coefficient from momentum theory: T = cT·ω², because the exit
+  // velocity is pitch·ω/2π.
+  const vPerRad = (pitch * DRONE_PROP_SLIP) / (2 * Math.PI)
+  const cT = 0.5 * DRONE_AIR_RHO * A * vPerRad * vPerRad
+
+  // Prop drag torque from the induced power: P = T^1.5/√(2ρA), τ = P/ω.
+  const kp = Math.pow(cT, 1.5) / (DRONE_FOM * Math.sqrt(2 * DRONE_AIR_RHO * A))
+
+  // The operating point is where the motor's falling torque meets the prop's
+  // rising drag: τs(1 − ω/ω0) = kp·ω². This is the whole fix: the old model ran
+  // the disc at geometric pitch speed, which assumes the motor is never loaded
+  // and made big props look free.
+  const tauStall = DRONE_TAU_REF * (params.motorMassG / 32) // N·m, scaled by motor mass
+  const a = kp
+  const b = tauStall / omega0
+  const c = -tauStall
+  const omega = (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a) // rad/s at the operating point
+  const rpm = (omega * 60) / (2 * Math.PI)
+
+  const vExit = (omega / (2 * Math.PI)) * pitch * DRONE_PROP_SLIP
+  const tOne = cT * omega * omega // N
   const thrustG = (4 * tOne * 1000) / 9.81
   const massKg = Math.max(0.001, massG / 1000)
   const weightN = massKg * 9.81
@@ -37,10 +62,12 @@ function droneReport(params, massG) {
   return {
     propMm: params.propMm,
     diskAreaM2: A,
+    omega,
     vExit,
     thrustG,
+    tOneN: tOne,
     twr: thrustG / massG,
-    hoverThrottle: vHover / vExit,
+    hoverThrottle: Math.min(1, vHover / Math.max(vExit, 1e-6)),
     hoverAmps: amps,
     hoverWatts: pElec,
     minutes,
@@ -53,7 +80,11 @@ function buildDrone(brief) {
   const d = newDesign('drone', brief)
   // the prop size is the whole design: 5" and 7" are different machines, not a
   // style choice. Take it from propMm, else from the reach slider the UI shows.
-  const wanted = brief.propMm || brief.reachMm || 127
+  // DEFAULT_BRIEF carries reachMm 450, so taking reach as the prop size turned
+  // every default drone into a 7-inch machine. Only a reach that could plausibly
+  // BE a prop diameter is read as one.
+  const reach = brief.reachMm
+  const wanted = brief.propMm || (reach && reach >= 90 && reach <= 220 ? reach : 127)
   const propKey = wanted >= 160 ? 'prop7' : 'prop5'
   const propMm = propKey === 'prop7' ? 178 : 127
   const motorKey = propKey === 'prop7' ? 'motor2806' : 'motor2207'
@@ -144,6 +175,7 @@ function buildDrone(brief) {
 
   d.drone = {
     propMm, kv, cells, mah: batt.mah, motors: 4, propKey, motorKey, battery: battKey, payloadKg: payload,
+    motorMassG: (PARTS[motorKey] && PARTS[motorKey].mass) || 32,
   }
   return d
 }
