@@ -98,6 +98,15 @@ jobs:
         run: node tests/a11y-audit.mjs
       - name: every export downloads
         run: node tests/export-sweep.mjs
+      - name: every preset draws a machine
+        # the engine suite proves the numbers; this proves a machine reaches the
+        # viewport. Measured as the share of the viewport that changes when the
+        # brief is seeded, because variance alone cannot tell a machine from the
+        # floor grid it sits on.
+        run: |
+          if [ -f tests/presets-render.mjs ]; then
+            PORT=18734 node tests/presets-render.mjs
+          fi
       - name: bundle loads in the host
         run: node tests/bundle-load.mjs
       - name: gates that arrive with their own PR
