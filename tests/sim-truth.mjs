@@ -156,6 +156,52 @@ check('sim: a carried payload loads the joints, and enough of it stalls one', ()
   return `wrist load ${empty.load.toFixed(2)} → ${loaded.load.toFixed(2)} N·m · ${loaded.stalled} joint(s) stalled at 6kg`
 })
 
+// ── 7. a parked machine holds the friction angle and not one degree more ────
+check('sim: a parked rover holds at the friction angle, slides past it', () => {
+  const { design, analysis } = DESIGN('rover')
+  const drive = A.createDrive(design, analysis)
+  const mu = A.DRIVE_SURFACES.hardwood.mu
+  const frictionDeg = (Math.atan(mu) * 180) / Math.PI
+  const settle = (deg) => {
+    const d = A.createDrive(design, analysis)
+    d.setEnv({ surface: 'hardwood', slopeDeg: deg })
+    // put it ON the ramp: the rack is flat until x = 1.4, so a machine parked at
+    // the origin is on level ground and the claim would be vacuous
+    d.state.x = 2.2
+    for (let i = 0; i < 240; i += 1) d.step({ throttle: 0, steer: 0 }, 1 / 60)
+    return d.state
+  }
+  const held = settle(Math.max(1, frictionDeg - 1))
+  const slipped = settle(frictionDeg + 6)
+  assert(Math.abs(held.v) < 0.02, `parked at ${(frictionDeg - 1).toFixed(0)}° (< friction angle ${frictionDeg.toFixed(0)}°) but slid at ${held.v.toFixed(3)} m/s`)
+  assert(Math.abs(slipped.v) > 0.05, `parked at ${(frictionDeg + 6).toFixed(0)}° (> friction angle) and did not slide — friction ignored`)
+  return `holds at ${(frictionDeg - 1).toFixed(0)}°, slides at ${(frictionDeg + 6).toFixed(0)}° (μ=${mu}, friction angle ${frictionDeg.toFixed(1)}°)`
+})
+
+// ── 8. motion has inertia: it ramps up, and it settles ──────────────────────
+check('sim: a joint ramps to speed and settles on its stop', () => {
+  const { design, analysis } = DESIGN('arm')
+  const sim = A.createJointSim(design, analysis)
+  const i = 0
+  sim.snap(design.joints.map(() => 0))
+  const targets = design.joints.map(() => 0)
+  targets[i] = 90
+  sim.setTargets(targets)
+  const dt = 1 / 120
+  const early = (sim.step(dt, 0), Math.abs(sim.state.vel[i])) // one frame: inertia says slow
+  for (let k = 0; k < 8; k += 1) sim.step(dt, k * dt * 1000)
+  const cruising = Math.abs(sim.state.vel[i])
+  assert(cruising > early * 2, `velocity did not ramp: ${early.toFixed(1)} → ${cruising.toFixed(1)} °/s`)
+  // run out the move and confirm it comes to rest on the target, not past it
+  const t0 = design.joints[i]
+  let settleSteps = 0
+  while (Math.abs(sim.state.angles[i] - 90) > 0.05 && settleSteps < 2000) { sim.step(dt, (21 + settleSteps) * dt * 1000); settleSteps += 1 }
+  assert(settleSteps < 2000, 'joint never settled')
+  assert(sim.state.angles[i] <= 90.0001, `overshot the stop by ${(sim.state.angles[i] - 90).toFixed(2)}° unsafely`)
+  const rate = (settleSteps * dt)
+  return `ramp ${early.toFixed(0)} → ${cruising.toFixed(0)} °/s · settles in ${(rate * 1000).toFixed(0)}ms · limit ${t0.min?.toFixed(0) ?? '-'}..${t0.max}`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {

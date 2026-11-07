@@ -26,6 +26,10 @@ jobs:
         run: node build.mjs
       - name: engine claims
         run: node tests/truth.mjs
+      - name: simulation claims
+        # the motion layer had no gate: "it moves" was the only claim anyone
+        # could make about it. Runs with the engine job — no browser needed.
+        run: node tests/sim-truth.mjs
       - name: OpenSCAD export really renders (when the gate exists)
         # openscad-wasm is a 30MB wasm build; only fetched when the gate is present
         run: |
