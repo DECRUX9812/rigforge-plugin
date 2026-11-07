@@ -1976,7 +1976,7 @@ check('drone: lift-to-weight and hover endurance recompute from the geometry, no
   const vPerRad = (pitch * 0.72) / (2 * Math.PI)
   const cT = 0.5 * RHO * area * vPerRad * vPerRad
   const kp = Math.pow(cT, 1.5) / (0.55 * Math.sqrt(2 * RHO * area))
-  const tau = 1.10 * (design.drone.motorMassG / 32)
+  const tau = design.drone.stallNm
   const omega = (-(tau / omega0) + Math.sqrt(Math.pow(tau / omega0, 2) + 4 * kp * tau)) / (2 * kp)
   const thrustG = (4 * cT * omega * omega * 1000) / 9.81
   assert(omega < omega0, `operating point ${Math.round((omega * 60) / (2 * Math.PI))}rpm exceeds the motor's no-load speed`)
