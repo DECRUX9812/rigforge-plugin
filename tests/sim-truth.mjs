@@ -137,6 +137,25 @@ check('sim: a shove changes lateral speed by F·Δt/mass', () => {
   return `12N → ${dv.toFixed(3)} m/s on ${m.toFixed(2)}kg`
 })
 
+// ── 6. cargo is weight the joints actually feel ────────────────────────────
+check('sim: a carried payload loads the joints, and enough of it stalls one', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const run = (payload) => {
+    const { design, analysis } = A.composeDesign({ ...p.brief, payloadKg: payload })
+    const sim = A.createJointSim(design, analysis)
+    sim.snap(design.joints.map(() => 0))
+    sim.setTargets(design.joints.map(() => 0))
+    for (let step = 0; step < 240; step += 1) sim.step(1 / 60, step * 16)
+    const i = design.joints.findIndex((j) => /wrist-pitch/.test(j.id))
+    return { load: sim.state.loadNm[i], stalled: sim.state.stalled.filter(Boolean).length }
+  }
+  const empty = run(0)
+  const loaded = run(6)
+  assert(loaded.load > empty.load * 3, `6kg barely changed the wrist load: ${empty.load.toFixed(2)} → ${loaded.load.toFixed(2)} N·m`)
+  assert(loaded.stalled >= 1, 'a 6kg payload stalled nothing — the stall branch is unreachable')
+  return `wrist load ${empty.load.toFixed(2)} → ${loaded.load.toFixed(2)} N·m · ${loaded.stalled} joint(s) stalled at 6kg`
+})
+
 // ── report ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok)
 for (const r of results) {
