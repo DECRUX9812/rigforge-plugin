@@ -1995,6 +1995,24 @@ check('drone: the props clear the frame and each other', () => {
   const propMm = design.drone.propMm
   assert(closest > propMm + 4, `closest motor spacing ${closest.toFixed(1)}mm vs prop Ø${propMm}mm — blades would intersect`)
   return `closest pair ${closest.toFixed(0)}mm apart, prop Ø${propMm}mm`
+check('scale: the reference figure is exactly 1.75m tall and stands clear of the design', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const { design } = A.composeDesign({ ...p.brief })
+  const ov = A.scaleFigureOverlay(design.nodes)
+  assert(ov && ov.data.length, 'no scale figure produced')
+  let minZ = Infinity, maxZ = -Infinity, minX = Infinity
+  for (let i = 0; i < ov.data.length; i += 6) {
+    const z = ov.data[i + 2]
+    const x = ov.data[i]
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+    if (x < minX) minX = x
+  }
+  const h = maxZ - minZ
+  assert(Math.abs(h - A.SCALE_HUMAN_MM) < 1, `figure is ${h.toFixed(1)}mm tall, claimed ${A.SCALE_HUMAN_MM}`)
+  const b = A.boundsOf(design.nodes)
+  assert(minX > b.max[0], `figure starts at ${minX.toFixed(0)}mm, inside the design's ${b.max[0].toFixed(0)}mm edge`)
+  return `${h.toFixed(1)}mm tall · clears the design by ${(minX - b.max[0]).toFixed(0)}mm`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────
