@@ -10210,7 +10210,14 @@ const PRESETS = [
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
   const rules = [
-    ['scene', /workshop|scene|lineup|fleet|multiple machines|several (robots|machines)|all (the )?(machines|robots)/],
+    // A scene is a LINEUP, not a room. "a robot vacuum for my workshop" is one
+    // machine that happens to mention a workshop; matching the place word sent
+    // it to the scene builder and produced three robots nobody asked for.
+    ['scene', /(\b(?:two|three|four|five|several|multiple|a few)\b[^.]{0,24}\b(?:robots?|machines?|arms?|rovers?|drones?)\b)|lineup|line.?up|assembly line|production line|fleet of|bench of machines/],
+    // Flying machines had no vocabulary at all: "a drone that follows me on a
+    // bike" fell through to the gadget builder, so the one archetype with its
+    // own lift arithmetic was unreachable from plain English.
+    ['drone', /\bdrones?\b|quad.?copter|\bquad\b|multirotor|hexacopter|fpv\b|\buav\b|flying|airborne|propellers?|copter/],
     ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
     ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
     ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
@@ -10218,8 +10225,8 @@ function matchArchetype(text) {
     ['robot', /full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/],
     ['quadruped', /quadruped|quad pod|four.?leg|walking|dog\b|trot/],
     ['gripper', /gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/],
-    ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
-    ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
+    ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta|\bsort(s|ing|ed)?\b|\bweld(s|ing)?\b|assembly robot/],
+    ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis|vacuum|roomba|sweeper|mower|lawn|tractor/],
   ]
   for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
   // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
@@ -15389,7 +15396,7 @@ function plainVerdict(checks, brief) {
   if (brief && brief.archetypeMatched === false) {
     return {
       icon: '!', color: C.amber,
-      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind — rover, arm, quadruped, humanoid, gripper, drone, board, gantry, a whole lineup — and the numbers will mean something.',
     }
   }
   const fails = checks.filter((c) => c.level === 'fail').length
