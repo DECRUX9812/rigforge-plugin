@@ -144,7 +144,7 @@ function toURDF(design, analysis) {
     // studio pitch joints read positive = UP, i.e. they rotate by −angle about
     // +y; URDF has no sign convention, so the axis itself carries the flip.
     // Slides keep their raw axis — linear displacement has no pitch inversion.
-    const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+    const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
     const axU = axisVec(j.axis).map((v) => v * sgn)
     L.push(`    <axis xyz="${axU.map((v) => r6(v)).join(' ')}"/>`)
     // effort and velocity must be real: a zero effort limit means the joint
@@ -231,7 +231,7 @@ function toMJCF(design, analysis) {
       const pp = pj && pj.pivot ? pj.pivot : [0, 0, 50]
       const pos = [pv[0] - pp[0], pv[1] - pp[1], pv[2] - pp[2]].map((v) => r4(v / 1000)).join(' ')
       // same pitch inversion as URDF: studio +angle is −rotation about +y
-      const sgn = (!j.slide && j.axis === 'y') ? -1 : 1
+      const sgn = (!j.slide && (j.axis0 || j.axis) === 'y') ? -1 : 1
       const axis = axisVec(j.axis).map((v) => v * sgn)
       const axisStr = axis.map((v) => r4(v)).join(' ')
       const range = j.slide ? `${r4(j.min / 1000)} ${r4(j.max / 1000)}` : `${r4(j.min)} ${r4(j.max)}`
