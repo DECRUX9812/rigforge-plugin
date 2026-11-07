@@ -1201,7 +1201,11 @@ check('locomotion: tall humanoid climbs porch stairs the quad cannot', () => {
 
 // ── 27. endurance: sustained load cooks servos to cutoff, pack drains ───────
 check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () => {
-  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  // Ask for far more than the machine can hold: once the arm was sized for its
+  // real payload the servos no longer stall on a 0.8kg brief, and this claim was
+  // silently testing "a well-sized arm does not overheat".
+  const heavy = { ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief, payloadKg: 20 }
+  const { design, analysis } = A.composeDesign(heavy)
   const pwr = A.createPowerSim(design)
   assert(pwr, 'arm has a battery — power sim should exist')
   const sim = A.createJointSim(design, analysis)
@@ -1701,7 +1705,18 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
   const liftBin = at.results.find((r) => r.id === 'lift-bin')
   const liftSteel = at.results.find((r) => r.id === 'lift-steel')
   assert(liftBin && liftBin.pass, `80g bin should be liftable — ${liftBin && liftBin.detail}`)
-  assert(liftSteel && !liftSteel.pass, `1.2kg steel should fail the torque check — ${liftSteel && liftSteel.detail}`)
+  // The old claim hard-coded "1.2kg must fail", which was true only while the arm
+  // was sized for a payload 1000x too small. What must hold is the RULE: the
+  // verdict follows the computed stall margin, and a heavier prop has less of it.
+  const marginOf = (r) => {
+    const m = /([\d.]+)× stall/.exec((r && r.detail) || '')
+    return m ? parseFloat(m[1]) : null
+  }
+  const mb = marginOf(liftBin)
+  const ms = marginOf(liftSteel)
+  assert(ms != null && mb != null, 'lift legs must report a stall margin')
+  assert(liftSteel.pass === ms >= 1, `verdict must follow the margin: ${ms}× → pass=${liftSteel.pass}`)
+  assert(ms < mb, `a heavier prop must have less margin — 80g ${mb}× vs 1.2kg ${ms}×`)
   assert(/stall|carry/.test(liftSteel.detail), 'lift verdict lacks the measured margin')
   const limits = at.results.find((r) => r.id === 'limits')
   assert(limits && limits.pass, `limits sweep should pass on this arm — ${limits && limits.detail}`)

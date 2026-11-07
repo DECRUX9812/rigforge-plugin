@@ -1365,7 +1365,10 @@ function buildArm(brief) {
   const mFore = linkMass(L2)
   const mWrist = linkMass(dof >= 4 ? L3 : 0) + 60 // hub + servo hardware
   const mTool = 90 + payload * 1000 * 0.12 // gripper + gripped inertia
-  const mPayload = payload
+  // torqueOf() works in GRAMS (the link masses are grams); payloadKg is kg. This
+  // was `const mPayload = payload`, so every payload term was 1000x too small and
+  // the servos were sized as if the arm lifted nothing.
+  const mPayload = payload * 1000
 
   const at = (m, dist) => ({ m, dist })
   // Shoulder sees the whole arm at full extension; elbow sees everything past it.
@@ -1409,7 +1412,11 @@ function buildArm(brief) {
           msg: `${label}: needs ${fmt(need, 1)} N·m at full extension — that is ${ratio}:1 beyond ${PARTS[top].name}. This is a stepper/harmonic-drive machine: use NEMA17 + 5:1 or cut reach/payload.`,
         })
         addPart(d, servo, 1, label)
-        return { servo, ratio: 0 }
+        // ratio 0 made `effective` zero, and a joint with zero stall torque reads
+        // downstream as "no stall" — the joint then never heats, never sags and
+        // never reports the shortfall the fail check above just described. Report
+        // the real hardware: it is under-torqued, and that is the point.
+        return { servo, ratio: 1 }
       }
       addPart(d, 'gt2_kit', 1, `${label} ${ratio}:1 belt reduction`)
       d.notes.push(`${label} uses a ${ratio}:1 GT2 belt stage — ${PARTS[servo].name} alone gives ${fmt(PARTS[servo].torque, 2)} N·m, ${fmt(PARTS[servo].torque * ratio, 2)} N·m at the joint.`)
@@ -1501,7 +1508,7 @@ function buildArm(brief) {
   if (dof >= 4) {
     cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
     if (ratioOf('Wrist pitch') > 1) {
-      beltStageY(d, { prefix: 'wrist', pivot: [wristX, 0, baseH], ratio: ratioOf('Wrist pitch'), servoKey: svc('wrist', 'mg90s'), servoJoint: chain, outJoint: 'wrist-pitch', beltY: -33 })
+      beltStageY(d, { prefix: 'wrist-pitch', pivot: [wristX, 0, baseH], ratio: ratioOf('Wrist pitch'), servoKey: svc('wrist', 'mg90s'), servoJoint: chain, outJoint: 'wrist-pitch', beltY: -33 })
     } else {
       servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
     }
