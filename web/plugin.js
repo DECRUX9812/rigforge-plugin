@@ -10343,6 +10343,101 @@ function createAutotest(teleop, arms) {
   return subs.length === 1 ? subs[0].at : sequenceAutotest(subs)
 }
 
+// ── scale: a person, standing next to the machine ───────────────────────────
+// Every number in this product is in millimetres, and millimetres are not a
+// unit anyone can feel. A 1750mm human silhouette beside the design turns
+// "568 × 150 × 121 mm" into "knee height" or "taller than you", which is the
+// question people actually ask when they look at a CAD render.
+//
+// Drawn as a wireframe out of the same line buffer as the bench overlay: no new
+// render path, no fake studio props, just a figure at true scale. If the figure
+// and the machine disagree, one of them is lying, and that is worth seeing.
+
+const SCALE_HUMAN_MM = 1750
+// How far past the machine's own bounding box the figure reaches: gap + half a
+// shoulder width + the ladder. The camera has to frame this or the reference is
+// drawn off-screen, which is the same as not drawing it.
+const SCALE_EXTRA_MM = 820
+
+// Segment boxes for a 1750mm adult, roughly 7.5 heads. [w, d, h, x, y, z]
+const SCALE_PARTS = [
+  [180, 180, 220, 0, 0, 1640], // head
+  [90, 90, 60, 0, 0, 1500], // neck
+  [400, 220, 480, 0, 0, 1240], // chest
+  [340, 200, 140, 0, 0, 940], // hips
+  [110, 110, 320, 255, 0, 1180], // upper arm R
+  [110, 110, 320, -255, 0, 1180], // upper arm L
+  [100, 100, 300, 285, 0, 880], // forearm R
+  [100, 100, 300, -285, 0, 880], // forearm L
+  [150, 150, 430, 105, 0, 680], // thigh R
+  [150, 150, 430, -105, 0, 680], // thigh L
+  [130, 130, 430, 105, 0, 250], // shin R
+  [130, 130, 430, -105, 0, 250], // shin L
+  [110, 240, 80, 105, 30, 40], // foot R
+  [110, 240, 80, -105, 30, 40], // foot L
+]
+
+const SCALE_EDGES = [
+  [0, 1], [1, 3], [3, 2], [2, 0], // bottom face
+  [4, 5], [5, 7], [7, 6], [6, 4], // top face
+  [0, 4], [1, 5], [2, 6], [3, 7], // verticals
+]
+
+/**
+ * Wireframe figure standing beside the design, plus a 1m tick ladder at its
+ * feet so the eye has something to count. Returns the same {data, verts}
+ * shape the GL overlay pass expects: interleaved x,y,z,r,g,b, GL_LINES.
+ */
+function scaleFigureOverlay(nodes, opts) {
+  if (!nodes || !nodes.length) return null
+  const height = (opts && opts.heightMm) || SCALE_HUMAN_MM
+  const k = height / SCALE_HUMAN_MM
+  const b = boundsOf(nodes)
+  if (!Number.isFinite(b.min[0])) return null
+  const gap = (opts && opts.gapMm) || 320
+  const ox = b.max[0] + gap + 300 * k
+  const oy = (b.min[1] + b.max[1]) / 2
+  const floor = Math.min(0, b.min[2])
+  const col = [0.42, 0.72, 0.92]
+
+  const arr = []
+  const seg = (a, c) => {
+    arr.push(a[0], a[1], a[2], col[0], col[1], col[2], c[0], c[1], c[2], col[0], col[1], col[2])
+  }
+  for (const [w, d, h, x, y, z] of SCALE_PARTS) {
+    const hw = (w / 2) * k
+    const hd = (d / 2) * k
+    const hh = (h / 2) * k
+    const cx = ox + x * k
+    const cy = oy + y * k
+    const cz = floor + z * k
+    const corner = [
+      [cx - hw, cy - hd, cz - hh], [cx + hw, cy - hd, cz - hh],
+      [cx + hw, cy + hd, cz - hh], [cx - hw, cy + hd, cz - hh],
+      [cx - hw, cy - hd, cz + hh], [cx + hw, cy - hd, cz + hh],
+      [cx + hw, cy + hd, cz + hh], [cx - hw, cy + hd, cz + hh],
+    ]
+    for (const [i, j] of SCALE_EDGES) seg(corner[i], corner[j])
+  }
+
+  // 1m ladder behind the figure: ten ticks, the 500mm one longer
+  const lx = ox - 420 * k
+  for (let i = 0; i <= 10; i += 1) {
+    const z = floor + i * 100 * k
+    const len = i % 5 === 0 ? 150 * k : 70 * k
+    seg([lx, oy, z], [lx + len, oy, z])
+  }
+  seg([lx, oy, floor], [lx, oy, floor + height])
+
+  return { data: new Float32Array(arr), verts: arr.length / 6 }
+}
+
+/** Total height of the emitted figure, for tests and for the HUD. */
+function scaleFigureHeight(opts) {
+  const k = ((opts && opts.heightMm) || SCALE_HUMAN_MM) / SCALE_HUMAN_MM
+  return 1750 * k
+}
+
 // ── viewport: a software 3D renderer, because a CAD view cannot be a DIV ────
 // Painter's algorithm on 2D canvas: sub-millisecond for these meshes, no
 // WebGL context to lose, no three.js to ship. Shading is a three-light studio
@@ -14494,7 +14589,14 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false, scale: true })
+  // the camera must fit the machine AND the scale figure, so the framing box is
+  // the machine's dims plus the figure's reach
+  const frameDims = useMemo(() => {
+    const d = analysis.dims.slice()
+    if (opts.scale) d[0] += SCALE_EXTRA_MM
+    return d
+  }, [analysis.dims, opts.scale])
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
@@ -14548,8 +14650,8 @@ function Studio() {
   }, [pose])
 
   useEffect(() => {
-    setCam((c) => ({ ...c, dist: CAM_FOR(analysis.dims).dist }))
-  }, [analysis.dims[0], analysis.dims[1], analysis.dims[2]])
+    setCam((c) => ({ ...c, dist: CAM_FOR(frameDims).dist }))
+  }, [frameDims[0], frameDims[1], frameDims[2]])
 
   useEffect(() => {
     if (CTX) CTX.storage.set('lastBrief', brief)
@@ -15104,7 +15206,10 @@ function Studio() {
   const camFocus = useMemo(() => {
     if (!chassis) return null
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
-    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    // frame the machine AND the 1.75m figure standing beside it, or the scale
+    // reference is drawn outside the frustum and might as well not exist
+    const shift = opts.scale ? SCALE_EXTRA_MM / 2 : 0
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2 + shift
     const cy = (machBounds.min[1] + machBounds.max[1]) / 2
     const cz = (machBounds.min[2] + machBounds.max[2]) / 2
     return [
@@ -15112,7 +15217,7 @@ function Studio() {
       cx * sn + cy * c + chassis.y * 1000,
       terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
     ]
-  }, [chassis, machBounds, benchEnv])
+  }, [chassis, machBounds, benchEnv, opts.scale])
   // floor contact-shadow radius tracks the machine, not the (possibly huge) course
   const subjectR = useMemo(() => {
     const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
@@ -15139,6 +15244,20 @@ function Studio() {
     }
     return { data: out, verts: rawOv.verts }
   }, [rawOv, chassis, benchEnv])
+  // One line buffer for everything drawn in world space: the bench overlay and
+  // the 1.75m scale figure. Two buffers would mean two draw calls and a second
+  // place for the geometry to lie about itself.
+  const ovAll = useMemo(() => {
+    const fig = opts.scale ? scaleFigureOverlay(design.nodes) : null
+    const bench = benchOvWorld
+    if (!fig && !bench) return null
+    if (!fig) return bench
+    if (!bench) return fig
+    const data = new Float32Array(bench.data.length + fig.data.length)
+    data.set(bench.data, 0)
+    data.set(fig.data, bench.data.length)
+    return { data, verts: bench.verts + fig.verts }
+  }, [benchOvWorld, design.nodes, opts.scale])
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
@@ -15841,7 +15960,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: ovAll, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -16120,7 +16239,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],

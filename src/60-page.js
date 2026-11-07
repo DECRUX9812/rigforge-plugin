@@ -567,7 +567,14 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false, scale: true })
+  // the camera must fit the machine AND the scale figure, so the framing box is
+  // the machine's dims plus the figure's reach
+  const frameDims = useMemo(() => {
+    const d = analysis.dims.slice()
+    if (opts.scale) d[0] += SCALE_EXTRA_MM
+    return d
+  }, [analysis.dims, opts.scale])
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
@@ -621,8 +628,8 @@ function Studio() {
   }, [pose])
 
   useEffect(() => {
-    setCam((c) => ({ ...c, dist: CAM_FOR(analysis.dims).dist }))
-  }, [analysis.dims[0], analysis.dims[1], analysis.dims[2]])
+    setCam((c) => ({ ...c, dist: CAM_FOR(frameDims).dist }))
+  }, [frameDims[0], frameDims[1], frameDims[2]])
 
   useEffect(() => {
     if (CTX) CTX.storage.set('lastBrief', brief)
@@ -1177,7 +1184,10 @@ function Studio() {
   const camFocus = useMemo(() => {
     if (!chassis) return null
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
-    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    // frame the machine AND the 1.75m figure standing beside it, or the scale
+    // reference is drawn outside the frustum and might as well not exist
+    const shift = opts.scale ? SCALE_EXTRA_MM / 2 : 0
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2 + shift
     const cy = (machBounds.min[1] + machBounds.max[1]) / 2
     const cz = (machBounds.min[2] + machBounds.max[2]) / 2
     return [
@@ -1185,7 +1195,7 @@ function Studio() {
       cx * sn + cy * c + chassis.y * 1000,
       terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
     ]
-  }, [chassis, machBounds, benchEnv])
+  }, [chassis, machBounds, benchEnv, opts.scale])
   // floor contact-shadow radius tracks the machine, not the (possibly huge) course
   const subjectR = useMemo(() => {
     const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
@@ -1212,6 +1222,20 @@ function Studio() {
     }
     return { data: out, verts: rawOv.verts }
   }, [rawOv, chassis, benchEnv])
+  // One line buffer for everything drawn in world space: the bench overlay and
+  // the 1.75m scale figure. Two buffers would mean two draw calls and a second
+  // place for the geometry to lie about itself.
+  const ovAll = useMemo(() => {
+    const fig = opts.scale ? scaleFigureOverlay(design.nodes) : null
+    const bench = benchOvWorld
+    if (!fig && !bench) return null
+    if (!fig) return bench
+    if (!bench) return fig
+    const data = new Float32Array(bench.data.length + fig.data.length)
+    data.set(bench.data, 0)
+    data.set(fig.data, bench.data.length)
+    return { data, verts: bench.verts + fig.verts }
+  }, [benchOvWorld, design.nodes, opts.scale])
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
@@ -1914,7 +1938,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: ovAll, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -2193,7 +2217,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],
