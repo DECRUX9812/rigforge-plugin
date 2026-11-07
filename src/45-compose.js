@@ -24,6 +24,7 @@ const PRESETS = [
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
+  { id: 'scene', label: 'Workshop scene', brief: { archetype: 'scene', mission: 'a lineup: pick-and-place arm, survey rover and a sensor node sharing one bench', scene: SCENE_DEFAULT } },
   // The spec card: nodes/joints ARE the design — agents author these through
   // rigforge_build, humans through build codes. This starter is a real machine
   // (pan-tilt survey mast) so the card is never an empty promise.
@@ -53,6 +54,7 @@ const PRESETS = [
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
   const rules = [
+    ['scene', /workshop|scene|lineup|fleet|multiple machines|several (robots|machines)|all (the )?(machines|robots)/],
     ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
     ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
     ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
@@ -121,7 +123,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'scene' ? buildScene(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
