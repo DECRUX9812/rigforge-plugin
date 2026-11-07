@@ -42,6 +42,10 @@ const MAT = {
   steel: { alb: L(150, 164, 178), spec: 0.75, shine: 60, metal: 1.0, glow: 0, rough: 0.3 },
   brass: { alb: L(226, 182, 96), spec: 0.8, shine: 64, metal: 1.0, glow: 0, rough: 0.28 },
   pcb: { alb: L(26, 112, 82), spec: 0.25, shine: 44, metal: 0.0, glow: 0.05, rough: 0.5 },
+  // a board reads as a board when you can see copper and white ink on it
+  copper: { alb: L(198, 108, 44), spec: 0.35, shine: 30, metal: 0.1, glow: 0.08, rough: 0.55 },
+  silk: { alb: L(238, 240, 236), spec: 0.12, shine: 18, metal: 0.0, glow: 0, rough: 0.75 },
+  pcbblue: { alb: L(22, 46, 96), spec: 0.3, shine: 40, metal: 0.0, glow: 0.03, rough: 0.5 },
   rubber: { alb: L(38, 41, 46), spec: 0.06, shine: 12, metal: 0.0, glow: 0, rough: 0.9 },
   glass: { alb: L(128, 226, 246), spec: 0.9, shine: 96, metal: 0.1, glow: 0.18, rough: 0.12 },
   servo: { alb: L(60, 72, 98), spec: 0.34, shine: 40, metal: 0.15, glow: 0, rough: 0.45 },
@@ -142,6 +146,27 @@ function project(p, cam, target, w, h) {
   const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
   const s = cam.ortho ? f : f * (cam.dist / (depth > 1 ? depth : 1))
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
+}
+
+/**
+ * Where a screen pixel lands on a horizontal plane at height z0. This is the
+ * inverse of project() for the one case dragging needs: the user's pointer is
+ * a ray, and the part lives on a plane, so they meet in exactly one place.
+ */
+function unprojectToPlane(px, py, z0, cam, target, w, h) {
+  const b = cam._basis || camBasis(cam, target)
+  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
+  const dx = (px - w / 2) / (f * cam.dist)
+  const dy = -(py - h / 2) / (f * cam.dist)
+  const dir = [
+    -b.back[0] + b.x[0] * dx + b.y[0] * dy,
+    -b.back[1] + b.x[1] * dx + b.y[1] * dy,
+    -b.back[2] + b.x[2] * dx + b.y[2] * dy,
+  ]
+  if (Math.abs(dir[2]) < 1e-6) return null
+  const t = (z0 - b.eye[2]) / dir[2]
+  if (t <= 0) return null
+  return [b.eye[0] + dir[0] * t, b.eye[1] + dir[1] * t]
 }
 
 /** Material for a triangle, with the multicolour-print tint applied to shells. */
@@ -976,7 +1001,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, onGrab, onMoveNode, onDropNode, movedCount, onResetMoves }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const paintRef = useRef(null)
@@ -1051,6 +1076,21 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
+    // the fly-through drives the camera object in place and repaints directly:
+    // pushing a React state update at 60Hz re-rendered the whole studio and cost
+    // us 46 of the 60 frames a second
+    globalThis.__rfPaint = () => { cam._basis = null; schedule() }
+    globalThis.__rfCam = () => ({ yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist })
+    // a probe for tests and for the interaction harness: what is under this pixel
+    globalThis.__rfPick = (px, py) => {
+      const cv = ref.current
+      if (!cv || !glRef.current || !glRef.current.pick) return null
+      const r = cv.getBoundingClientRect()
+      const hit = glRef.current.pick(mesh, px * (cv.width / r.width), py * (cv.height / r.height))
+      if (!hit) return null
+      const node = design.nodes.find((n) => n.id === hit.node)
+      return { node: hit.node, mat: hit.mat, grabbable: !!(node && !node.joint) }
+    }
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -1092,11 +1132,63 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)
 
+  // the drag state carries which kind of drag it is: an orbit of the camera, or
+  // a part being carried. A part under the pointer before the button went down
+  // is a grabbable thing — that is the hand.
+  const grab = useRef(null)
+
+  const nodeUnder = (e) => {
+    const cv = ref.current
+    if (!cv || !glRef.current || !glRef.current.pick) return null
+    const rect = cv.getBoundingClientRect()
+    const px = (e.clientX - rect.left) * (cv.width / rect.width)
+    const py = (e.clientY - rect.top) * (cv.height / rect.height)
+    const hit = glRef.current.pick(mesh, px, py)
+    if (!hit) return null
+    return design.nodes.find((n) => n.id === hit.node && !n.joint) || null
+  }
+
   const onDown = (e) => {
+    const node = nodeUnder(e)
+    if (node) {
+      grab.current = {
+        node,
+        z0: node.pos[2],
+        rect: ref.current.getBoundingClientRect(),
+        start: unprojectToPlane(
+          e.clientX - ref.current.getBoundingClientRect().left,
+          e.clientY - ref.current.getBoundingClientRect().top,
+          node.pos[2], cam, target, ref.current.width, ref.current.height,
+        ),
+        last: null,
+      }
+      if (onGrab) onGrab(node.id)
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      e.preventDefault()
+      return
+    }
     drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, moved: 0, cx: e.clientX, cy: e.clientY }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const onMove = (e) => {
+    const g = grab.current
+    if (g) {
+      const cv = ref.current
+      const rect = g.rect
+      const p = unprojectToPlane(
+        e.clientX - rect.left, e.clientY - rect.top,
+        g.z0, cam, target, cv.width, cv.height,
+      )
+      if (!p || !g.start) return
+      // 1mm snap: a part that cannot sit on the integer millimetre is a part
+      // you cannot dimension, and this is a drawing, so the grid is the truth
+      const dx = Math.round(p[0] - g.start[0])
+      const dy = Math.round(p[1] - g.start[1])
+      if (g.last && g.last[0] === dx && g.last[1] === dy) return
+      g.last = [dx, dy]
+      if (onMoveNode) onMoveNode(g.node.id, dx, dy)
+      return
+    }
     const d = drag.current
     if (!d) return
     const dx = e.clientX - d.x
@@ -1109,10 +1201,22 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
     })
   }
   const onUp = (e) => {
+    if (grab.current) {
+      const g = grab.current
+      grab.current = null
+      if (g.last && (g.last[0] !== 0 || g.last[1] !== 0) && onDropNode) onDropNode(g.node.id, g.last[0], g.last[1])
+      // a press with no movement is still a click: it opens the inspector
+      else inspectAt(e)
+      return
+    }
     const d = drag.current
     drag.current = null
     // a click, not a drag: pick the part under the pointer
-    if (!d || d.moved > 5 || !glRef.current || !glRef.current.pick) return
+    if (!d || d.moved > 5) return
+    inspectAt(e)
+  }
+  const inspectAt = (e) => {
+    if (!glRef.current || !glRef.current.pick) return
     const cv = ref.current
     if (!cv) return
     const rect = cv.getBoundingClientRect()
@@ -1191,6 +1295,12 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
+    // what you moved, and the way back. A part you can carry but not put back is
+    // a trap, not a tool.
+    movedCount ? h('div', { style: S.moveChip, 'data-rf': 'movedchip' },
+      h('span', {}, `${movedCount} part${movedCount > 1 ? 's' : ''} moved · mass and checks recomputed`),
+      h('button', { style: S.moveChipBtn, onClick: onResetMoves, title: 'put everything back' }, 'RESET'),
+    ) : null,
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
     // viewport into a sheet an engineer can hand to a client.
@@ -1203,7 +1313,13 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus })
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SHEET'), h('span', { style: S.tbVal }, '1/1')),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'SCALE'), h('span', { style: S.tbVal }, scaleOf(dims))),
       h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'UNITS'), h('span', { style: S.tbVal }, 'mm · tol ±0.2')),
-      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'), h('span', { style: S.tbVal }, `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
+      // A board is FR4 with copper and ENIG, not a 3D-printed part: the title block
+      // on a PCB drawing that says "PETG (FDM)" is simply wrong, and it is the
+      // first thing a hardware person reads.
+      h('div', { style: S.tbRow }, h('span', { style: S.tbKey }, 'MATERIAL'),
+        h('span', { style: S.tbVal }, design.pcb
+          ? 'FR4 1.6mm · 2 layers · ENIG'
+          : `${(analysis && analysis.print.material ? analysis.print.material.name : 'PETG')} (FDM)`)),
       h('div', { style: S.tbRow },
         h('span', { style: S.tbKey }, 'STATUS'),
         h('span', { style: { ...S.tbVal, color: (analysis && analysis.checks.some((c) => c.level === 'fail')) ? C.red : (analysis && analysis.checks.some((c) => c.level === 'warn')) ? C.amber : C.green } },

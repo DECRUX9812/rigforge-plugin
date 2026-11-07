@@ -26,6 +26,21 @@ jobs:
         run: node build.mjs
       - name: engine claims
         run: node tests/truth.mjs
+      - name: simulation claims
+        # the motion layer had no gate: "it moves" was the only claim anyone
+        # could make about it. Runs with the engine job — no browser needed.
+        run: node tests/sim-truth.mjs
+      - name: brief claims
+        # "describe it and get it" is the first promise: a sentence that lands on
+        # the wrong builder is the product failing at step one.
+        run: node tests/brief.mjs
+      - name: every preset builds (when the gate exists)
+        # the width of the product is its preset list. Exercising the two I am
+        # working on says nothing about the other eleven.
+        run: |
+          if [ -f tests/presets-build.mjs ]; then
+            node tests/presets-build.mjs
+          fi
       - name: OpenSCAD export really renders (when the gate exists)
         # openscad-wasm is a 30MB wasm build; only fetched when the gate is present
         run: |
@@ -83,6 +98,15 @@ jobs:
         run: node tests/a11y-audit.mjs
       - name: every export downloads
         run: node tests/export-sweep.mjs
+      - name: every preset draws a machine
+        # the engine suite proves the numbers; this proves a machine reaches the
+        # viewport. Measured as the share of the viewport that changes when the
+        # brief is seeded, because variance alone cannot tell a machine from the
+        # floor grid it sits on.
+        run: |
+          if [ -f tests/presets-render.mjs ]; then
+            PORT=18734 node tests/presets-render.mjs
+          fi
       - name: bundle loads in the host
         run: node tests/bundle-load.mjs
       - name: gates that arrive with their own PR

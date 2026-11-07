@@ -46,7 +46,15 @@ function benchCoM(design, mat) {
     if (!isFinite(g) || g <= 0) continue
     mx += w[0] * g; my += w[1] * g; mz += w[2] * g; m += g
   }
-  return m > 0 ? { com: [mx / m, my / m, mz / m], massG: m } : { com: [0, 0, 0], massG: 0 }
+  // The CoM itself is a mass-weighted mean, so a uniform scale leaves it
+  // untouched — but the MASS reported next to it must be the one on the BOM.
+  // Node geometry runs heavy because it stands in for purchased parts (a motor
+  // modelled as a metal can, a battery well modelled as a slab); reporting that
+  // sum as "the machine's mass" put two different weights on one screen.
+  const reviewed = design.massTotalG > 0 ? design.massTotalG : m
+  return m > 0
+    ? { com: [mx / m, my / m, mz / m], massG: reviewed, nodeMassG: m }
+    : { com: [0, 0, 0], massG: 0, nodeMassG: 0 }
 }
 
 /** Rough "how far below centre is the bottom of this node" for contact tests. */
@@ -240,7 +248,14 @@ function benchReport(design, analysis, opts = {}) {
   const tj = torques.length ? torques.reduce((a, b) => (a.margin < b.margin ? a : b)) : null
   if (tj) status(tj.margin > 1.5, tj.margin > 1.0, 'Worst joint torque', `${tj.label}: needs ${tj.needNm.toFixed(2)} N·m, stall ${tj.stallNm.toFixed(2)} N·m → ${tj.margin.toFixed(1)}× margin`)
   else status(true, true, 'Actuators', 'no gravity-loaded revolute joints')
-  return { com, massG, contacts: contacts.length, hull, flatMm, slopeMm, slopeDeg, torques, worst, verdicts }
+  // The BOM is the authority on how heavy this machine is: a node-level sum
+  // counts geometry that stands in for purchased parts (a motor modelled as a
+  // metal can, a battery well modelled as a slab) and lands 50% heavier than
+  // what you would actually put on a scale. Uniform scaling does not move the
+  // CoM — it is a mass-weighted mean — so the margins stay exactly as computed
+  // while the REVIEWED mass stops contradicting the header.
+  const reviewedG = design.massTotalG > 0 ? design.massTotalG : massG
+  return { com, massG: reviewedG, nodeMassG: massG, contacts: contacts.length, hull, flatMm, slopeMm, slopeDeg, torques, worst, verdicts }
 }
 
 // ── CCD IK: drive a joint chain so a tip node reaches a target point ────────
@@ -338,7 +353,9 @@ function benchOverlay(design, mat) {
  * Runs in design space (mm); the page's chassis transform carries it.
  */
 function wireOverlay(design, harness) {
-  if (!harness || !harness.rows || !harness.rows.length) return null
+  // Scenes carry per-machine homes (harness.home === null) — one shared home
+  // point would draw wires to a fictional driver bay, so cables stay off.
+  if (!harness || !harness.home || !harness.rows || !harness.rows.length) return null
   const chains = chainsFor(design)
   const byId = new Map(design.joints.map((j) => [j.id, j]))
   const colFor = {
@@ -474,7 +491,11 @@ function workspaceMap(design, analysis, opts = {}) {
   if (!tip) return null
   const sphere = armReachBound(tip)
   if (!sphere) return null
-  const payloadG = opts.payloadG != null ? opts.payloadG : 300
+  // The load this map is drawn against has to be the load the machine was asked
+  // to carry. It defaulted to a 300g dummy while the motion sim used the brief's
+  // payloadKg, so the same machine was certified against two different weights.
+  const briefPayloadG = Math.round(((design.brief && design.brief.payloadKg) || 0) * 1000)
+  const payloadG = opts.payloadG != null ? opts.payloadG : briefPayloadG > 0 ? briefPayloadG : 300
   const dirs = opts.dirs || 42
   const radii = opts.radii || [0.45, 0.65, 0.85]
   const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
@@ -514,12 +535,20 @@ function workspaceMap(design, analysis, opts = {}) {
       const tp = benchNodeWorld(posed, chainsFor(posed), tipNode)
       const tor = benchTorqueMargins(posed, mat, [{ joint: tipNode.joint, pos: [tp[0], tp[1], tp[2] - 35], massG: payloadG }])
       const worst = tor.reduce((w, t) => (t.margin < w.margin ? t : w), { margin: Infinity })
-      const ok = worst.margin >= 1
+      // An EMPTY margin list used to read as "infinitely strong" and counted every
+      // reachable target as liftable. It means the torque model could not resolve
+      // this joint at all — that is unknown, not capable.
+      const ok = tor.length > 0 && worst.margin >= 1
       if (ok) lift += 1
       pts.push({ p: target, lift: ok })
     }
   }
-  return { pts, stats: { total, reach, lift, payloadG } }
+  // Split the shortfall where a user can act on it: targets the solver never got
+  // to are a reach problem, targets it reached but could not lift are a torque
+  // problem. One number ("2 of 76") tells neither story.
+  const torqueLimited = Math.max(0, reach - lift)
+  const outOfReach = Math.max(0, total - reach)
+  return { pts, stats: { total, reach, lift, payloadG, torqueLimited, outOfReach } }
 }
 
 /** GL_LINES crosses for the workspace map: cyan = reachable, green = can

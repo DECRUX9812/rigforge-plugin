@@ -157,6 +157,11 @@ function buildGripper(brief) {
     { label: 'Hold capacity', value: `${fmt(gripMass, 1)} kg`, limit: `${payload} kg brief`, ok: gripMass >= payload },
     { label: 'Jaw travel', value: `${fmt(Math.max(8, travel), 0)} mm/side`, limit: 'stroke > obj/2', ok: null },
   ]
+  // The jaw is driven by the servo already priced in the BOM; publish the link so
+  // the jaw joint carries a stall torque instead of zero.
+  d.actuators = (d.joints || []).map((jj) => ({
+    label: jj.label, need: 0, servo, ratio: 1, effective: PARTS[servo].torque,
+  }))
   return d
 }
 

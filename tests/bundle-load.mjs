@@ -91,32 +91,58 @@ delete require.cache[bundlePath]
 const mod = require(bundlePath)
 const plugin = mod.default || mod
 
-// the host's real contribution API: one call per area
-const areaOf = { palette: 'palette', routes: 'routes', sidebar: 'sidebar', directive: 'directive' }
+// The host's real surface, and only that: register({ id, area, data, render }).
+// The previous stub invented `contribution(area, payload)` — the API the plugin
+// was actually calling — so the suite stayed green while the app threw
+// "ctx.contribution is not a function" and dropped the plugin on load. A stub
+// that agrees with a wrong call site is worse than no stub.
+const AREAS = {
+  routes: 'pages', sidebar: 'nav', palette: 'palette', directive: 'directives', settings: 'settings', statusbar: 'logs',
+}
 const ctx = {
-  contribution: (area, payload) => {
-    const a = areaOf[area] || area
-    if (a === 'routes') registered.pages.push(payload)
-    else if (a === 'sidebar') registered.nav.push(payload)
-    else if (a === 'palette') registered.palette.push(payload)
-    else if (a === 'directive') registered.directives.push(payload)
-    else registered.logs.push('contribution:' + area)
+  ...globalThis.__hostStub,
+  register: (c) => {
+    const key = AREAS[c.area]
+    if (!key) { registered.logs.push('register:' + String(c.area)); return }
+    if (key === 'logs') { registered.logs.push('statusbar:' + c.id); return }
+    registered[key].push({ id: c.id, area: c.area, data: c.data, render: c.render })
+    if (c.area === 'routes' && !c.render) registered.logs.push('page without render: ' + c.id)
   },
-  registerPage: (p) => registered.pages.push(p),
-  registerRoute: (p) => registered.pages.push(p),
-  registerNav: (p) => registered.nav.push(p),
-  registerSidebarNav: (p) => registered.nav.push(p),
-  registerPaletteItem: (p) => registered.palette.push(p),
-  registerDirective: (p) => registered.directives.push(p),
-  registerSettingsPage: (p) => registered.settings.push(p),
   registerTool: (t) => registered.tools.push(t),
+  registerSettingsPage: (p) => registered.settings.push(p),
   log: (...a) => registered.logs.push(a.join(' ')),
   logger: { info: () => {}, warn: () => {}, error: () => {} },
 }
 
+// The host has two generations. This bundle must survive either: a build that
+// only has contribution(area, payload) is still out there, and calling the wrong
+// one throws inside register() and drops the whole plugin.
+const legacy = { pages: 0, nav: 0, palette: 0, directives: 0 }
+const legacyCtx = {
+  ...globalThis.__hostStub,
+  register: undefined,
+  contribution: (area, payload) => {
+    if (area === 'routes') legacy.pages += 1
+    else if (area === 'sidebar') legacy.nav += 1
+    else if (area === 'palette') legacy.palette += 1
+    else if (area === 'directive') legacy.directives += 1
+  },
+}
+
 const problems = []
 if (!plugin || typeof plugin.register !== 'function') problems.push('the bundle exports no register()')
-else plugin.register(ctx)
+else {
+  plugin.register(ctx)
+  // and again against a legacy host: same bundle, older API
+  try {
+    plugin.register(legacyCtx)
+  } catch (e) {
+    problems.push('legacy contribution() host threw: ' + e.message)
+  }
+  if (legacy.pages < 1 || legacy.nav < 1 || legacy.palette < 1 || legacy.directives < 1) {
+    problems.push(`legacy host registered ${JSON.stringify(legacy)} — shim does not cover it`)
+  }
+}
 
 const want = (list, n, label) => {
   if (list.length < n) problems.push(`${label}: expected at least ${n}, got ${list.length}`)

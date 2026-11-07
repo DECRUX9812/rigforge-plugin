@@ -48,6 +48,23 @@ const plugin = {
 
   register(ctx) {
     CTX = ctx
+    // Two host generations exist in the wild: newer builds expose
+    // register({id, area, …}), older ones contribution(area, payload). Calling
+    // the wrong one throws inside register(), the loader drops the plugin, and
+    // the user gets nothing at all — so ask the host which it has instead of
+    // assuming, and never let one failing area take the other three down.
+    const contribute = (area, payload) => {
+      try {
+        if (typeof ctx.register === 'function') return ctx.register({ ...payload, area })
+        if (typeof ctx.contribution === 'function') return ctx.contribution(area, payload)
+        if (typeof console !== 'undefined') console.warn('[rigforge] host exposes no register() — cannot add', area)
+        return undefined
+      } catch (e) {
+        if (typeof console !== 'undefined') console.error('[rigforge] area', area, 'failed:', e && e.message)
+        return undefined
+      }
+    }
+
     // One line in the renderer console: proof of life when a plugin "isn't there".
     try {
       console.log('[rigforge] registered — page /rigforge, 2 tools, directive ::rigforge')
@@ -55,19 +72,22 @@ const plugin = {
       // console unavailable (SSR/test harness) — never fatal
     }
 
-    ctx.contribution(ROUTES_AREA, {
+    // The host's surface is ctx.register({ id, area, … }) — one call per area.
+    // ctx.contribution() was an older shape that no longer exists: calling it
+    // throws, the loader drops the whole plugin, and the user sees "rigforge
+    // failed to register" with no page at all.
+    contribute(ROUTES_AREA, {
       id: 'rigforge.page',
-      data: { path: ROUTE },
-      title: 'Rigforge',
+      data: { path: ROUTE, title: 'Rigforge' },
       render: () => h(Studio),
     })
 
-    ctx.contribution(SIDEBAR_NAV_AREA, {
+    contribute(SIDEBAR_NAV_AREA, {
       id: 'rigforge.nav',
       data: { path: ROUTE, label: 'Rigforge', codicon: 'circuit-board' },
     })
 
-    const quick = (id, label, keywords, brief, detail) => ctx.contribution(PALETTE_AREA, {
+    const quick = (id, label, keywords, brief, detail) => contribute(PALETTE_AREA, {
       id,
       data: {
         label,
@@ -93,7 +113,7 @@ const plugin = {
     quick('rigforge.quad', 'Rigforge: new quadruped', ['quadruped', 'walking', 'servos'], PRESETS[2].brief, '12-servo gait machine')
     quick('rigforge.gadget', 'Rigforge: new ESP32 device', ['esp32', 'sensor', 'enclosure'], PRESETS[4].brief, 'Desk device with a printed case')
 
-    ctx.contribution(TRANSCRIPT_DIRECTIVE_AREA, {
+    contribute(TRANSCRIPT_DIRECTIVE_AREA, {
       id: 'rigforge.directive',
       data: {
         name: 'rigforge',

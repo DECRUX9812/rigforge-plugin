@@ -233,5 +233,12 @@ function buildGantry(brief) {
     beltDeflect,
     motors: 3,
   })
+  // Three steppers, three slides — publish them so the joint sim and the pin map
+  // can name what moves each axis. A slide with no actuator has no stall torque,
+  // which reads downstream as "this axis cannot move at all".
+  d.actuators = (d.joints || []).map((j) => ({
+    label: j.label, need: 0, servo: 'nema17', ratio: 1, effective: PARTS.nema17.torque,
+  }))
+
   return d
 }

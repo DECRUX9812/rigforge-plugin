@@ -187,7 +187,9 @@ function chainFrames(chain) {
     const d = [j.pivot[0] - prevPivot[0], j.pivot[1] - prevPivot[1], j.pivot[2] - prevPivot[2]]
     const a = axisVec3(j.axis)
     // Pitch joints read positive = UP (same sign convention applyChain had).
-    const sign = j.axis === 'y' ? -1 : 1
+    // axis0 preserves the model letter when a scene yaw turned axis into a
+    // vector — the pitch check must still recognise it.
+    const sign = (j.axis0 || j.axis) === 'y' ? -1 : 1
     const A = rotMatAxis(a, (sign * (j.angle || 0) * Math.PI) / 180)
     const pivotW = [
       Rp[0] * d[0] + Rp[1] * d[1] + Rp[2] * d[2] + tp[0],
@@ -244,7 +246,7 @@ function slideDisp(design, node) {
   let j = j0, own = true
   while (j && j.slide && !seen.has(j.id)) {
     seen.add(j.id)
-    const dir = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[j.axis]
+    const dir = axisVec3(j.axis)
     const t = j.angle * (j.sign || 1) * (own ? node.slide.sign || 1 : 1)
     out[0] += dir[0] * t; out[1] += dir[1] * t; out[2] += dir[2] * t
     own = false
@@ -907,13 +909,34 @@ function explodeShifts(design, f) {
 }
 
 /** Full mesh for the current pose. */
-function buildMesh(design, explode) {
+function buildMesh(design, explode, spin) {
   const tris = []
   const chains = chainsFor(design)
   const shifts = explodeShifts(design, explode || 0)
+  // Rotors: a drone's props have no joint — they spin continuously, which is not
+  // a commanded angle but a rotation about their own axis. Rather than give the
+  // quad four fake revolute joints (and four fake pose sliders), the mesh rotates
+  // the rotor nodes by the phase handed in here. Nothing else in the design
+  // knows they moved, which is exactly right: a prop is not part of the chain.
+  const phase = spin || 0
   for (const node of design.nodes) {
     const chain = node.joint ? chains.get(node.joint) : null
-    const add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    let add = nodeTriangles(design, node, chain, shifts ? shifts.get(node.id) : null)
+    if (node.rotor && phase) {
+      const dir = node.rotor.dir || 1
+      const a = phase * dir
+      const c = Math.cos(a)
+      const sn = Math.sin(a)
+      const o = node.pos || [0, 0, 0]
+      add = add.map((t) => ({
+        ...t,
+        pts: t.pts.map((p) => {
+          const dx = p[0] - o[0]
+          const dy = p[1] - o[1]
+          return [o[0] + dx * c - dy * sn, o[1] + dx * sn + dy * c, p[2]]
+        }),
+      }))
+    }
     // `node`/`mat` key the viewport colours and the GLB materials; STL/SCAD ignore them.
     for (const t of add) { t.node = node.id; t.mat = node.mat; tris.push(t) }
   }
@@ -1615,6 +1638,9 @@ function toGLB(tris) {
     steel: { c: [0.376, 0.424, 0.478], m: 0.85, r: 0.4 },
     brass: { c: [0.737, 0.596, 0.29], m: 0.8, r: 0.4 },
     pcb: { c: [0.125, 0.376, 0.275], m: 0.0, r: 0.7 },
+    copper: { c: [0.59, 0.33, 0.13], m: 0.15, r: 0.6 },
+    silk: { c: [0.93, 0.94, 0.92], m: 0.0, r: 0.8 },
+    pcbblue: { c: [0.05, 0.11, 0.30], m: 0.0, r: 0.6 },
     rubber: { c: [0.149, 0.165, 0.188], m: 0.0, r: 0.95 },
     glass: { c: [0.439, 0.839, 0.91], m: 0.0, r: 0.15 },
     servo: { c: [0.118, 0.133, 0.165], m: 0.3, r: 0.6 },
@@ -2060,7 +2086,7 @@ function toSpecMarkdown(design, a, extras) {
   if (a.reach && a.reach.r) L.push(`| Reach bound | ~${a.reach.r} mm (links fully extended${a.reach.side ? `, ${a.reach.side} arm` : ''}) |`)
   if (extras && extras.ws && extras.ws.stats && extras.ws.stats.reach) {
     const s = extras.ws.stats
-    L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} also lift ${s.payloadG}g |`)
+    L.push(`| Sampled workspace | ${s.reach}/${s.total} IK-verified targets reachable · ${s.lift} lift ${s.payloadG}g · ${s.torqueLimited} reachable but over joint torque at that load · ${s.outOfReach} beyond reach |`)
   }
   if (m.runtimeMin) L.push(`| Runtime | ~${Math.round(m.runtimeMin)} min |`)
   L.push('')

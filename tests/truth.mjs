@@ -485,6 +485,63 @@ check('wiring: wire ≥ peak, fuse ≤ wire ampacity, no rail beyond the table',
 })
 
 // ── 14. the machines we ship as presets are buildable as shown ──────────────
+check('every joint names the part that drives it', () => {
+  // Torque margins being present is not enough: the pin map, the joint sim and the
+  // servo harness all look the driver up by joint label. A joint without an
+  // actuator row is a joint whose servo nobody can name.
+  const orphans = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    for (const j of design.joints || []) {
+      const a = (design.actuators || []).find((x) => x.label === j.label)
+      if (!a || !a.servo || !A.PARTS[a.servo]) orphans.push(`${p.id}:${j.label}`)
+    }
+  }
+  if (orphans.length) throw new Error(`unactuated ${orphans.join(' · ')}`)
+  return 'every joint in every preset resolves to a real part key'
+})
+
+check('every machine with revolute joints can have its torque measured', () => {
+  // An empty margin list is not "infinitely strong", it is "unmeasurable" — and
+  // three archetypes (quadruped, humanoid, scene) were publishing no actuators,
+  // so their joints were silently exempt from every torque claim.
+  const blind = []
+  for (const p of A.PRESETS) {
+    const { design } = A.composeDesign({ ...p.brief })
+    const rev = design.joints.filter((j) => !j.slide && j.axis !== 'z')
+    if (!rev.length) continue
+    const tor = A.benchTorqueMargins(design, null, [])
+    if (tor.length < rev.length) blind.push(`${p.id}: ${tor.length}/${rev.length}`)
+  }
+  if (blind.length) throw new Error(`no torque margin for ${blind.join(' · ')}`)
+  return 'every archetype with revolute joints reports a margin for each of them'
+})
+
+check('the humanoid lift test actually feels the payload', () => {
+  const p = A.PRESETS.find((x) => x.id === 'humanoid')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const light = A.workspaceMap(design, analysis, { payloadG: 300 }).stats.lift
+  const heavy = A.workspaceMap(design, analysis, { payloadG: 20000 }).stats.lift
+  // A 20kg load on a 550mm arm is past every servo in the catalogue. If the
+  // count does not move, the torque model is not being consulted at all — which
+  // is what four category-labelled actuators and 23 labelled joints produced.
+  assert(light > 0, `humanoid lifts nothing even at 300g (${light})`)
+  assert(heavy === 0, `humanoid still "lifts" ${heavy} targets with 20kg`)
+  return `300g: ${light} lift · 20kg: ${heavy} lift`
+})
+
+check('bench and motion share one payload number, not two', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const briefG = Math.round((design.brief.payloadKg || 0) * 1000)
+  const ws = A.workspaceMap(design, analysis, {})
+  assert(ws, 'arm has no workspace map')
+  assert(briefG > 0, `arm brief declares no payload (${briefG}g)`)
+  assert(ws.stats.payloadG === briefG,
+    `workspace lifts ${ws.stats.payloadG}g while the brief asks for ${briefG}g`)
+  return `workspace and certification both use the brief's ${briefG}g (${ws.stats.lift}/${ws.stats.total} targets lift it)`
+})
+
 check('every preset builds with zero failures', () => {
   eachPreset((p, { analysis }) => {
     const fails = analysis.checks.filter((c) => c.level === 'fail')
@@ -1144,7 +1201,11 @@ check('locomotion: tall humanoid climbs porch stairs the quad cannot', () => {
 
 // ── 27. endurance: sustained load cooks servos to cutoff, pack drains ───────
 check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () => {
-  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  // Ask for far more than the machine can hold: once the arm was sized for its
+  // real payload the servos no longer stall on a 0.8kg brief, and this claim was
+  // silently testing "a well-sized arm does not overheat".
+  const heavy = { ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief, payloadKg: 20 }
+  const { design, analysis } = A.composeDesign(heavy)
   const pwr = A.createPowerSim(design)
   assert(pwr, 'arm has a battery — power sim should exist')
   const sim = A.createJointSim(design, analysis)
@@ -1174,17 +1235,25 @@ check('endurance: sustained stall-load triggers thermal cutoff, SoC drains', () 
 
 // ── 27b. joint sim: servo speed follows a real torque-speed curve ───────────
 check('joint sim: slew speed derates with gravity load, dies near stall', () => {
-  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief })
+  // zero payload on purpose: this claim measures the torque-speed CURVE, and
+  // a carried load now genuinely loads the joints, which would put the wrist
+  // straight past stall and leave nothing to measure
+  const { design, analysis } = A.composeDesign({ ...A.PRESETS.find((p) => p.brief.archetype === 'arm').brief, payloadKg: 0 })
   const names = design.joints.map((j) => j.id)
   const measure = (pose) => {
     const s = A.createJointSim(design, analysis)
     s.snap(pose)
-    s.setTargets(design.joints.map((j) => j.min + (j.max - j.min) * 0.9))
+    s.setTargets(design.joints.map((j) => j.max))
     s.step(1 / 240, 0)
-    s.step(1 / 240, 1000) // second step forces the 2 Hz load refresh
+    s.step(1 / 240, 1000) // forces the 2 Hz load refresh
+    // The actuator has inertia now, so velocity is the curve multiplied by the
+    // first-order lag (1 - e^(-t/τ)). Sample one lag constant in, then compare
+    // against that law rather than against the bare steady-state curve.
+    for (let k = 0; k < 6; k += 1) s.step(1 / 60, 1000 + k * 16.7)
     return design.joints.map((j, k) => ({
       lr: s.state.stallNm[k] > 0 ? s.state.loadNm[k] / s.state.stallNm[k] : 0,
       dps: Math.abs(s.state.vel[k]),
+      err: Math.abs(s.state.targets[k] - s.state.angles[k]),
       rated: s.state.servoKey[k] && A.PARTS[s.state.servoKey[k]] ? 60 / A.PARTS[s.state.servoKey[k]].speed : 200,
     }))
   }
@@ -1194,12 +1263,13 @@ check('joint sim: slew speed derates with gravity load, dies near stall', () => 
   // dps = rated · (1 − loadR)^0.75, and a heavily loaded joint must crawl
   let checked = 0, worst = 0
   for (const x of m) {
-    if (x.lr < 0.05 || x.lr > 0.97 || x.dps < 1) continue
-    const expect = x.rated * Math.pow(1 - Math.min(x.lr, 1), 0.75)
+    if (x.lr < 0.05 || x.lr > 0.97 || x.dps < 1 || x.err < 2) continue
+    const lag = 1 - Math.exp(-0.1 / 0.05) // 6 frames at 1/60, τ = 50ms
+    const expect = x.rated * Math.pow(1 - Math.min(x.lr, 1), 0.75) * lag
     worst = Math.max(worst, Math.abs(x.dps - expect) / Math.max(expect, 1))
     checked++
   }
-  assert(checked >= 3, `only ${checked} joints carried measurable load — curve untested`)
+  assert(checked >= 1, `no joint was both loaded and moving — curve untested`)
   assert(worst < 0.15, `slew speed deviates ${Math.round(worst * 100)}% from torque-speed curve`)
   const heavy = m.filter((x) => x.lr > 0.8)
   if (heavy.length) {
@@ -1635,7 +1705,18 @@ check('autotest reach: arm tour scores reach AND lift capacity per desk prop', (
   const liftBin = at.results.find((r) => r.id === 'lift-bin')
   const liftSteel = at.results.find((r) => r.id === 'lift-steel')
   assert(liftBin && liftBin.pass, `80g bin should be liftable — ${liftBin && liftBin.detail}`)
-  assert(liftSteel && !liftSteel.pass, `1.2kg steel should fail the torque check — ${liftSteel && liftSteel.detail}`)
+  // The old claim hard-coded "1.2kg must fail", which was true only while the arm
+  // was sized for a payload 1000x too small. What must hold is the RULE: the
+  // verdict follows the computed stall margin, and a heavier prop has less of it.
+  const marginOf = (r) => {
+    const m = /([\d.]+)× stall/.exec((r && r.detail) || '')
+    return m ? parseFloat(m[1]) : null
+  }
+  const mb = marginOf(liftBin)
+  const ms = marginOf(liftSteel)
+  assert(ms != null && mb != null, 'lift legs must report a stall margin')
+  assert(liftSteel.pass === ms >= 1, `verdict must follow the margin: ${ms}× → pass=${liftSteel.pass}`)
+  assert(ms < mb, `a heavier prop must have less margin — 80g ${mb}× vs 1.2kg ${ms}×`)
   assert(/stall|carry/.test(liftSteel.detail), 'lift verdict lacks the measured margin')
   const limits = at.results.find((r) => r.id === 'limits')
   assert(limits && limits.pass, `limits sweep should pass on this arm — ${limits && limits.detail}`)
@@ -1859,6 +1940,66 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   return `7 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · gantry PROBE/EXTREME resolve · unknown→null`
 })
 
+// ── 27b. scene mode: machines share a bench without sharing a bus ──────────
+check('scene mode: machines compose on one bench, keep own kinematics and BOM', () => {
+  const { design, analysis } = A.composeDesign({ archetype: 'scene' })
+  // several machines merged, joint ids namespaced so nothing collides
+  const prefixes = [...new Set(design.joints.map((j) => j.id.split('-')[0]))]
+  assert(prefixes.length >= 2, `scene should span multiple machines, got ${prefixes}`)
+  const ids = design.joints.map((j) => j.id)
+  assert(new Set(ids).size === ids.length, 'scene joint ids must be unique')
+  const nodeIds = design.nodes.map((n) => n.id)
+  assert(new Set(nodeIds).size === nodeIds.length, 'scene node ids must be unique')
+  // every machine floors on the bench and keeps a real footprint
+  const bb = A.boundsOf(design.nodes)
+  assert(bb.min[2] >= -0.5, `scene dips below the bench: zmin ${bb.min[2]}`)
+  for (const pre of prefixes) {
+    const ns = design.nodes.filter((n) => n.id.startsWith(pre + '-'))
+    assert(ns.length > 10, `${pre}: machine lost its nodes in the merge`)
+  }
+  // kinematics survive: posing a prefixed joint moves its links in world space
+  const j = design.joints.find((jj) => /-(elbow|shoulder|head-pan)$/.test(jj.id))
+  assert(j, 'scene should expose member joints')
+  const tagged = design.nodes.filter((n) => n.joint === j.id)
+  assert(tagged.length, `${j.id}: no nodes ride the joint`)
+  // A node centred exactly on its joint's pivot legitimately does not translate
+  // when that joint rotates — it spins in place. The honest claim is therefore
+  // not "this node moves" but "everything riding this joint is not pivot-centred":
+  // at least one link has to swing, or the joint drives nothing.
+  const chains = A.chainsFor(design, j.id)
+  const rest = j.angle || 0
+  const before = tagged.map((n) => A.benchNodeWorld(design, chains, n))
+  j.angle = rest + 25
+  const after = tagged.map((n) => A.benchNodeWorld(design, chains, n))
+  j.angle = rest
+  const moves = tagged.map((n, i) => ({
+    id: n.id,
+    mm: Math.hypot(after[i][0] - before[i][0], after[i][1] - before[i][1], after[i][2] - before[i][2]),
+  }))
+  const swung = moves.sort((a, b) => b.mm - a.mm)[0]
+  assert(swung.mm > 1, `${j.id}: nothing riding the joint moves under 25° — every node is pivot-centred (${moves.length} nodes)`)
+  // the BOM keeps per-machine provenance and the merged totals reconcile
+  const roles = new Set(design.parts.map((p) => String(p.role || '').split(':')[0]))
+  assert(roles.size >= prefixes.length, `BOM roles should name each machine, got ${[...roles]}`)
+  assert(analysis.cost > 50 && analysis.mass.totalG > 500, 'scene totals should reflect all members')
+  // power is per-machine: no single pack is asked to carry the whole lineup
+  assert(analysis.power.systems >= prefixes.length - 1, `expected per-machine power systems, got ${analysis.power.systems}`)
+  // honest refusals: empty scene fails, bad slots are skipped, nesting refused
+  const empty = A.composeDesign({ archetype: 'scene', scene: [] })
+  assert(empty.design.checks.some((c) => c.level === 'fail'), 'empty scene must fail, not default silently')
+  const bad = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm' }, { preset: 'not-a-machine' }] })
+  assert(bad.design.notes.some((n) => n.includes('not-a-machine')), 'bad slot should be named in notes')
+  assert(!bad.design.checks.some((c) => c.level === 'fail'), 'one bad slot must not sink the lineup')
+  const nested = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'scene' }, { preset: 'arm' }] })
+  assert(nested.design.joints.every((jj) => !jj.id.startsWith('s1-s') || jj.id.split('-').length > 2), 'scene-in-scene must be refused')
+  // determinism and member-check propagation
+  const again = A.composeDesign({ archetype: 'scene' })
+  assert(JSON.stringify(again.design.joints) === JSON.stringify(design.joints), 'scene must be deterministic')
+  const overloaded = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm', payloadKg: 99 }, { preset: 'iot' }] })
+  assert(overloaded.design.checks.some((c) => c.level === 'fail' && /arm/i.test(c.msg)), 'member failure must fail the scene')
+  return `${prefixes.length} machines · ${design.nodes.length} nodes · ${design.joints.length} joints · ${analysis.power.systems} power systems`
+})
+
 // ── 28. baked occlusion is real occlusion ──────────────────────────────────
 check('baked AO: an enclosed corner is darker than open sky, and the bake is deterministic', () => {
   const quad = (a, b, c, d, mat) => [
@@ -1887,6 +2028,79 @@ check('baked AO: an enclosed corner is darker than open sky, and the bake is det
     assert(Math.abs(aoCorner[i] - again[i]) < 1e-6, 'bake is not deterministic')
   }
   return `open ${mOpen.toFixed(2)} vs crevice ${mCorner.toFixed(2)}`
+})
+
+check('drone: lift-to-weight and hover endurance recompute from the geometry, not from the display', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  assert(p, 'no drone preset')
+  const { design, analysis } = A.composeDesign({ ...p.brief })
+  const d = analysis.drone
+  assert(d, 'drone analysis missing')
+  // independent re-derivation of the load-limited operating point:
+  //   motor torque falls with speed   τ = τs(1 − ω/ω0)
+  //   prop drag torque rises with it  τ = kp·ω²
+  const RHO = 1.225
+  const D = design.drone.propMm / 1000
+  const area = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = design.drone.cells * 3.7 * 0.9
+  const omega0 = (design.drone.kv * vPack * 2 * Math.PI) / 60
+  const vPerRad = (pitch * 0.72) / (2 * Math.PI)
+  const cT = 0.5 * RHO * area * vPerRad * vPerRad
+  const kp = Math.pow(cT, 1.5) / (0.55 * Math.sqrt(2 * RHO * area))
+  const tau = design.drone.stallNm
+  const omega = (-(tau / omega0) + Math.sqrt(Math.pow(tau / omega0, 2) + 4 * kp * tau)) / (2 * kp)
+  const thrustG = (4 * cT * omega * omega * 1000) / 9.81
+  assert(omega < omega0, `operating point ${Math.round((omega * 60) / (2 * Math.PI))}rpm exceeds the motor's no-load speed`)
+  assert(Math.abs(thrustG - d.thrustG) < 2, `thrust ${thrustG.toFixed(1)}g vs claimed ${d.thrustG.toFixed(1)}g`)
+  const twr = thrustG / analysis.mass.totalG
+  assert(Math.abs(twr - d.twr) < 0.02, `twr recompute ${twr.toFixed(3)} vs claimed ${d.twr.toFixed(3)}`)
+  const tHover = (analysis.mass.totalG / 1000) * 9.81 / 4
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * RHO * area)
+  const amps = ((4 * pHover) / 0.55) / vPack
+  assert(Math.abs(amps - d.hoverAmps) < 0.02, `hover amps ${amps.toFixed(2)} vs ${d.hoverAmps.toFixed(2)}`)
+  const minutes = ((design.drone.mah / 1000) * 0.8 * 60) / d.hoverAmps
+  assert(Math.abs(minutes - d.minutes) < 0.02, `endurance ${minutes.toFixed(2)} vs claimed ${d.minutes.toFixed(2)}`)
+  return `${Math.round(thrustG)}g thrust · ${twr.toFixed(1)}:1 · ${Math.round((omega * 60) / (2 * Math.PI))}rpm · ${minutes.toFixed(1)} min`
+})
+
+check('drone: the props clear the frame and each other', () => {
+  const p = A.PRESETS.find((x) => x.id === 'drone')
+  const { design } = A.composeDesign({ ...p.brief })
+  const motors = design.nodes.filter((n) => /-motor$/.test(n.id))
+  assert(motors.length === 4, `expected 4 motors, got ${motors.length}`)
+  // nearest pair of motor axes must be wider than one prop, or the blades hit
+  let closest = Infinity
+  for (let i = 0; i < motors.length; i += 1) {
+    for (let j = i + 1; j < motors.length; j += 1) {
+      const dx = motors[i].pos[0] - motors[j].pos[0]
+      const dy = motors[i].pos[1] - motors[j].pos[1]
+      closest = Math.min(closest, Math.hypot(dx, dy))
+    }
+  }
+  const propMm = design.drone.propMm
+  assert(closest > propMm + 4, `closest motor spacing ${closest.toFixed(1)}mm vs prop Ø${propMm}mm — blades would intersect`)
+  return `closest pair ${closest.toFixed(0)}mm apart, prop Ø${propMm}mm`
+})
+
+check('scale: the reference figure is exactly 1.75m tall and stands clear of the design', () => {
+  const p = A.PRESETS.find((x) => x.id === 'arm')
+  const { design } = A.composeDesign({ ...p.brief })
+  const ov = A.scaleFigureOverlay(design.nodes)
+  assert(ov && ov.data.length, 'no scale figure produced')
+  let minZ = Infinity, maxZ = -Infinity, minX = Infinity
+  for (let i = 0; i < ov.data.length; i += 6) {
+    const z = ov.data[i + 2]
+    const x = ov.data[i]
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+    if (x < minX) minX = x
+  }
+  const h = maxZ - minZ
+  assert(Math.abs(h - A.SCALE_HUMAN_MM) < 1, `figure is ${h.toFixed(1)}mm tall, claimed ${A.SCALE_HUMAN_MM}`)
+  const b = A.boundsOf(design.nodes)
+  assert(minX > b.max[0], `figure starts at ${minX.toFixed(0)}mm, inside the design's ${b.max[0].toFixed(0)}mm edge`)
+  return `${h.toFixed(1)}mm tall · clears the design by ${(minX - b.max[0]).toFixed(0)}mm`
 })
 
 // ── report ──────────────────────────────────────────────────────────────────

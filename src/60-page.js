@@ -37,6 +37,42 @@ const CAM_FOR = (dims) => {
   return { ...CAM0, dist: clamp(diag * 1.06, 300, 5200) }
 }
 
+// ── the fly-through ────────────────────────────────────────────────────────
+// The first thing you should be able to do with a design is *look at it like a
+// thing*, not like a drawing. Seven camera keys: close on a detail, pull out,
+// drop through the machine, rise, settle on the iso the app opens with. Distance
+// is a multiple of the fitted distance so it works at 90mm and at 3 metres.
+const FLY_KEYS = [
+  [0.00, { yaw: 1.62, pitch: 0.05, d: 0.26 }],
+  [0.16, { yaw: 1.15, pitch: 0.14, d: 0.58 }],
+  [0.32, { yaw: 0.62, pitch: 0.26, d: 0.92 }],
+  [0.46, { yaw: 0.18, pitch: 0.10, d: 0.14 }],
+  [0.58, { yaw: -0.34, pitch: 0.52, d: 0.72 }],
+  [0.78, { yaw: -0.86, pitch: 0.68, d: 1.22 }],
+  [1.00, { yaw: CAM0.yaw, pitch: CAM0.pitch, d: 1.00 }],
+]
+const FLY_MS = 11000
+const ease = (t) => t * t * (3 - 2 * t)
+
+function flyAt(t, base) {
+  const k = FLY_KEYS
+  let i = 0
+  while (i < k.length - 2 && t > k[i + 1][0]) i += 1
+  const [t0, a] = k[i]
+  const [t1, b] = k[i + 1]
+  const u = ease(Math.max(0, Math.min(1, (t - t0) / (t1 - t0 || 1))))
+  // shortest way round, so the orbit never whips backwards through a full turn
+  let dy = b.yaw - a.yaw
+  while (dy > Math.PI) dy -= Math.PI * 2
+  while (dy < -Math.PI) dy += Math.PI * 2
+  return {
+    yaw: a.yaw + dy * u,
+    pitch: a.pitch + (b.pitch - a.pitch) * u,
+    dist: base.dist * (a.d + (b.d - a.d) * u),
+    ortho: false,
+  }
+}
+
 function StatChip({ k, v, color, title }) {
   return h('div', { style: S.statChip, title },
     h('span', { style: S.statKey }, k),
@@ -409,9 +445,14 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     },
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
         benchOk ? 'BENCH ✓' : 'BENCH !'),
-      h('span', {}, benchOk
-        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
-        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
+      h('span', {}, design.archetype === 'drone'
+        // a quad does not climb ramps: it either has thrust margin or it does not
+        ? (analysis.drone
+          ? `Hovers at ${Math.round(analysis.drone.hoverThrottle * 100)}% throttle with ${analysis.drone.twr.toFixed(1)}:1 lift-to-weight, ${analysis.drone.minutes.toFixed(1)} min of hover on the pack.`
+          : 'Flight report unavailable for this design.')
+        : benchOk
+          ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+          : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -508,7 +549,7 @@ function plainVerdict(checks, brief) {
   if (brief && brief.archetypeMatched === false) {
     return {
       icon: '!', color: C.amber,
-      text: 'Those words did not name a machine — this is the closest one I build. Name the kind (rover, arm, quadruped, gripper, board, gantry) and the numbers will mean something.',
+      text: 'Those words did not name a machine — this is the closest one I build. Name the kind — rover, arm, quadruped, humanoid, gripper, drone, board, gantry, a whole lineup — and the numbers will mean something.',
     }
   }
   const fails = checks.filter((c) => c.level === 'fail').length
@@ -557,8 +598,44 @@ function Studio() {
   const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
-  const { design, analysis } = spec
+  // ── hands ─────────────────────────────────────────────────────────────────
+  // A part can be picked up and put down somewhere else. Geometry moves every
+  // frame (30ms mesh rebuild); the analysis is recomputed ONCE on release,
+  // because analyze() costs 190-245ms and a number that lags the part is a
+  // number that lies about it.
+  const [moves, setMoves] = useState({})
+  const [reAnalysis, setReAnalysis] = useState(null)
+  const design = useMemo(() => {
+    const ids = Object.keys(moves)
+    if (!ids.length) return spec.design
+    return {
+      ...spec.design,
+      nodes: spec.design.nodes.map((n) => {
+        const m = moves[n.id]
+        return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+      }),
+    }
+  }, [spec, moves])
+  const movesKey = useMemo(() => JSON.stringify(moves), [moves])
+  const analysis = reAnalysis && reAnalysis.key === movesKey ? reAnalysis.value : spec.analysis
+  const dropNode = useCallback((id, dx, dy) => {
+    const next = { ...moves, [id]: [dx, dy] }
+    setMoves(next)
+    const nodes = spec.design.nodes.map((n) => {
+      const m = next[n.id]
+      return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
+    })
+    setReAnalysis({ key: JSON.stringify(next), value: analyze({ ...spec.design, nodes }) })
+    // instrumentation for the interaction harness: a drop must recompute, and a
+    // test that cannot see the recompute cannot tell a tool from a screenshot
+    globalThis.__rfStats = { ...(globalThis.__rfStats || {}), drops: ((globalThis.__rfStats || {}).drops || 0) + 1 }
+  }, [moves, spec])
+  useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
 
+  // Rotor phase for flying machines. A quad's props spin continuously; there is
+  // no commanded angle to slew to, so the phase is driven by the clock and the
+  // mesh rotates the rotor nodes by it (see buildMesh).
+  const [spinPhase, setSpinPhase] = useState(0)
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
   // (where the joints physically are). The sim slews one toward the other at
@@ -567,7 +644,58 @@ function Studio() {
   const [dispPose, setDispPose] = useState(() => design.joints.map(() => 0))
   const simRef = useRef(null)
   const [cam, setCam] = useState(() => CAM_FOR(analysis.dims))
-  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false })
+  const [flyOn, setFlyOn] = useState(false)
+  const flyRaf = useRef(0)
+  const camRef = useRef(null)
+  useEffect(() => { camRef.current = cam }, [cam])
+  const stopFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    flyRaf.current = 0
+    setFlyOn(false)
+  }, [])
+  const startFly = useCallback(() => {
+    cancelAnimationFrame(flyRaf.current)
+    const base = CAM_FOR(analysis.dims)
+    const t0 = performance.now()
+    setFlyOn(true)
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / FLY_MS)
+      const f = flyAt(t, base)
+      const live = camRef.current
+      if (live) {
+        live.yaw = f.yaw
+        live.pitch = f.pitch
+        live.dist = f.dist
+        live.ortho = false
+        if (globalThis.__rfPaint) globalThis.__rfPaint()
+      }
+      if (t < 1) flyRaf.current = requestAnimationFrame(step)
+      else { flyRaf.current = 0; setCam({ ...f }); setFlyOn(false) }
+    }
+    flyRaf.current = requestAnimationFrame(step)
+  }, [analysis.dims])
+  // any deliberate camera move cancels the flight: the flight is a suggestion
+  useEffect(() => () => cancelAnimationFrame(flyRaf.current), [])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        flyOn ? stopFly() : startFly()
+      }
+      if (e.key === 'Escape' && flyOn) stopFly()
+    }
+    window.addEventListener('keydown', onKey)
+    globalThis.__rfFly = () => startFly()
+    return () => window.removeEventListener('keydown', onKey)
+  }, [flyOn, startFly, stopFly])
+  const [opts, setOpts] = useState({ grid: true, dims: false, wire: false, cables: false, explode: false, heat: false, scale: true })
+  // the camera must fit the machine AND the scale figure, so the framing box is
+  // the machine's dims plus the figure's reach
+  const frameDims = useMemo(() => {
+    const d = analysis.dims.slice()
+    if (opts.scale) d[0] += SCALE_EXTRA_MM
+    return d
+  }, [analysis.dims, opts.scale])
   const [explodeF, setExplodeF] = useState(0.7) // assembly-view spread, 0..1.2
 
   // A joint set can change with the brief (3-DoF → 6-DoF): keep the pose array
@@ -621,8 +749,8 @@ function Studio() {
   }, [pose])
 
   useEffect(() => {
-    setCam((c) => ({ ...c, dist: CAM_FOR(analysis.dims).dist }))
-  }, [analysis.dims[0], analysis.dims[1], analysis.dims[2]])
+    setCam((c) => ({ ...c, dist: CAM_FOR(frameDims).dist }))
+  }, [frameDims[0], frameDims[1], frameDims[2]])
 
   useEffect(() => {
     if (CTX) CTX.storage.set('lastBrief', brief)
@@ -700,7 +828,25 @@ function Studio() {
     joints: design.joints.map((j, i) => ({ ...j, angle: dispPose[i] || 0 })),
   }), [design, dispPose])
 
-  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0), [posedDesign, opts.explode, explodeF])
+  const motorsOn = design.archetype === 'drone' && opts.motors !== false
+  useEffect(() => {
+    if (!motorsOn) return undefined
+    let raf = 0
+    let last = 0
+    const rpm = (analysis.drone && analysis.drone.rpm) || 9000
+    const radPerSec = (rpm / 60) * Math.PI * 2
+    const step = (now) => {
+      // 30 Hz is enough for a 3-blade prop to read as motion, and keeps the
+      // whole page from re-rendering 60 times a second for a visual effect
+      if (now - last > 33) { setSpinPhase(((now - t0) / 1000) * radPerSec); last = now }
+      raf = requestAnimationFrame(step)
+    }
+    const t0 = performance.now()
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [motorsOn, analysis])
+  const mesh = useMemo(() => buildMesh(posedDesign, opts.explode ? explodeF : 0, motorsOn ? spinPhase : 0),
+    [posedDesign, opts.explode, explodeF, motorsOn, spinPhase])
 
   // teleop handles + kind live above the overlay memos: REACH reads them.
   const ikRef = useRef(null)
@@ -1177,7 +1323,10 @@ function Studio() {
   const camFocus = useMemo(() => {
     if (!chassis) return null
     const c = Math.cos(chassis.yaw), sn = Math.sin(chassis.yaw)
-    const cx = (machBounds.min[0] + machBounds.max[0]) / 2
+    // frame the machine AND the 1.75m figure standing beside it, or the scale
+    // reference is drawn outside the frustum and might as well not exist
+    const shift = opts.scale ? SCALE_EXTRA_MM / 2 : 0
+    const cx = (machBounds.min[0] + machBounds.max[0]) / 2 + shift
     const cy = (machBounds.min[1] + machBounds.max[1]) / 2
     const cz = (machBounds.min[2] + machBounds.max[2]) / 2
     return [
@@ -1185,7 +1334,7 @@ function Studio() {
       cx * sn + cy * c + chassis.y * 1000,
       terrainHeight(chassis.x, benchEnv.slopeDeg, benchEnv.course) * 1000 + cz,
     ]
-  }, [chassis, machBounds, benchEnv])
+  }, [chassis, machBounds, benchEnv, opts.scale])
   // floor contact-shadow radius tracks the machine, not the (possibly huge) course
   const subjectR = useMemo(() => {
     const d = [0, 1, 2].map((i) => machBounds.max[i] - machBounds.min[i])
@@ -1212,6 +1361,20 @@ function Studio() {
     }
     return { data: out, verts: rawOv.verts }
   }, [rawOv, chassis, benchEnv])
+  // One line buffer for everything drawn in world space: the bench overlay and
+  // the 1.75m scale figure. Two buffers would mean two draw calls and a second
+  // place for the geometry to lie about itself.
+  const ovAll = useMemo(() => {
+    const fig = opts.scale ? scaleFigureOverlay(design.nodes) : null
+    const bench = benchOvWorld
+    if (!fig && !bench) return null
+    if (!fig) return bench
+    if (!bench) return fig
+    const data = new Float32Array(bench.data.length + fig.data.length)
+    data.set(bench.data, 0)
+    data.set(fig.data, bench.data.length)
+    return { data, verts: bench.verts + fig.verts }
+  }, [benchOvWorld, design.nodes, opts.scale])
 
   const armHudIk = armMode === 2 ? (ikLRef.current || ikRef.current) : ikRef.current
   const armHud = armMode && armHudIk && !(autotestRef.current && autotestRef.current.running)
@@ -1914,7 +2077,14 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
+        h(Viewport, {
+          mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis,
+          overlay: ovAll, focus: camFocus,
+          onMoveNode: (id, dx, dy) => setMoves((m) => ({ ...m, [id]: [dx, dy] })),
+          onDropNode: dropNode,
+          movedCount: Object.keys(moves).length,
+          onResetMoves: () => { setMoves({}); setReAnalysis(null) },
+        }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
@@ -1933,11 +2103,19 @@ function Studio() {
                   style: { color: propHud.over ? C.red : C.green },
                   title: propHud.over ? 'heavier than the arm payload rating — expect sag/stall' : 'within payload rating',
                 }, `⛏ ${propHud.name} ${propHud.massG}g${propHud.over ? ' ⚠OVER' : ''}`) : null,
-                wsMap && wsMap.stats.reach ? h('span', {
-                  key: 'ws',
-                  style: { color: C.cyan },
-                  title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} targets reachable · ${wsMap.stats.lift} also lift ${wsMap.stats.payloadG}g`,
-                }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g`) : null,
+                wsMap && wsMap.stats.reach ? (() => {
+                  // A percentage on its own reads as "the arm is broken". Split it:
+                  // targets the solver never reached are a reach problem, targets it
+                  // reached but could not lift are a torque problem — and those have
+                  // different fixes.
+                  const torqueLimited = Math.max(0, wsMap.stats.reach - wsMap.stats.lift)
+                  const outOfReach = Math.max(0, wsMap.stats.total - wsMap.stats.reach)
+                  return h('span', {
+                    key: 'ws',
+                    style: { color: C.cyan },
+                    title: `sampled workspace: ${wsMap.stats.reach}/${wsMap.stats.total} reachable · ${wsMap.stats.lift} lift ${wsMap.stats.payloadG}g · ${torqueLimited} reachable but over torque at this payload · ${outOfReach} beyond reach`,
+                  }, `◌ ${Math.round((wsMap.stats.lift / wsMap.stats.total) * 100)}% lift@${wsMap.stats.payloadG}g · ${torqueLimited} torque-limited`)
+                })() : null,
                 h('span', { key: 'c', style: { color: C.faint } }, 'WASD+RF reach · 0 reset'),
               ]
             : driveHud.kind === 'gait'
@@ -2180,6 +2358,13 @@ function Studio() {
         ) : null,
         // one instrument: camera presets as a radio group, display as toggles
         h('div', { style: S.viewBar, role: 'toolbar', 'aria-label': 'view options' },
+          h('button', {
+            style: flyOn ? S.viewChipOn : S.viewPlay,
+            'aria-pressed': flyOn,
+            title: 'fly-through — close on a detail, through the machine, out to iso (F)',
+            onClick: () => (flyOn ? stopFly() : startFly()),
+          }, flyOn ? 'MOVE' : 'FLY'),
+          h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'camera preset' },
             VIEWS.map(([label, yaw, pitch]) => {
               const on = Math.abs(cam.yaw - yaw) < 0.02 && Math.abs(cam.pitch - pitch) < 0.02
@@ -2193,7 +2378,7 @@ function Studio() {
             })),
           h('div', { style: S.viewSep }),
           h('div', { style: S.viewGroup, role: 'group', 'aria-label': 'overlays' },
-            [['GRID', 'grid'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
+            [['GRID', 'grid'], ['SCALE', 'scale'], ['MOTORS', 'motors'], ['DIMS', 'dims'], ['WIRE', 'wire'], ['CABLES', 'cables'], ['REACH', 'reach'], ['LOAD', 'heat'], ['EXPLODE', 'explode']].map(([label, key]) => h('button', {
               key,
               style: opts[key] ? S.viewChipOn : S.viewChip,
               'aria-pressed': !!opts[key],

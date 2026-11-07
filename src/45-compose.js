@@ -15,6 +15,7 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
+  { id: 'drone', label: 'FPV drone', brief: { archetype: 'drone', mission: 'a 5-inch FPV quad that carries a camera for 6 minutes', reachMm: 127, payloadKg: 0.2, battery: 'lipo4s' } },
   { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
@@ -24,6 +25,7 @@ const PRESETS = [
   { id: 'robot', label: 'Full robot', brief: { archetype: 'robot', mission: 'mobile manipulator: 4WD base, 5-DoF arm, camera head, 1kg payload', payloadKg: 1, reachMm: 450, wheelMm: 130, battery: 'lipo3s' } },
   { id: 'desk', label: 'ESP32 desk device', brief: { archetype: 'gadget', mission: 'ESP32 desk clock with temperature and humidity on an OLED', reachMm: 0, payloadKg: 0 } },
   { id: 'gantry', label: 'Full-scale gantry', brief: { archetype: 'gantry', mission: '1m gantry mill that cuts plywood, belts XY, leadscrew Z', reachMm: 1000, payloadKg: 2, battery: 'pack3s' } },
+  { id: 'scene', label: 'Workshop scene', brief: { archetype: 'scene', mission: 'a lineup: pick-and-place arm, survey rover and a sensor node sharing one bench', scene: SCENE_DEFAULT } },
   // The spec card: nodes/joints ARE the design — agents author these through
   // rigforge_build, humans through build codes. This starter is a real machine
   // (pan-tilt survey mast) so the card is never an empty promise.
@@ -50,27 +52,88 @@ const PRESETS = [
 
 // Same ladder, but it admits when nothing matched — the difference between
 // "I heard you" and "here is a guess", which the UI must not blur.
+/**
+ * Which machine does this sentence name?
+ *
+ * This used to be first-rule-wins, which means the ORDER of the list silently
+ * decides the answer: "a robot dog that carries tools" hit the quadruped rule
+ * only because it happened to come before rover, and one stray word ("workshop")
+ * could drag a vacuum into the scene builder. A person describing a machine says
+ * several things at once, so every archetype now scores its own evidence and the
+ * strongest reading wins. Ties keep list order, which is roughly specialisation
+ * order (a lineup is more specific than a rover).
+ */
+const ARCH_TERMS = [
+  ['scene', [
+    /\b(?:two|three|four|five|several|multiple|a few)\b[^.]{0,24}\b(?:robots?|machines?|arms?|rovers?|drones?)\b/,
+    /lineup|line.?up|assembly line|production line|fleet of|bench of machines/,
+  ]],
+  ['drone', [
+    /\bdrones?\b/, /quad.?copter/, /\bquad\b/, /multirotor|hexacopter/,
+    /\bfpv\b/, /\buav\b/, /flying|airborne/, /propellers?|copter/,
+  ]],
+  ['gantry', [
+    /gantry/, /\bcnc\b/, /router|plotter/, /\bmill\b/, /laser cut/,
+    /full.?scale|metre class|meter class/, /overhead/, /3.?axis machin/,
+  ]],
+  ['pcb', [
+    /\bpcb\b/, /circuit board|controller board/, /breakout|carrier board/,
+    /schematic|gerber/, /(custom|my own|design .{0,10}) ?board/,
+    /board with (a|an|the)?\s*(screen|sensor|chip|relay)/,
+  ]],
+  ['iot', [
+    /\biot\b/, /sensor node/, /thermostat|weather station/, /plant|soil|moisture/,
+    /logger|beacon|tracker/, /\btag\b/, /door sensor|air quality/,
+  ]],
+  ['humanoid', [ /humanoid/, /biped|two.?leg/, /android|mannequin/ ]],
+  ['robot', [
+    /full robot|whole robot/, /mobile manipulator/,
+    /robot arm on a (rover|base|chassis)/, /drive.*(and|&).*(grab|pick)/,
+    // wheels AND an arm is the definition of a mobile manipulator — two terms so
+    // it outscores the bare \barm\b rule it would otherwise tie with
+    /wheels?[^.]{0,30}\barm\b/, /\barm\b[^.]{0,30}wheels?/,
+    /base[^.]{0,20}\barm\b/,
+  ]],
+  ['quadruped', [ /quadruped|quad pod/, /four.?leg/, /walking|\bdog\b|trot/ ]],
+  ['gripper', [
+    /gripper|claw|\bjaw\b/, /end.?effector/, /\bgrab\b|clamp|pinch|squeeze/,
+    /hold (an? )?(egg|cup|block)/,
+  ]],
+  ['arm', [
+    /\barm\b/, /manipulator/, /pick.?(and|&).?place/, /[56].?dof/, /delta/,
+    /\bsort(s|ing|ed)?\b/, /\bweld(s|ing)?\b/, /assembly robot/,
+  ]],
+  ['rover', [
+    /rover/, /\bcar\b|robot car/, /\btank\b/, /wheels?|mecanum/, /\bdrive\b|chassis/,
+    /vacuum|roomba|sweeper/, /mower|lawn|tractor/,
+  ]],
+]
+
 function matchArchetype(text) {
   const t = String(text || '').toLowerCase()
-  const rules = [
-    ['gantry', /gantry|cnc|router|mill\b|plotter|laser cut|full.?scale|metre class|meter class|overhead|3.?axis machin/],
-    ['pcb', /\bpcb\b|circuit board|controller board|breakout|carrier board|schematic|gerber|(custom|my own|design .{0,10}) ?board|board with (a|an|the)?\s*(screen|sensor|chip|relay)/],
-    ['iot', /iot|sensor node|thermostat|weather station|plant|logger|beacon|tracker|tag\b|door sensor|air quality/],
-    ['humanoid', /humanoid|biped|two.?leg|android|mannequin/],
-    ['robot', /full robot|mobile manipulator|robot arm on a (rover|base|chassis)|drive.*(and|&).*(grab|pick)|whole robot/],
-    ['quadruped', /quadruped|quad pod|four.?leg|walking|dog\b|trot/],
-    ['gripper', /gripper|claw|jaw|end.?effector|grab|clamp|pinch|squeeze|hold (an? )?(egg|cup|block)/],
-    ['arm', /\barm\b|manipulator|pick.?(and|&).?place|6.?dof|5.?dof|delta/],
-    ['rover', /rover|car\b|robot car|tank|wheels?|mecanum|drive|chassis/],
-  ]
-  for (const [id, re] of rules) if (re.test(t)) return { id, archetype: id, confident: true, matched: true }
+  let best = null
+  ARCH_TERMS.forEach(([id, terms], order) => {
+    let score = 0
+    for (const re of terms) if (re.test(t)) score += 1
+    if (!score) return
+    // strict >, so an earlier (more specialised) archetype wins a tie
+    if (!best || score > best.score) best = { id, archetype: id, score, order, confident: score >= 2, matched: true }
+  })
+  if (best) return best
   // "a robot that carries 40 kg of soil" names no chassis, but it is plainly a
   // load carrier: catching it here beats building an enclosure and calling it a
   // misunderstanding
   if (/(carry|carries|carrying|haul|hauls|transport|transports|pull|pulls|tow|tows|move|moves|shift|shifts|drag|drags)\b[^.]{0,24}\d+\s*(kg|kilo|g\b)/.test(t)) {
-    return { id: 'rover', archetype: 'rover', confident: true, matched: true }
+    return { id: 'rover', archetype: 'rover', confident: true, matched: true, score: 1, order: 99 }
   }
-  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false }
+  // The plainest request in the product's whole vocabulary — "a robot" — fell
+  // through to gadget and built a desk enclosure. Every specific rule has had its
+  // turn by now (including the load-carrier rule above), so anything still
+  // unmatched that says "robot" is one.
+  if (/\brobots?\b/.test(t)) {
+    return { id: 'robot', archetype: 'robot', confident: true, matched: true, score: 1, order: 90 }
+  }
+  return { id: 'gadget', archetype: 'gadget', confident: false, matched: false, score: 0, order: 99 }
 }
 
 function detectArchetype(text) {
@@ -98,6 +161,18 @@ function parseBrief(text) {
   if (mm && !(out.wheelMm && parseInt(mm[1], 10) === out.wheelMm)) out.reachMm = parseInt(mm[1], 10)
   const cm = text.match(/(\d{1,3})\s*cm/i)
   if (!mm && cm) out.reachMm = parseInt(cm[1], 10) * 10
+  // Metres and inches are how most of the world actually specifies a machine.
+  // Only mm/cm were understood, so "a 2m gantry" and "a 7 inch drone" silently
+  // kept the default size — the sentence named a size and the design ignored it.
+  const metres = text.match(/(\d+(?:[.,]\d+)?)\s*(?:m\b(?!m)|metres?\b|meters?\b)/i)
+  if (!mm && !cm && metres) out.reachMm = Math.round(parseFloat(metres[1].replace(',', '.')) * 1000)
+  const inchRaw = text.match(/(\d+(?:[.,]\d+)?)\s*(?:inch(?:es)?|in\b|")/i)
+  if (inchRaw) {
+    const inchMm = Math.round(parseFloat(inchRaw[1].replace(',', '.')) * 25.4)
+    // on a flying machine the inch number IS the prop size — "a 7 inch drone"
+    if (out.archetype === 'drone') out.propMm = clamp(inchMm, 90, 220)
+    else if (!mm && !cm && !metres) out.reachMm = inchMm
+  }
   const dof = text.match(/([3-6])\s*(?:dof|degrees? of freedom|axis)/i)
   if (dof) out.dof = parseInt(dof[1], 10)
   if (/petg/i.test(text)) out.material = 'petg'
@@ -121,7 +196,9 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'scene' ? buildScene(b)
+    : b.archetype === 'drone' ? buildDrone(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
