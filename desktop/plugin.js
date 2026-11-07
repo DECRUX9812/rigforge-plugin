@@ -309,6 +309,62 @@ const PARTS = {
     dims: [70, 35, 14], conn: 'XT30 + JST-XH balance', sku: '2S 1000mAh 30C LiPo XT30', src: 'amzn',
     note: 'Light and punchy. Needs a proper balance charger and a LiPo bag.',
   },
+  motor2207: {
+    name: '2207 2450KV brushless motor',
+    cat: 'actuator', price: 14, mass: 32, volts: 14.8,
+    dims: [28, 28, 32], shaft: 'Ø5mm M5 prop thread', mount: '16×16mm or 19×19mm',
+    sku: '2207 2450KV 3-6S brushless', src: 'amzn',
+    note: 'The 5-inch class standard. One per corner, and they all have to be the same.',
+  },
+  motor2806: {
+    name: '2806.5 1300KV brushless motor',
+    cat: 'actuator', price: 26, mass: 48, volts: 22.2,
+    dims: [34, 34, 34], shaft: 'Ø5mm', mount: '19×19mm',
+    sku: '2806.5 1300KV 6S', src: 'amzn',
+    note: 'The 7-inch long-range class: more disk, less revs, quieter.',
+  },
+  prop5: {
+    name: '5×4.3 3-blade propeller set',
+    cat: 'mech', price: 3, mass: 16, volts: 0,
+    dims: [127, 127, 8], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '5043 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Two CW, two CCW. Fit them the wrong way and the quad flips on arm.',
+  },
+  prop7: {
+    name: '7×3.5 3-blade propeller set',
+    cat: 'mech', price: 5, mass: 26, volts: 0,
+    dims: [178, 178, 9], shaft: 'M5', mount: 'press on the motor bell',
+    sku: '7035 tri-blade CW/CCW set', src: 'amzn',
+    note: 'Longer blades at lower revs: more efficient hover, slower top end.',
+  },
+  esc4in1: {
+    name: '4-in-1 45A BLHeli_S ESC',
+    cat: 'driver', price: 34, mass: 14, volts: 22.2, curr: { idle: 0.1, typ: 1.5, peak: 180 },
+    dims: [36, 36, 8], conn: 'solder pads, 4× motor + XT60 input',
+    sku: '45A 4-in-1 ESC 2-6S 30.5×30.5', src: 'amzn',
+    note: 'One board for four motors. Mount it under the flight controller, airflow across it.',
+  },
+  fc405: {
+    name: 'F405 flight controller',
+    cat: 'mcu', price: 42, mass: 9, volts: 5, curr: { idle: 0.12, typ: 0.35, peak: 0.8 },
+    dims: [36, 36, 8], pins: 12, conn: '30.5×30.5 stack, 8 motor/servo outputs',
+    sku: 'F405 V3 flight controller', src: 'amzn',
+    note: 'Runs the loop at 8kHz and the PID loop you will spend a weekend tuning.',
+  },
+  lipo4s: {
+    name: 'LiPo 4S 1500mAh 100C',
+    cat: 'battery', price: 30, mass: 190, volts: 14.8, mah: 1500, maxA: 150,
+    dims: [75, 35, 30], conn: 'XT60 + JST-XH balance',
+    sku: '4S 1500mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Short, hot flights. Land at 3.5V/cell or the pack puffs.',
+  },
+  lipo6s: {
+    name: 'LiPo 6S 1300mAh 100C',
+    cat: 'battery', price: 38, mass: 210, volts: 22.2, mah: 1300, maxA: 130,
+    dims: [78, 38, 32], conn: 'XT60 + JST-XH balance',
+    sku: '6S 1300mAh 100C LiPo XT60', src: 'amzn',
+    note: 'Long range builds run 6S: less current for the same watts, cooler ESC.',
+  },
   lipo3s: {
     name: 'LiPo 3S 2200mAh 30C',
     cat: 'battery', price: 25, mass: 180, volts: 11.1, mah: 2200, maxA: 40,
@@ -539,6 +595,7 @@ const PARTS = {
   jst_kit: {
     shop: true, // consumable: bought once, lasts many builds
     name: 'JST-XH + Dupont connector kit', cat: 'mech', price: 10, mass: 60, volts: 0,
+    dims: [16, 10, 8], // JST-XH 4-pin housing + pin header footprint
     conn: '2.54 / 2.5mm pitch crimp', sku: 'JST XH dupont connector kit crimp', src: 'ali',
     note: 'Crimp, do not twist-and-tape. Your future self is the reviewer.',
   },
@@ -561,7 +618,7 @@ const PARTS = {
   },
   xt60: {
     name: 'XT60 connector pair', cat: 'mech', price: 3, mass: 8, volts: 0,
-    conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
+    dims: [20, 15, 12], conn: '15A continuous, 30A burst', sku: 'XT60H connector male female pair', src: 'amzn',
     note: 'The pack interface. Solder the battery side first, one lead at a time.',
   },
   xt30: {
@@ -571,7 +628,7 @@ const PARTS = {
   },
   fuse: {
     name: 'Inline fuse holder + blade fuse', cat: 'mech', price: 3, mass: 10, volts: 0,
-    conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
+    dims: [32, 12, 18], conn: '18AWG inline, ATO blade', sku: 'inline ATO fuse holder 18AWG', src: 'hw',
     note: 'A $3 part that stands between a shorted rail and a lithium fire.',
   },
   cap1000: {
@@ -707,6 +764,16 @@ function addPart(d, key, qty, role) {
 /** Box node. `pos` is the CENTRE. `r` rounds it into a chamfered `rbox`. */
 function box(d, id, size, pos, mat, extra) {
   d.nodes.push({ id, kind: 'box', size, pos, mat, ...extra })
+}
+
+/** Electronics node at CATALOG dims — the board on the BOM is the board on
+ *  the bench. `key` is a PARTS key; `pos` is the centre; `axes` remaps the
+ *  catalog [X,Y,Z] dims onto world axes (e.g. [1,0,2] swaps the footprint,
+ *  [2,0,1] stands a board on edge). Defaults to lying flat. */
+function elec(d, id, key, pos, axes, extra) {
+  const dims = (PARTS[key] && PARTS[key].dims) || [20, 20, 4]
+  const m = axes || [0, 1, 2]
+  box(d, id, [dims[m[0]], dims[m[1]], dims[m[2]]], pos, 'pcb', extra)
 }
 
 /** Chamfered box — the machined/printed-edge look. `r` is the chamfer in mm. */
@@ -1167,6 +1234,52 @@ function servoBody(d, prefix, pos, axis, partKey, joint, hornJoint, opts) {
   cyl(d, `${prefix}-horn`, 11, 2.5, at(4), a, 'accent', ho)
 }
 
+/** GT2 belt reduction across a 'y'-axis joint. The servo moves below the
+ *  pivot where its shaft stays parallel to the joint axis; a 20T pinion on
+ *  the servo drives a 20·ratio-T gear on an output stub. Because the driven
+ *  gear's centre sits ON the joint axis, pitching the arm just spins it in
+ *  place — the two tangent belt runs stay engaged at every angle.
+ *  o: { prefix, pivot:[x,y,z], ratio, servoKey, servoJoint, outJoint, beltY } */
+function beltStageY(d, o) {
+  const { prefix, pivot, ratio, servoKey, servoJoint = null, outJoint, beltY } = o
+  const px = pivot[0]; const pz = pivot[2]
+  const gm = 2 / Math.PI                    // GT2 belt: 2mm tooth pitch
+  const pin = 20                            // driver pinion teeth
+  const gearN = 20 * Math.max(2, Math.round(ratio))
+  const RoD = (gm * pin) / 2 + 0.85 * gm + 1.1   // belt path radius, driver
+  const RoN = (gm * gearN) / 2 + 0.85 * gm + 1.1 // belt path radius, driven
+  const CD = 2.1 * (RoD + RoN)              // centre distance, compact stage
+  const pzD = pz - CD                       // driver sits below the pivot
+  const by = beltY
+
+  // output side: stub shaft + driven gear — pitches with the arm
+  cyl(d, `${prefix}-belt-shaft`, 4, 24, [px, by + 6, pz], 'y', 'steel', { joint: outJoint })
+  gear(d, `${prefix}-belt-driven`, gm, gearN, 8, [px, by, pz], 'y', 'metal', { joint: outJoint })
+  // motor side: pinion on the servo shaft — yaws with the base, never pitches
+  gear(d, `${prefix}-belt-pinion`, gm, pin, 8, [px, by, pzD], 'y', 'metal', { joint: servoJoint })
+  servoBody(d, `${prefix}-servo`, [px, by - 6, pzD], 'y', servoKey, servoJoint, servoJoint)
+
+  // belt runs: external tangents between the two belt-path circles
+  const dr = RoN - RoD
+  const nz = -dr / CD
+  const nx = Math.sqrt(Math.max(0, 1 - nz * nz))
+  const dx = (RoN - RoD) * nx
+  const dz = CD + (RoN - RoD) * nz
+  const tilt = Math.atan2(dx, dz)
+  const runLen = Math.hypot(dx, dz)
+  for (const s of [1, -1]) {
+    const tx = s * RoN * nx
+    const tz = RoN * nz
+    const bx = s * RoD * nx
+    const bz = -CD + RoD * nz
+    const mx = (tx + bx) / 2
+    const mz = (tz + bz) / 2
+    box(d, `${prefix}-belt-run${s > 0 ? 'a' : 'b'}`, [3, 5, runLen], [px + mx, by, pz + mz], 'belt', {
+      joint: servoJoint, rot: [0, s * tilt, 0],
+    })
+  }
+}
+
 /** Wheel drawn as a wheel: torus tyre + rim ring + hub boss. */
 function wheelAssy(d, id, pos, axis, dia, width, joint, side) {
   const o = { joint }
@@ -1324,9 +1437,15 @@ function buildArm(brief) {
     bolt(d, `base-bolt-${sx}${sy}`, [sx * 66, sy * 66, 12], 'z', 12)
   }
   ring(d, 'base-tower', 46, 38, 54, [0, 0, 39], 'z', 'shell', { print: true })
-  // driver boards on the exposed plate annulus, clear of tower wall and bolts
-  box(d, 'pca9685', [24, 50, 5], [60, -25, 14.5], 'pcb')
-  box(d, 'esp32', [26, 22, 4], [60, 34, 14], 'pcb')
+  // driver boards on the exposed plate annulus at catalog dims, clear of
+  // tower wall, bolts and each other; UBEC on the front strip
+  elec(d, 'pca9685', 'pca9685', [61, -31, 14], [1, 0, 2])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [61, 31, 16], [1, 0, 2])
+  elec(d, 'buck5a', 'buck5a', [0, 64, 18])
+  // power-path parts on the front strip: ATO fuse by the UBEC, rail cap
+  // beside it — the $3 part between a short and a lithium fire
+  elec(d, 'fuse', 'fuse', [-40, 64, 21])
+  elec(d, 'cap1000', 'cap1000', [40, 64, 20])
   // yaw carries the arm's overhung moment — that is a thrust bearing's job
   servoBody(d, 'yaw-servo', [0, 0, 56], 'z', svc('yaw', 'ds3218'), null, 'yaw')
   bearing(d, 'yaw-race', [0, 0, 68], 'z', 30, 17, 9, { joint: 'yaw' })
@@ -1338,7 +1457,13 @@ function buildArm(brief) {
   wedge(d, 'gusset-l', [30, 6, 30], [16, -ARM_SEG.w / 2 + 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   wedge(d, 'gusset-r', [30, 6, 30], [16, ARM_SEG.w / 2 - 3, baseH + 24], 'px', 'accent', { joint: 'yaw', print: true })
   cyl(d, 'shoulder-hub', 22, ARM_SEG.w + 10, [0, 0, baseH], 'y', 'metal', { joint: 'yaw' })
-  servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
+  const ratioOf = (label) => (d.actuators.find((a) => a.label === label) || {}).ratio || 1
+  if (ratioOf('Shoulder pitch') > 1) {
+    // stage hangs below the pivot, outboard far enough to clear the tower wall
+    beltStageY(d, { prefix: 'shoulder', pivot: [0, 0, baseH], ratio: ratioOf('Shoulder pitch'), servoKey: svc('shoulder', 'ds3218'), servoJoint: 'yaw', outJoint: 'shoulder', beltY: -54 })
+  } else {
+    servoBody(d, 'shoulder-servo', [0, -ARM_SEG.w / 2 - 5, baseH], 'y', svc('shoulder', 'ds3218'), 'yaw', 'shoulder')
+  }
   bearing(d, 'shoulder-race', [0, ARM_SEG.w / 2 + 6, baseH], 'y', 22, 8, 7, { joint: 'yaw' })
   bolt(d, 'shoulder-bolt', [0, ARM_SEG.w / 2 + 13, baseH], 'y', 10, { joint: 'yaw' })
 
@@ -1349,7 +1474,11 @@ function buildArm(brief) {
     box(d, `upper-rib-${sy}`, [L1 * 0.86, 4, ARM_SEG.h * 0.42], [L1 / 2, sy * (ARM_SEG.w / 2 + 2), baseH + 2], 'accent', { joint: 'shoulder', print: true })
   }
   cyl(d, 'elbow-hub', 18, ARM_SEG.w + 8, [L1, 0, baseH], 'y', 'metal', { joint: 'shoulder' })
-  servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
+  if (ratioOf('Elbow pitch') > 1) {
+    beltStageY(d, { prefix: 'elbow', pivot: [L1, 0, baseH], ratio: ratioOf('Elbow pitch'), servoKey: svc('elbow', 'mg996r'), servoJoint: 'shoulder', outJoint: 'elbow', beltY: -38 })
+  } else {
+    servoBody(d, 'elbow-servo', [L1, -ARM_SEG.w / 2 - 3, baseH], 'y', svc('elbow', 'mg996r'), 'shoulder', 'elbow')
+  }
   bearing(d, 'elbow-race', [L1, ARM_SEG.w / 2 + 5, baseH], 'y', 22, 8, 7, { joint: 'shoulder' })
   bolt(d, 'elbow-bolt', [L1, ARM_SEG.w / 2 + 11, baseH], 'y', 10, { joint: 'shoulder' })
 
@@ -1367,7 +1496,11 @@ function buildArm(brief) {
 
   if (dof >= 4) {
     cyl(d, 'wrist-hub', 15, ARM_SEG.w, [wristX, 0, baseH], 'y', 'metal', { joint: chain })
-    servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
+    if (ratioOf('Wrist pitch') > 1) {
+      beltStageY(d, { prefix: 'wrist', pivot: [wristX, 0, baseH], ratio: ratioOf('Wrist pitch'), servoKey: svc('wrist', 'mg90s'), servoJoint: chain, outJoint: 'wrist-pitch', beltY: -33 })
+    } else {
+      servoBody(d, 'wrist-servo', [wristX, -ARM_SEG.w / 2 + 2, baseH], 'y', svc('wrist', 'mg90s'), chain, 'wrist-pitch')
+    }
     joint(d, 'wrist-pitch', 'Wrist pitch', 'y', [wristX, 0, baseH], -110, 110)
     chain = 'wrist-pitch'
     box(d, 'wrist-link', [L3, 36, 32], [wristX + L3 / 2, 0, baseH], 'shell', { joint: chain, print: true })
@@ -1433,7 +1566,9 @@ function buildArm(brief) {
   addPart(d, 'fuse', 1, 'pack protection')
   addPart(d, 'cap1000', 1, 'servo rail smoothing')
   addPart(d, 'thrust51103', 1, 'yaw axial load')
-  addPart(d, 'as5600', 2, 'shoulder + elbow feedback')
+  // no as5600 here: the cartridge races + bolt + servo fill every joint face,
+  // there is no honest mount for a magnetic encoder — and the generated
+  // firmware never reads one. Phantom parts inflate the BOM; cut them.
   addPart(d, 'hw_m3', 1, 'nuts + washers')
   addPart(d, 'bearing608', 4, 'joint bearings')
   addPart(d, 'wire22', 1, 'signal harness')
@@ -1517,17 +1652,28 @@ function buildRover(brief) {
 
   // sensor mast + head
   rbox(d, 'mast', [26, 26, 150], [wheelbase * 0.34, 0, z0 + chassisH + 75], 1.5, 'shell', { print: true })
-  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true })
-  cyl(d, 'head-tof', 9, 8, [wheelbase * 0.34 + 34, 0, z0 + chassisH + 167], 'x', 'glass')
-  cyl(d, 'head-cam', 7, 8, [wheelbase * 0.34 + 34, 26, z0 + chassisH + 173], 'x', 'glass')
+  rbox(d, 'head', [70, 86, 34], [wheelbase * 0.34, 0, z0 + chassisH + 167], 3, 'accent', { print: true, joint: 'head-pan' })
+  elec(d, 'head-tof', 'vl53l0x', [wheelbase * 0.34 + 37, 0, z0 + chassisH + 167], [2, 0, 1], { joint: 'head-pan' })
+  elec(d, 'head-cam', 'ov2640', [wheelbase * 0.34 + 48, 26, z0 + chassisH + 173], null, { joint: 'head-pan' })
 
   // the BOM's electronics are real parts, not implied: controller + IMU on
   // the deck, and the second VL53L0X faces down under the rear bumper as the
   // drop-off ranger the BOM line names
   const deckTop = z0 + chassisH + 0.5
-  box(d, 'esp32', [55, 28, 10], [-wheelbase * 0.3, -track * 0.3, deckTop + 5], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.3 + 38, -track * 0.3, deckTop + 2], 'pcb')
-  cyl(d, 'tof-drop', 9, 8, [-wheelbase / 2 - 6, 0, z0 - 8], 'z', 'glass')
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-wheelbase * 0.3, -track * 0.3, deckTop + 5])
+  elec(d, 'imu', 'bno085', [-wheelbase * 0.3 + 48, -track * 0.3, deckTop + 2])
+  // motor drivers + logic UBEC on the open deck, clear of wheels and mast
+  elec(d, 'bts7960-a', 'bts7960', [-wheelbase * 0.22, -track * 0.15, deckTop + 10])
+  elec(d, 'bts7960-b', 'bts7960', [-wheelbase * 0.22, track * 0.15, deckTop + 10])
+  elec(d, 'buck5a', 'buck5a', [-wheelbase * 0.08, 0, deckTop + 6])
+  // power path on the open deck: ATO fuse at the pack feed, rail cap at the
+  // drivers, rocker on the deck edge — all catalog dims
+  elec(d, 'fuse', 'fuse', [-wheelbase * 0.178, 0, deckTop + 9])
+  elec(d, 'cap1000', 'cap1000', [-wheelbase * 0.242, track * 0.05, deckTop + 8])
+  elec(d, 'rocker', 'rocker', [-wheelbase * 0.125, track * 0.074, deckTop + 9])
+  // XT60 at the pack feed, between the fuse and the drivers
+  elec(d, 'xt60', 'xt60', [-wheelbase * 0.25, 0, deckTop + 6])
+  elec(d, 'tof-drop', 'vl53l0x', [-wheelbase / 2 - 6, 0, z0 - 8])
 
   // ── mass, torque, motor choice ──────────────────────────────────────────
   const mat = MATERIALS[brief.material] || MATERIALS.petg
@@ -1569,6 +1715,7 @@ function buildRover(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
+  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'jst_kit', 1, 'connectors')
   addPart(d, 'xt60', 1, 'pack connector')
@@ -1604,6 +1751,156 @@ function buildRover(brief) {
   return d
 }
 
+// ── drone: disk loading, thrust and hover time ──────────────────────────────
+// A quadcopter is not a robot with wheels: every gram is either thrust margin or
+// flight time, and the two trade against each other. The geometry here is the
+// easy part (four arms, four motors, four props). The interesting part is the
+// arithmetic in droneReport(): how much lift four discs of this size actually
+// make, at what throttle it hovers, and how many minutes that buys on the pack.
+
+const DRONE_AIR_RHO = 1.225 // kg/m³ at sea level, 15°C
+const DRONE_PROP_SLIP = 0.72 // real exit velocity is ~72% of geometric pitch speed
+const DRONE_FOM = 0.55 // figure of merit: motor + ESC + prop, lumped
+
+/**
+ * Momentum theory, no fudge factors beyond the two constants above.
+ *   thrust  T = ½·ρ·A·v²        (v = exit velocity through the disc)
+ *   power   P = T^1.5 / √(2ρA)   (ideal induced power)
+ * Everything the product claims about a quad comes out of those two lines, so a
+ * design that says 12 minutes has 12 minutes of arithmetic behind it.
+ */
+function droneReport(params, massG) {
+  const D = params.propMm / 1000
+  const A = (Math.PI * D * D) / 4
+  const pitch = D * 0.86
+  const vPack = params.cells * 3.7 * 0.9
+  const rpm = params.kv * vPack * 0.85
+  const vExit = (rpm / 60) * pitch * DRONE_PROP_SLIP
+  const tOne = 0.5 * DRONE_AIR_RHO * A * vExit * vExit // N
+  const thrustG = (4 * tOne * 1000) / 9.81
+  const massKg = Math.max(0.001, massG / 1000)
+  const weightN = massKg * 9.81
+  // hover: each motor carries a quarter of the weight
+  const tHover = weightN / 4
+  const vHover = Math.sqrt((2 * tHover) / (DRONE_AIR_RHO * A))
+  const pHover = Math.pow(tHover, 1.5) / Math.sqrt(2 * DRONE_AIR_RHO * A) // W, ideal, per motor
+  const pElec = (4 * pHover) / DRONE_FOM
+  const amps = pElec / vPack
+  const minutes = ((params.mah / 1000) * 0.8 * 60) / amps
+  return {
+    propMm: params.propMm,
+    diskAreaM2: A,
+    vExit,
+    thrustG,
+    twr: thrustG / massG,
+    hoverThrottle: vHover / vExit,
+    hoverAmps: amps,
+    hoverWatts: pElec,
+    minutes,
+    tipSpeed: Math.PI * D * (rpm / 60),
+  }
+}
+
+function buildDrone(brief) {
+  const d = newDesign('drone', brief)
+  // the prop size is the whole design: 5" and 7" are different machines, not a
+  // style choice. Take it from propMm, else from the reach slider the UI shows.
+  const wanted = brief.propMm || brief.reachMm || 127
+  const propKey = wanted >= 160 ? 'prop7' : 'prop5'
+  const propMm = propKey === 'prop7' ? 178 : 127
+  const motorKey = propKey === 'prop7' ? 'motor2806' : 'motor2207'
+  const kv = propKey === 'prop7' ? 1300 : 2450
+  const battKey = brief.battery === 'lipo6s' ? 'lipo6s' : propKey === 'prop7' ? 'lipo6s' : 'lipo4s'
+  const batt = PARTS[battKey]
+  const cells = Math.round(batt.volts / 3.7)
+
+  // motor diagonal: a 5" quad carries props that just clear each other, so the
+  // diagonal is the prop diameter plus a margin — 1.78× is the real-world ratio
+  const diagonal = clamp(Math.round(propMm * 1.78), 160, 900)
+  const armLen = Math.round(diagonal / 2 - 18)
+  const core = Math.round(diagonal * 0.42)
+  const payload = clampPayload(d, brief.payloadKg || 0, 0, 6)
+
+  d.title = `${propMm}mm ${propKey === 'prop7' ? '7' : '5'}-inch quad`
+  d.subtitle = `${diagonal}mm motor diagonal · ${batt.name.split(' ').slice(0, 2).join(' ')} · ${payload}kg payload`
+  d.metrics = {}
+
+  const zArm = 6
+  const zTop = 20
+
+  // ── plates and arms: the frame, printed ───────────────────────────────────
+  splitBox(d, 'plate-bottom', [core, core, 3], [0, 0, 3], 2, 'shell', 256, { print: true })
+  splitBox(d, 'plate-top', [Math.round(core * 0.72), Math.round(core * 0.72), 3], [0, 0, zTop], 2, 'shell', 256, { print: true })
+  for (let i = 0; i < 4; i += 1) {
+    const ang = (Math.PI / 4) + (i * Math.PI) / 2
+    const cx = Math.cos(ang)
+    const sy = Math.sin(ang)
+    const mid = armLen / 2 + 10
+    box(d, `arm-${i}`, [armLen, 14, 5], [cx * mid, sy * mid, zArm], 'shell', {
+      print: true,
+      rot: [0, 0, ang],
+    })
+    // motor mount pad, slightly wider than the arm so the bolts have material
+    cyl(d, `arm-pad-${i}`, 13, 4, [cx * (armLen + 12), sy * (armLen + 12), zArm + 2], 'z', 'shell', { print: true })
+
+    // motor: stator can + bell, then the prop on top of the bell
+    const mx = cx * (armLen + 12)
+    const my = sy * (armLen + 12)
+    cyl(d, `${nameOf(i)}-motor`, 13.5, 26, [mx, my, zArm + 15], 'z', 'metal')
+    cyl(d, `${nameOf(i)}-bell`, 14.5, 10, [mx, my, zArm + 30], 'z', 'steel')
+    cyl(d, `${nameOf(i)}-hub`, 5, 5, [mx, my, zArm + 36], 'z', 'accent')
+    for (let b = 0; b < 3; b += 1) {
+      const ba = (b * 2 * Math.PI) / 3
+      // a blade: length from the hub, thin, pitched a few degrees out of flat
+      box(d, `${nameOf(i)}-blade-${b}`, [propMm * 0.46, 11, 1.6],
+        [mx + Math.cos(ba) * propMm * 0.24, my + Math.sin(ba) * propMm * 0.24, zArm + 37],
+        'rubber', { rot: [0.18, 0, ba] })
+    }
+    // leg: the frame has to stand on something
+    cyl(d, `leg-${i}`, 4.5, 22, [cx * (core / 2 - 6), sy * (core / 2 - 6), -8], 'z', 'shell', { print: true })
+  }
+
+  // ── the stack: ESC under the flight controller, both on the 30.5 grid ─────
+  elec(d, 'esc', 'esc4in1', [0, 0, zArm + 6], null)
+  elec(d, 'fc', 'fc405', [0, 0, zArm + 14], null)
+  box(d, 'stack-standoff-a', [3, 3, 8], [15, 15, zArm + 10], 'steel')
+  box(d, 'stack-standoff-b', [3, 3, 8], [-15, -15, zArm + 10], 'steel')
+
+  // ── battery on top, strapped, with the camera out front ───────────────────
+  const bd = PARTS[battKey].dims
+  box(d, 'battery', [bd[0], bd[1], bd[2]], [0, Math.round(core * 0.06), zTop + 3 + bd[2] / 2], 'pcb')
+  // the pack is held by straps, and a pack without straps is a pack that leaves
+  // the frame on the first punch-out
+  for (const s of [-1, 1]) {
+    box(d, `strap-${s > 0 ? 'a' : 'b'}`, [11, bd[1] + 10, 3],
+      [s * Math.round(bd[0] * 0.26), Math.round(core * 0.06), zTop + 3 + bd[2] + 1.5], 'accent')
+  }
+  box(d, 'strap-lock', [16, 6, 6], [0, Math.round(core * 0.06) - bd[1] / 2 - 4, zTop + 3 + bd[2] + 1], 'pcb')
+  box(d, 'cam-bracket', [26, 8, 22], [core * 0.42, 0, zTop + 4], 'shell', { print: true, rot: [0.5, 0, 0] })
+  elec(d, 'cam', 'ov2640', [Math.round(core * 0.46), 0, zTop + 14], [0, 2, 1])
+  cyl(d, 'antenna', 1.4, 46, [0, -Math.round(core * 0.34), zTop + 26], 'z', 'steel')
+  cyl(d, 'antenna-tip', 3.2, 6, [0, -Math.round(core * 0.34), zTop + 48], 'z', 'accent')
+
+  // ── what you buy ─────────────────────────────────────────────────────────
+  addPart(d, motorKey, 4, 'Drive')
+  addPart(d, propKey, 4, 'Lift')
+  addPart(d, 'esc4in1', 1, 'Drive')
+  addPart(d, 'fc405', 1, 'Flight control')
+  addPart(d, battKey, 1, 'Power')
+  addPart(d, 'ov2640', 1, 'FPV')
+  addPart(d, 'xt60', 1, 'Power')
+  addPart(d, 'm3_screws', 16, 'Frame')
+
+  d.drone = {
+    propMm, kv, cells, mah: batt.mah, motors: 4, propKey, motorKey, battery: battKey, payloadKg: payload,
+  }
+  return d
+}
+
+function nameOf(i) {
+  return ['prop-fl', 'prop-fr', 'prop-rr', 'prop-rl'][i] || `prop-${i}`
+}
+
 // ── quadruped: the machine everyone wants and nobody budgets for ────────────
 // 12 servos is not a detail, it is the whole electrical problem: peak current
 // at gait contact is what browns out a DevKit.
@@ -1627,8 +1924,14 @@ function buildQuadruped(brief) {
   // the BOM's brains are real parts: IMU centered on the spine shelf for
   // body attitude, controller board on the body top outboard of the spine
   const bodyTop = z0 + bodyH / 2
-  box(d, 'imu', [10, 10, 4], [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14], 'pcb')
-  box(d, 'esp32', [55, 28, 10], [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5], 'pcb')
+  elec(d, 'imu', 'bno085', [bodyLen * 0.3, 0, z0 + bodyH / 2 + 14])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [-bodyLen * 0.35, -hipW * 0.4, bodyTop + 5])
+  // the BOM's driver boards at catalog dims: two PCA9685 on the pack lid,
+  // two UBECs on the body-top front strip clear of spine and pack
+  elec(d, 'pca9685-a', 'pca9685', [-20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'pca9685-b', 'pca9685', [20, 0, bodyTop + 32], [1, 0, 2])
+  elec(d, 'buck5a-a', 'buck5a', [-25, 57, bodyTop + 6])
+  elec(d, 'buck5a-b', 'buck5a', [25, 57, bodyTop + 6])
   cyl(d, 'head', 23, 34, [bodyLen / 2 + 14, 0, z0 + 10], 'x', 'accent', { print: true })
   cyl(d, 'eye', 8, 6, [bodyLen / 2 + 32, 0, z0 + 14], 'x', 'glass')
 
@@ -1768,8 +2071,10 @@ function buildGripper(brief) {
 
   // ── linear rail + carriages carry the jaw load, racks only drive ─────────
   cyl(d, 'rail', 3, Math.min(deckL * 0.86, span * 0.9 + 60), [0, 0, deckZ + 3], 'x', 'steel', { segs: 10 })
+  // the BOM's mgn12×2 are these: ground aluminum rail sections the carriage
+  // trucks straddle — not printed drawer slides pretending to be linear guides
   for (const sy of [-1, 1]) {
-    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 7, 8], [0, sy * railY, deckZ + 4], 'shell', { print: true })
+    box(d, `rail-keeper-${sy}`, [Math.min(deckL * 0.8, span * 0.9 + 44), 12, 10], [0, sy * railY, deckZ + 5], 'metal')
   }
 
   // ── jaw assemblies: carriage pair + riser + L-finger + replaceable pad ────
@@ -1801,12 +2106,26 @@ function buildGripper(brief) {
   // ── homing switch + jaw-position encoder ─────────────────────────────────
   box(d, 'limitsw', [20, 10, 7], [deckL / 2 - 14, -railY, deckZ + 10.5], 'pcb')
   rbox(d, 'limitsw-lever', [22, 2, 6], [deckL / 2 - 26, -railY, deckZ + 12], 0.5, 'steel')
-  box(d, 'enc-bracket', [14, 22, 26], [deckL / 2 - 18, rackY, deckZ + 20], 'shell', { print: true })
-  box(d, 'enc-pcb', [22, 20, 3], [deckL / 2 - 24, rackY, deckZ + 14], 'pcb')
-  // controller boards on the open deck strip behind the keeper rails
-  box(d, 'pca9685', [26, 10, 4], [-22, deckW / 2 - 7, deckZ + 2], 'pcb')
-  box(d, 'esp32', [22, 10, 4], [17, deckW / 2 - 7, deckZ + 2], 'pcb')
-  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 24, rackY - 5.5, deckZ + 6], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
+  // jaw encoder relocated to the keeper lane: the magnet rides the moving
+  // carriage at y≈27 (inside the keeper channel), the AS5600 sits on the
+  // keeper top reading down through a ~2mm air gap — clear of the finger
+  // sweep that made the old deck-level placement impossible
+  rbox(d, 'enc-bracket', [6, 20, 26], [deckL / 2 - 8, 27, deckZ + 24], 1, 'shell', { print: true })
+  elec(d, 'enc-pcb', 'as5600', [deckL / 2 - 24, 27, deckZ + 13])
+  // controller stack on a printed backplate behind the deck — the deck top
+  // is all mechanism (rail, keepers, carriages), so the boards stand on the
+  // plate's rear face like a real gadget's rear cover
+  rbox(d, 'elec-plate', [110, 12, 75], [0, -deckW / 2 - 6, 47.5], 2, 'shell', { print: true })
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, -deckW / 2 - 16.5, 62], [0, 2, 1])
+  elec(d, 'bus-adapter', 'bus_adapter', [-22, -deckW / 2 - 15.5, 35], [0, 2, 1])
+  elec(d, 'buck5a', 'buck5a', [22, -deckW / 2 - 18.5, 30], [0, 2, 1])
+  // power path on the front deck strip: ATO fuse, rail cap, power rocker —
+  // clear of keepers (y≤29.5) and the cheek (z≤46)
+  elec(d, 'fuse', 'fuse', [0, deckW / 2 - 6, deckZ + 9])
+  elec(d, 'cap1000', 'cap1000', [deckL / 2 - 42, deckW / 2 - 7, deckZ + 8])
+  // rocker stays BOM-only: the jaw sweeps every deck/plate face at OPEN —
+  // there is no honest place for a panel switch on this machine
+  cyl(d, 'enc-magnet', 3, 2, [deckL / 2 - 26, 27, deckZ + 7], 'y', 'steel', { slide: { joint: 'jaw', sign: 1 } })
 
   // ── parts: counted like a real kit list ──────────────────────────────────
   addPart(d, servo, 1, 'rack & pinion actuator')
@@ -1814,6 +2133,7 @@ function buildGripper(brief) {
   addPart(d, 'limit_sw', 1, 'homing end-stop')
   addPart(d, 'as5600', 1, 'jaw position feedback')
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
+  addPart(d, 'bus_adapter', 1, 'serial servo bus')
   addPart(d, 'buck5a', 1, '6V servo rail')
   addPart(d, brief.battery === 'pd5v' || !brief.battery ? 'pd5v' : brief.battery, 1, 'energy')
   addPart(d, 'fuse', 1, 'rail protection')
@@ -1980,9 +2300,20 @@ function buildFullRobot(brief) {
   for (const sx of [-1, 1]) {
     splitBox(d, `bulkhead-${sx > 0 ? 'f' : 'b'}`, [4, track, chassisH - 22], [sx * (wheelbase / 2 - 4), 0, z0 + chassisH / 2 - 6], 0.6, 'shell', bed, { print: true })
   }
-  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
   box(d, 'avionics', [wheelbase * 0.22, track * 0.3, 20], [-wheelbase * 0.06, -track * 0.26, deckZ + 10], 'pcb')
-  box(d, 'imu', [10, 10, 4], [-wheelbase * 0.06, -track * 0.26, deckZ + 22], 'pcb')
+  box(d, 'pack-box', [wheelbase * 0.28, track * 0.42, 28], [wheelbase * 0.16, 0, deckZ + 14], 'pcb')
+  // Electronics at catalog dims, on the two boards a real build gives them:
+  // logic on the avionics PCB (clear of the turret column x<-24/y>-46 and the
+  // pack x>8/y>-71), power on the pack lid. Verified against boundsOf.
+  const ax = -wheelbase * 0.06; const ay = -track * 0.26; const px = wheelbase * 0.16
+  elec(d, 'imu', 'bno085', [ax, ay, deckZ + 22])
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [ax - 27.7, ay - 17.1, deckZ + 24], [1, 0, 2])
+  elec(d, 'pca9685', 'pca9685', [ax + 27.3, ay - 17.1, deckZ + 22], [1, 0, 2])
+  elec(d, 'bts7960', 'bts7960', [px - 17.2, -25, deckZ + 38])
+  elec(d, 'buck5a-a', 'buck5a', [px - 17.2, 35, deckZ + 34])
+  elec(d, 'buck5a-b', 'buck5a', [px - 17.2, 57, deckZ + 34])
+  // XT60 on the pack lid, clear of the avionics row — the lead's first stop
+  elec(d, 'xt60', 'xt60', [px + 28, -20, deckZ + 40])
   cyl(d, 'bumper', 14, 34, [wheelbase / 2 + 14, 0, z0 + 18], 'x', 'rubber', { print: true })
 
   const wheels = [
@@ -1997,47 +2328,9 @@ function buildFullRobot(brief) {
     cyl(d, `motor-${i}`, 19, 46, [x, y - side * 26, z0], 'y', 'metal')
   })
 
-  // ── arm ─────────────────────────────────────────────────────────────────
-  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
-  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
-  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
-  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
-
-  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
-  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
-  servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', 'ds3225', 'yaw', 'shoulder')
-  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
-
-  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
-  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
-  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
-  servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', 'ds3218', 'shoulder', 'elbow')
-  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
-  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
-
-  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
-  const wristX = armX + L1 + L2
-  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
-  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
-
-  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
-  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
-  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
-  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
-  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
-
-  // ── head ────────────────────────────────────────────────────────────────
-  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
-  // clearance in the rest pose, and no way for the boom to shave the sensors.
-  const headX = wheelbase / 2 + 2
-  const headY = 0
-  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
-  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true })
-  cyl(d, 'tof', 9, 8, [headX + 32, -14, deckZ + 58], 'x', 'glass')
-  cyl(d, 'cam', 8, 8, [headX + 32, 16, deckZ + 62], 'x', 'glass')
-  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
-
   // ── arm sizing (same cascade as the arm archetype) ──────────────────────
+  // Runs BEFORE the arm geometry: a joint that needs a belt reduction gets
+  // its stage geometry instead of the coaxial servo layout.
   const linkMass = (len) => len * 44 * 40 * 0.34 * density
   const mUpper = linkMass(L1)
   const mFore = linkMass(L2)
@@ -2093,6 +2386,55 @@ function buildFullRobot(brief) {
   pick('Wrist roll', need.roll)
   pick('Gripper', need.grip)
   d.actuators = stairs
+  const stepOf = (label) => stairs.find((s) => s.label === label) || { servo: 'ds3225', ratio: 1 }
+
+  // ── arm ─────────────────────────────────────────────────────────────────
+  ring(d, 'turret', 46, 38, turretH, [armX, 0, deckZ + turretH / 2], 'z', 'shell', { print: true })
+  servoBody(d, 'yaw-servo', [armX, 0, shoulderZ - 14], 'z', 'ds3225', null, 'yaw')
+  bearing(d, 'turret-race', [armX, 0, shoulderZ], 'z', 52, 30, 12, { joint: 'yaw' })
+  joint(d, 'yaw', 'Base yaw', 'z', [armX, 0, shoulderZ], -160, 160)
+
+  rbox(d, 'shoulder-block', [54, 62, 50], [armX + 8, 0, shoulderZ + 16], 2, 'shell', { joint: 'yaw', print: true })
+  cyl(d, 'shoulder-hub', 20, 72, [armX, 0, shoulderZ], 'y', 'metal', { joint: 'yaw' })
+  if (stepOf('Shoulder pitch').ratio > 1) {
+    beltStageY(d, { prefix: 'shoulder', pivot: [armX, 0, shoulderZ], ratio: stepOf('Shoulder pitch').ratio, servoKey: stepOf('Shoulder pitch').servo, servoJoint: 'yaw', outJoint: 'shoulder', beltY: -44 })
+  } else {
+    servoBody(d, 'shoulder-servo', [armX, -38, shoulderZ], 'y', stepOf('Shoulder pitch').servo, 'yaw', 'shoulder')
+  }
+  joint(d, 'shoulder', 'Shoulder pitch', 'y', [armX, 0, shoulderZ], -80, 80)
+
+  box(d, 'upper-arm', [L1, 48, 42], [armX + L1 / 2, 0, shoulderZ], 'shell', { joint: 'shoulder', print: true })
+  box(d, 'upper-rib', [L1 * 0.8, 10, 6], [armX + L1 / 2, 0, shoulderZ + 24], 'accent', { joint: 'shoulder', print: true })
+  cyl(d, 'elbow-hub', 17, 56, [armX + L1, 0, shoulderZ], 'y', 'metal', { joint: 'shoulder' })
+  if (stepOf('Elbow pitch').ratio > 1) {
+    beltStageY(d, { prefix: 'elbow', pivot: [armX + L1, 0, shoulderZ], ratio: stepOf('Elbow pitch').ratio, servoKey: stepOf('Elbow pitch').servo, servoJoint: 'shoulder', outJoint: 'elbow', beltY: -40 })
+  } else {
+    servoBody(d, 'elbow-servo', [armX + L1, -30, shoulderZ], 'y', stepOf('Elbow pitch').servo, 'shoulder', 'elbow')
+  }
+  bearing(d, 'elbow-race', [armX + L1, 30, shoulderZ], 'y', 22, 8, 7, { joint: 'shoulder' })
+  joint(d, 'elbow', 'Elbow pitch', 'y', [armX + L1, 0, shoulderZ], -135, 135)
+
+  box(d, 'forearm', [L2, 42, 38], [armX + L1 + L2 / 2, 0, shoulderZ], 'shell', { joint: 'elbow', print: true })
+  const wristX = armX + L1 + L2
+  cyl(d, 'wrist-hub', 15, 48, [wristX, 0, shoulderZ], 'y', 'metal', { joint: 'elbow' })
+  joint(d, 'wrist', 'Wrist pitch', 'y', [wristX, 0, shoulderZ], -100, 100)
+
+  box(d, 'wrist-link', [L3, 34, 30], [wristX + L3 / 2, 0, shoulderZ], 'shell', { joint: 'wrist', print: true })
+  joint(d, 'roll', 'Wrist roll', 'x', [wristX + L3, 0, shoulderZ], -180, 180)
+  box(d, 'gripper-body', [36, 52, 40], [wristX + L3 + 18, 0, shoulderZ], 'accent', { joint: 'roll', print: true })
+  box(d, 'jaw-a', [26, 8, 32], [wristX + L3 + 45, -16, shoulderZ], 'metal', { joint: 'roll' })
+  box(d, 'jaw-b', [26, 8, 32], [wristX + L3 + 45, 16, shoulderZ], 'metal', { joint: 'roll' })
+
+  // ── head ────────────────────────────────────────────────────────────────
+  // The head sits LOW at the front and the arm sweeps HIGH above it: a 13mm
+  // clearance in the rest pose, and no way for the boom to shave the sensors.
+  const headX = wheelbase / 2 + 2
+  const headY = 0
+  box(d, 'head-neck', [26, 26, 44], [headX, headY, deckZ + 22], 'shell', { print: true })
+  box(d, 'head', [62, 74, 30], [headX, headY, deckZ + 59], 'accent', { print: true, joint: 'head-pan' })
+  elec(d, 'tof', 'vl53l0x', [headX + 33, -14, deckZ + 58], [2, 0, 1], { joint: 'head-pan' })
+  elec(d, 'cam', 'ov2640', [headX + 44, 16, deckZ + 62], null, { joint: 'head-pan' })
+  joint(d, 'head-pan', 'Head pan', 'z', [headX, headY, deckZ + 44], -90, 90, null)
 
   // ── drive sizing ────────────────────────────────────────────────────────
   const printKg = (printedVolume(d.nodes) * mat.density) / 1000 / 1000
@@ -2114,6 +2456,7 @@ function buildFullRobot(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller')
   addPart(d, 'bno085', 1, 'heading + tilt')
   addPart(d, 'vl53l0x', 2, 'forward + drop-off')
+  addPart(d, 'ov2640', 1, 'head camera')
   addPart(d, 'mg90s', 1, 'head pan')
   addPart(d, 'hw_m3', 1, 'frame fasteners')
   addPart(d, 'bearing608', 2, 'turret + shoulder')
@@ -2313,18 +2656,30 @@ function buildHumanoid(brief) {
 
   // ── pelvis + torso + head ────────────────────────────────────────────────
   rbox(d, 'pelvis', [hipW, limbD + 14, pelvisH], [0, 0, zHip + pelvisH / 2], 2.5, 'shell', { print: true })
-  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true })
-  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true })
-  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb')
+  rbox(d, 'torso', [shoulderW, limbD + 20, torsoH - 8], [0, 0, pelvisTop + (torsoH - 8) / 2 + 8], 3, 'shell', { print: true, joint: 'waist' })
+  rbox(d, 'chest-plate', [shoulderW * 0.86, 14, torsoH * 0.5], [0, limbD / 2 + 12, pelvisTop + torsoH * 0.62], 2, 'accent', { print: true, joint: 'waist' })
+  box(d, 'pack', [shoulderW * 0.6, 22, torsoH * 0.4], [0, -limbD / 2 - 14, pelvisTop + torsoH * 0.55], 'pcb', { joint: 'waist' })
   // the BOM's sensors are real parts: ToF on the chest face for stair
   // detection, IMU beside it for balance
   const chestZ = pelvisTop + torsoH * 0.62
   const chestFace = limbD / 2 + 19 // chest-plate front face
-  cyl(d, 'tof', 9, 8, [0, chestFace + 4, chestZ], 'y', 'glass')
-  box(d, 'imu', [10, 4, 10], [shoulderW * 0.28, chestFace + 2, chestZ + 15], 'pcb')
-  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal')
-  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true })
-  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass')
+  elec(d, 'tof', 'vl53l0x', [0, chestFace + 4, chestZ], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'imu', 'bno085', [shoulderW * 0.32, chestFace + 2, chestZ + 15], [0, 2, 1], { joint: 'waist' })
+  // controller + drivers on the backpack's rear face and the lower back —
+  // the way a real humanoid routes its electronics behind the torso. The
+  // pack back only fits the ESP32 and one UBEC; bus adapters ride the top
+  // rear deck above the pack, the other UBECs below it.
+  const packBack = -limbD / 2 - 25 // rear face of the pack box
+  const packZ = pelvisTop + torsoH * 0.55
+  elec(d, 'esp32', brief.mcu && PARTS[brief.mcu] ? brief.mcu : 'esp32s3', [0, packBack - 4, packZ - 3], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-a', 'buck5a', [0, packBack - 6, packZ + 19], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-a', 'bus_adapter', [-25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'bus-adapter-b', 'bus_adapter', [25, -33, 441], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-b', 'buck5a', [-25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  elec(d, 'buck5a-c', 'buck5a', [25, -36, 350], [0, 2, 1], { joint: 'waist' })
+  cyl(d, 'neck', 13, 18, [0, 0, zNeck + 4], 'z', 'metal', { joint: 'neck-pan' })
+  box(d, 'head', [headH * 0.95, headH * 0.88, headH], [0, 0, zHead], 'shell', { print: true, joint: 'neck-tilt' })
+  box(d, 'visor', [headH * 0.62, 6, headH * 0.32], [0, headH * 0.45, zHead + 3], 'glass', { joint: 'neck-tilt' })
 
   // waist is the ROOT joint: everything above and below hangs off it
   joint(d, 'waist', 'Waist yaw', 'z', [0, 0, zHip + pelvisH * 0.7], -60, 60, null)
@@ -2365,7 +2720,7 @@ function buildHumanoid(brief) {
     const x = sx * armX
     const label = side === 'l' ? 'Left' : 'Right'
     const shoulder = [x, 0, zShoulder]
-    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, null)
+    joint(d, `${side}-shoulder-roll`, `${label} shoulder roll`, 'x', shoulder, -35, 90, 'waist')
     joint(d, `${side}-shoulder-pitch`, `${label} shoulder pitch`, 'y', shoulder, -110, 60, `${side}-shoulder-roll`)
     cyl(d, `shoulder-hub-${side}`, 16, limbW, [x, 0, zShoulder], 'x', 'metal', { joint: `${side}-shoulder-pitch` })
     box(d, `upperarm-${side}`, [limbW * 0.9, limbD * 0.86, upperArm - 10], [x, 0, zShoulder - upperArm / 2 - 5], 'shell', { joint: `${side}-shoulder-pitch`, print: true })
@@ -2905,7 +3260,13 @@ function buildIot(brief) {
   // the board sits on standoffs inside the cavity, the sensor by the
   // grille, the cell flat on the base
   rbox(d, 'mcu', [26, 18, 5], [-8, 0, 16], 1, 'pcb')
-  rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  // the internal sensor block covers the board-level sensors (BME280, PIR,
+  // HX711); a soil probe is a different object entirely — its 98mm blade
+  // cannot fit a 62mm case, so it gets its own node out front on the ground
+  if (!wants.soil || wants.air || wants.motion || wants.weight) {
+    rbox(d, 'sensor', [14, 12, 4], [-20, 6, 16], 0.8, 'pcb')
+  }
+  if (wants.soil) elec(d, 'probe', 'soil', [0, -D / 2 - 14, 2])
   rbox(d, 'cell', [40, 26, 8], [0, 0, 7], 2, 'steel')
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
     cyl(d, `standoff-${sx}${sy}`, 2.4, 11, [sx * 10 - 8, sy * 7, 8.5], 'z', 'metal')
@@ -3009,9 +3370,30 @@ function buildGantry(brief) {
   for (let i = -2; i <= 2; i += 1) {
     rbox(d, `bed-rib-${i}`, [spanX - 70, 8, 14], [0, i * ((spanY - 60) / 5), bedZ + railW + 13], 1, 'metal')
   }
-  // control enclosure in the rail/bed channel — the BOM's controller lives
-  // here; out of the quill's X/Y envelope and clear of the bed slab
-  rbox(d, 'ctrl-box', [30, 150, 90], [-(spanX / 2 + 15), 0, 75], 2, 'shell')
+  // control enclosure in the rail/bed channel — open-top card-cage so the
+  // GRBL stack inside is visible: 3× DRV8825 stepper drivers standing on the
+  // base, ESP32-S3 + buck on the outer wall. Out of the quill's X/Y envelope.
+  {
+    const cb = [-(spanX / 2 + 15), 0, 75]
+    const cbO = { print: true }
+    box(d, 'ctrl-base', [30, 150, 4], [cb[0], cb[1], cb[2] - 43], 'shell', cbO)
+    for (const sy of [-1, 1]) box(d, `ctrl-wall-y${sy}`, [30, 3, 86], [cb[0], cb[1] + sy * 73.5, cb[2] + 2], 'shell', cbO)
+    for (const sx of [-1, 1]) box(d, `ctrl-wall-x${sx}`, [3, 144, 86], [cb[0] + sx * 13.5, cb[1], cb[2] + 2], 'shell', cbO)
+    // boards at catalog dims, stood on edge against the side walls — the
+    // cage is only ~24mm deep, so flat-mounting a 62mm DevKit is impossible;
+    // a real build standoffs them to the walls exactly like this.
+    elec(d, 'esp32', 'esp32s3', [cb[0] - 8, cb[1] - 30, cb[2] + 2], [2, 0, 1])
+    elec(d, 'buck5a', 'buck5a', [cb[0] - 6, cb[1] + 30, cb[2] - 5], [2, 0, 1])
+    for (const [i, sy] of [[0, -40], [1, -15], [2, 10]])
+      elec(d, `drv8825-${'abc'[i]}`, 'drv8825', [cb[0] + 8, cb[1] + sy, cb[2] + 2], [2, 0, 1])
+    // power path on the cage floor: ATO fuse, rail cap, power rocker —
+    // flat on the base, clear of the wall-mounted boards above
+    elec(d, 'fuse', 'fuse', [cb[0], cb[1] + 40, cb[2] - 31], [1, 0, 2])
+    elec(d, 'cap1000', 'cap1000', [cb[0], cb[1] - 40, cb[2] - 33])
+    elec(d, 'rocker', 'rocker', [cb[0], cb[1] - 55, cb[2] - 31])
+    // XT60 at the cage mouth — pack lead lands on the fuse first
+    elec(d, 'xt60', 'xt60', [cb[0], cb[1] + 12, cb[2] - 34])
+  }
 
   // X rails: the portal's fixed guidance — one extrusion per bridge end,
   // spanning frame X with the ends bedded onto the side rails. The carriage
@@ -3028,7 +3410,8 @@ function buildGantry(brief) {
   const legBot = railW + 27 // flush on the y-carriage top
   for (const sy of [-1, 1]) {
     rbox(d, `upright-${sy > 0 ? 'b' : 'f'}`, [railW, 26, z0 - legBot], [0, sy * (spanY / 2 + 10), (z0 + legBot) / 2], 2, 'accent', { print: false, ...onX })
-    // Y carriage: rail block riding the X rail (MGN-style, like the BOM's mgn12)
+    // Y carriage: bearing block riding the 2040 X rail — MGN12 would be
+    // comically undersized at this span; V-slot extrusion is the honest guide
     rbox(d, `y-carriage-${sy}`, [railW + 20, 60, 26], [0, sy * (spanY / 2 + 10), railW + 14], 2, 'metal', onX)
   }
 
@@ -3065,7 +3448,7 @@ function buildGantry(brief) {
     ['y', [40, -(spanY / 2 + 25), railW + 25], onX],
     ['z', [30, 0, z0 + beamH + 40], null],
   ]) {
-    rbox(d, `limit-${ax}`, [12, 8, 6], pos, 1, 'pcb', tag || undefined)
+    elec(d, `limit-${ax}`, 'limit_sw', pos, null, tag || undefined)
   }
 
   // printed corner brackets + motor mounts: the only custom geometry, and the
@@ -3109,7 +3492,8 @@ function buildGantry(brief) {
   addPart(d, brief.mcu || 'esp32s3', 1, 'controller (GRBL-firmware)')
   addPart(d, 'gt2_kit', 1, 'X/Y belts + pulleys')
   addPart(d, 'leadscrew_t8', 1, 'Z axis')
-  addPart(d, 'mgn12', 3, 'linear rails')
+  // no mgn12 here: 12mm rail on a metre gantry is a toy — the 2040
+  // extrusion budget above IS the guide rail, carriages ride it directly
   addPart(d, 'limit_sw', 3, 'homes')
   addPart(d, 'buck5a', 1, 'logic rail')
   addPart(d, 'fuse', 1, 'main protection')
@@ -3172,32 +3556,187 @@ function buildGantry(brief) {
 // designator, a package and a rotation, because that is what a centroid file is.
 
 // designator, part key, x fraction, y fraction, rotation°, package
+// Fractions map onto the usable field (half-board minus a 6mm edge margin).
+// These were laid out by courtyard, not by eye: the ESP32 module owns the
+// bottom-left, breakouts fill the top band, the rocker hangs the right edge —
+// auditBoardFit proves no two courtyards touch at the default 120×79mm.
 const PCB_PARTS = [
-  ['U1', 'esp32s3', 0, 0.08, 0, 'MODULE 62×26'],
-  ['U2', 'bme280', -0.34, 0.3, 0, 'LGA-8'],
-  ['U3', 'ssd1306', 0.32, 0.3, 0, 'MODULE 27×27'],
-  ['U4', 'ina219', 0.34, -0.12, 0, 'SOT-23-8'],
-  ['J1', 'jst_kit', -0.38, -0.34, 0, 'JST-XH 4'],
-  ['J2', 'rocker', 0.36, -0.36, 0, 'THT 3'],
+  ['U1', 'esp32s3', -0.39, -0.76, 0, 'MODULE 62×26'],
+  ['U2', 'bme280', -0.07, 0.66, 0, 'LGA-8'],
+  ['U3', 'ssd1306', -0.56, 0.60, 0, 'MODULE 27×27'],
+  ['U4', 'ina219', 0.65, 0.15, 0, 'SOT-23-8'],
+  ['J1', 'jst_kit', 0.56, 0.99, 0, 'JST-XH 4'],
+  ['J2', 'rocker', 0.89, -0.63, 90, 'THT 3'],
 ]
 
 // the passives a board like this actually needs, and the reason each exists
-// x and y are fractions of the half-board, same as the modules: a board that
-// grows must not fling its passives off the edge.
+// x and y are fractions of the same usable field as the modules.
 const PCB_PASSIVES = [
-  ['C1', '0402', -0.22, -0.3, 0, 'input bulk'],
-  ['C2', '0402', -0.14, -0.3, 0, 'decoupling · 3V3'],
-  ['C3', '0402', -0.06, -0.3, 90, 'decoupling · 1V1'],
-  ['C4', '0402', 0.02, -0.3, 0, 'decoupling · ADC ref'],
-  ['R1', '0402', 0.12, -0.16, 0, 'I²C pull-up · SDA'],
-  ['R2', '0402', 0.2, -0.16, 0, 'I²C pull-up · SCL'],
-  ['R3', '0603', 0.1, 0.34, 90, 'LED series'],
-  ['R4', '0603', 0.18, 0.34, 0, 'boot pull-up'],
+  ['C1', '0402', -0.65, -0.27, 0, 'input bulk'],
+  ['C2', '0402', -0.52, -0.27, 0, 'decoupling · 3V3'],
+  ['C3', '0402', -0.39, -0.27, 90, 'decoupling · 1V1'],
+  ['C4', '0402', -0.26, -0.27, 0, 'decoupling · ADC ref'],
+  ['R1', '0402', 0.19, 0.72, 0, 'I²C pull-up · SDA'],
+  ['R2', '0402', 0.26, 0.72, 0, 'I²C pull-up · SCL'],
+  ['R3', '0603', 0.37, -1.04, 90, 'LED series'],
+  ['R4', '0603', 0.48, -1.04, 0, 'boot pull-up'],
 ]
+
+// ── board fit audit ────────────────────────────────────────────────────────
+// A placement list is a claim that this board can be built. Before we say it,
+// check it: every courtyard inside the outline, no two courtyards touching,
+// nothing in the antenna keep-out, nothing over a drill pad. Courtyards are
+// the real part outline plus the clearance a fab needs — the drawn body is
+// 0.86× the part on purpose, so auditing the drawing would understate it.
+
+// courtyard [w, d] mm per package; modules use their catalog dims + margin
+const COURTYARD = { '0402': [1.5, 1.0], '0603': [2.7, 1.6] }
+const COURT_MARGIN = 0.8 // mm added to a module's catalog footprint
+
+function courtyardOf(p) {
+  if (p.kind === 'passive') return COURTYARD[p.pkg] || [2.0, 1.2]
+  const part = PARTS[p.key]
+  const dims = (part && part.dims) || [10, 10]
+  return [dims[0] + COURT_MARGIN, dims[1] + COURT_MARGIN]
+}
+
+// AABB of a w×d rect rotated rot° about its centre, as [x0,y0,x1,y1]
+function placedAabb(p, cw) {
+  const [w, d] = cw
+  const r = ((p.rot || 0) * Math.PI) / 180
+  const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r))
+  const hw = (w * c + d * s) / 2, hd = (w * s + d * c) / 2
+  return [p.x - hw, p.y - hd, p.x + hw, p.y + hd]
+}
+
+function auditBoardFit(d, placed, W, H) {
+  const edge = 0.3 // outline keeps this much copper off the board edge
+  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
+  // antenna keep-out and the USB-C tongue zone are board features, not parts
+  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
+  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
+  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
+
+  const boxes = placed.map((p) => ({ p, cw: courtyardOf(p), bb: placedAabb(p, courtyardOf(p)) }))
+  const name = (p) => `${p.des} ${p.pkg && p.kind === 'passive' ? p.pkg : (PARTS[p.key] && PARTS[p.key].name) || p.key}`
+
+  // 1 — every courtyard inside the outline (fail: the board cannot be built)
+  for (const { p, cw, bb } of boxes) {
+    if (bb[0] < bx0 || bb[1] < by0 || bb[2] > bx1 || bb[3] > by1) {
+      const needW = Math.ceil(cw[0]), needH = Math.ceil(cw[1])
+      d.checks.push({ level: 'fail',
+        msg: `${name(p)} needs a ${needW}×${needH}mm courtyard but the ${W}×${H}mm outline leaves ${Math.floor(bx1 - bx0)}×${Math.floor(by1 - by0)}mm usable — grow reachMm or move the part in.` })
+    }
+  }
+
+  // 2 — courtyard overlaps (fail: two parts cannot occupy the same pads)
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].bb, b = boxes[j].bb
+    const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0])
+    const oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1])
+    if (ox > 0 && oy > 0) {
+      d.checks.push({ level: 'fail',
+        msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards overlap by ${ox.toFixed(1)}×${oy.toFixed(1)}mm — the pick-and-place file would collide.` })
+    }
+  }
+
+  // 3 — antenna keep-out and USB tongue are keep-outs, not courtyards
+  for (const { p, bb } of boxes) {
+    const hit = (k) => bb[0] < k[2] && bb[2] > k[0] && bb[1] < k[3] && bb[3] > k[1]
+    if (hit(keepout)) d.checks.push({ level: 'warn', msg: `${name(p)} sits inside the antenna keep-out — the radio range claim no longer holds.` })
+    if (hit(usb)) d.checks.push({ level: 'warn', msg: `${name(p)} overlaps the USB-C connector zone.` })
+    // 4 — drill pads need copper clearance: no courtyard within pad r + 0.5mm
+    for (const [hx, hy] of holes) {
+      if (hx > bb[0] - 3.5 && hx < bb[2] + 3.5 && hy > bb[1] - 3.5 && hy < bb[3] + 3.5) {
+        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard reaches a mounting hole pad — keep 0.5mm drill-to-copper.` })
+        break
+      }
+    }
+  }
+
+  // 5 — pick-and-place access: a machine passive closer than ~2mm to the
+  // outline leaves no room for the nozzle, and courtyards nearer than ~0.5mm
+  // leave no room to work between them. Hand-placed modules are exempt —
+  // an iron doesn't need nozzle clearance.
+  for (const { p, bb } of boxes) {
+    if (p.kind !== 'passive') continue
+    const edgeGap = Math.min(bb[0] - bx0, bb[1] - by0, bx1 - bb[2], by1 - bb[3])
+    if (edgeGap < 2) {
+      d.checks.push({ level: 'warn', msg: `${name(p)} courtyard sits ${Math.max(0, edgeGap).toFixed(1)}mm from the board edge — pick-and-place nozzles need ~2mm.` })
+    }
+  }
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].bb, b = boxes[j].bb
+    const gx = Math.max(a[0] - b[2], b[0] - a[2], 0)
+    const gy = Math.max(a[1] - b[3], b[1] - a[3], 0)
+    const gap = Math.hypot(gx, gy)
+    if (gap > 0 && gap < 0.5 && (boxes[i].p.kind === 'passive' || boxes[j].p.kind === 'passive')) {
+      d.checks.push({ level: 'warn', msg: `${name(boxes[i].p)} and ${name(boxes[j].p)} courtyards are ${gap.toFixed(2)}mm apart — under the ~0.5mm a placement nozzle needs between parts.` })
+    }
+  }
+
+  // 6 — fiducials: machine assembly wants two bare-copper marks on a diagonal
+  // for vision alignment. They are board features, not placements, so they
+  // get their own keep-out check against every courtyard.
+  for (const f of d.pcb.fiducials || []) {
+    const fb = [f.x - 1.6, f.y - 1.6, f.x + 1.6, f.y + 1.6]
+    for (const { p, bb } of boxes) {
+      if (bb[0] < fb[2] && bb[2] > fb[0] && bb[1] < fb[3] && bb[3] > fb[1]) {
+        d.checks.push({ level: 'warn', msg: `${name(p)} courtyard covers fiducial ${f.id} — the assembler's vision target must stay bare.` })
+        break
+      }
+    }
+  }
+}
+
+/**
+ * Pick-and-place fiducials: two 1mm bare-copper marks the assembler's vision
+ * uses for panel alignment — they belong on a diagonal so rotation is
+ * observable. Scan the usable field on a coarse grid, keep spots whose 3.2mm
+ * keep-out box clears every courtyard, the antenna keep-out, the USB zone and
+ * the drill pads, then take the best-separated pair. Returns [] when the
+ * layout genuinely has no room — the caller says so honestly.
+ */
+function placeFiducials(placed, W, H) {
+  const edge = 0.3, margin = 4 // fiducial centre stays this far off the outline
+  const bx0 = -W / 2 + edge, bx1 = W / 2 - edge, by0 = -H / 2 + edge, by1 = H / 2 - edge
+  const keepout = [W / 2 - 16, H / 2 - 11.5, W / 2 - 2, H / 2 - 2.5]
+  const usb = [-W / 2 - 0.5, -4.2, -W / 2 + 5.5, 4.2]
+  const holes = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sy]) => [sx * (W / 2 - 3.5), sy * (H / 2 - 3.5)])
+  const boxes = placed.map((p) => ({ bb: placedAabb(p, courtyardOf(p)) }))
+  const clear = (x, y) => {
+    const fb = [x - 1.6, y - 1.6, x + 1.6, y + 1.6]
+    if (fb[0] < bx0 || fb[1] < by0 || fb[2] > bx1 || fb[3] > by1) return false
+    const hit = (k) => fb[0] < k[2] && fb[2] > k[0] && fb[1] < k[3] && fb[3] > k[1]
+    if (hit(keepout) || hit(usb)) return false
+    for (const b of boxes) if (hit(b.bb)) return false
+    for (const [hx, hy] of holes) if (Math.hypot(hx - x, hy - y) < 4) return false
+    return true
+  }
+  const spots = []
+  for (let x = -W / 2 + margin; x <= W / 2 - margin; x += 3) {
+    for (let y = -H / 2 + margin; y <= H / 2 - margin; y += 3) {
+      if (clear(x, y)) spots.push([x, y])
+    }
+  }
+  // best diagonal pair: maximise separation, prefer opposite corners
+  let best = null
+  for (let i = 0; i < spots.length; i++) for (let j = i + 1; j < spots.length; j++) {
+    const sep = Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1])
+    const diag = Math.sign(spots[i][0]) !== Math.sign(spots[j][0]) && Math.sign(spots[i][1]) !== Math.sign(spots[j][1]) ? 1 : 0
+    const score = sep + diag * 20
+    if (sep >= 20 && (!best || score > best.score)) best = { a: spots[i], b: spots[j], score }
+  }
+  if (!best) return []
+  return [
+    { id: 'fid-1', x: Math.round(best.a[0] * 10) / 10, y: Math.round(best.a[1] * 10) / 10 },
+    { id: 'fid-2', x: Math.round(best.b[0] * 10) / 10, y: Math.round(best.b[1] * 10) / 10 },
+  ]
+}
 
 function buildPcb(brief) {
   const d = newDesign('pcb', brief)
-  const W = clamp(Math.round(brief.reachMm || 92), 40, 160)
+  const W = clamp(Math.round(brief.reachMm || 120), 40, 160)
   const H = clamp(Math.round(W * 0.66), 30, 120)
   const T = 1.6
 
@@ -3218,9 +3757,10 @@ function buildPcb(brief) {
 
   // ── placed parts: modules, then the passives ───────────────────────────
   const placed = []
+  const FIELD_X = W / 2 - 6, FIELD_Y = H / 2 - 6
   for (const [des, key, fx, fy, rot, pkg] of PCB_PARTS) {
-    const x = Math.round(fx * (W / 2 - 12))
-    const y = Math.round(fy * (H / 2 - 10))
+    const x = Math.round(fx * FIELD_X)
+    const y = Math.round(fy * FIELD_Y)
     const part = PARTS[key]
     if (!part) continue
     const [l, w, h] = part.dims || [10, 10, 3]
@@ -3234,8 +3774,8 @@ function buildPcb(brief) {
     placed.push({ des, key, x, y, rot, pkg, layer: 'top', kind: 'module' })
   }
   for (const [des, pkg, fx, fy, rot, why] of PCB_PASSIVES) {
-    const x = Math.round(fx * (W / 2 - 10))
-    const y = Math.round(fy * (H / 2 - 8))
+    const x = Math.round(fx * FIELD_X)
+    const y = Math.round(fy * FIELD_Y)
     const size = pkg === '0603' ? [1.6, 0.8] : [1.0, 0.5]
     box(d, `pass-${des}`, [size[0], size[1], 0.5], [x, y, T / 2 + 0.25], 'metal', {
       rot: [0, 0, (rot * Math.PI) / 180],
@@ -3243,6 +3783,13 @@ function buildPcb(brief) {
     placed.push({ des, pkg, x, y, rot, layer: 'top', kind: 'passive', why })
   }
   d.pcb = { placed, W, H, T }
+  d.pcb.fiducials = placeFiducials(placed, W, H)
+  auditBoardFit(d, placed, W, H)
+  // bare-copper fiducial pads: the assembler's vision targets, drawn as the
+  // 1mm pads they are — audit already proved no courtyard covers them
+  for (const f of d.pcb.fiducials) {
+    cyl(d, f.id, 0.5, 0.2, [f.x, f.y, T / 2 + 0.1], 'z', 'brass')
+  }
 
   // ── BOM ────────────────────────────────────────────────────────────────
   addPart(d, brief.mcu || 'esp32s3', 1, 'U1 controller')
@@ -3262,8 +3809,13 @@ function buildPcb(brief) {
   const machinePlaced = placed.filter((p) => p.kind === 'passive').length
   // joints on the board itself: two per passive, and a header row per module
   d.pcb.joints = placed.reduce((n, p) => n + (p.kind === 'passive' ? 2 : 8), 0)
+  d.notes.push(d.pcb.fiducials.length === 2
+    ? 'Two fiducial pads give the assembler vision a diagonal reference — bare copper, no paste.'
+    : 'No room for fiducial pads in this layout — hand-place the passives or panelize for machine assembly.')
   d.notes.push(`${placed.length} placements: ${handPlaced} modules you solder or socket, ${machinePlaced} passives a pick-and-place machine does in seconds.`)
-  d.notes.push(`Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
+  d.notes.push(W > 100
+    ? `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — over the 100mm cheap-tier width, so the next fab price band.`
+    : `Board ${W}×${H}mm, 2 layers, 1.6mm FR4 — inside every prototype fab's cheap tier.`)
   // the envelope includes what sticks out past the outline (USB-C, headers)
   const bb = boundsOf(d.nodes)
   const envelope = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]].map((v) => Math.round(v))
@@ -3620,6 +4172,51 @@ function harnessAnalysis(design) {
   }
 }
 
+/**
+ * Desk-prop reach proof. The reach bound is an outer sphere — a prop inside
+ * it can still be unreachable at EVERY joint angle (a waist-yaw root inflates
+ * the sphere without adding vertical reach, for instance). Probe each prop's
+ * top face with the same multi-seed CCD the workspace map uses; a prop counts
+ * unreachable only when every sample misses by ≥12mm — the solver's own
+ * convergence threshold, so "reachable" here means the same thing it means
+ * on the bench overlay.
+ */
+function deskUnreachableProps(design, tip, bound) {
+  const { tipChain, tipNode } = tip
+  const scratch = { ...design, joints: (design.joints || []).map((j) => ({ ...j })) }
+  const byId = new Map(scratch.joints.map((j) => [j.id, j]))
+  const ikChain = tipChain.map((j) => byId.get(j.id)).filter(Boolean)
+  if (ikChain.length < 3) return []
+  const chains = chainsFor(scratch)
+  const tipW = () => benchNodeWorld(scratch, chains, tipNode)
+  const frac = (f) => scratch.joints.map((j) => j.min + (j.max - j.min) * f)
+  const seeds = [frac(0.5), frac(0.15), frac(0.85), scratch.joints.map(() => 0)]
+  const out = []
+  for (const p of DESK_PROPS) {
+    // a prop the sphere already proves unreachable is the sphere path's
+    // problem — probing it here would be wasted solves
+    const dx = Math.max(Math.abs(p.pos[0] - bound.c[0]) - p.size[0] / 2, 0)
+    const dy = Math.max(Math.abs(p.pos[1] - bound.c[1]) - p.size[1] / 2, 0)
+    const dz = Math.max(Math.abs(p.pos[2] - bound.c[2]) - p.size[2] / 2, 0)
+    if (Math.hypot(dx, dy, dz) - bound.r > 0) continue
+    // centre first, then the top-face ring: one reachable point clears the prop
+    const pts = [[0, 0], [-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8], [-0.8, 0], [0.8, 0], [0, -0.8], [0, 0.8]]
+    let bestErr = Infinity, reached = false
+    for (const [fx, fy] of pts) {
+      if (reached) break
+      const t = [p.pos[0] + fx * p.size[0] / 2, p.pos[1] + fy * p.size[1] / 2, p.pos[2] + p.size[2] / 2]
+      for (const seed of seeds) {
+        seed.forEach((a, k) => { scratch.joints[k].angle = a })
+        const r = solveChainIK(scratch, ikChain, t, tipW, 14)
+        if (r.err < bestErr) bestErr = r.err
+        if (r.err < 12) { reached = true; break }
+      }
+    }
+    if (!reached) out.push({ id: p.id, name: p.name, miss: Math.round(bestErr) })
+  }
+  return out
+}
+
 function analyze(design) {
   autoFasteners(design) // before pinMap so fasteners land in the BOM/CSV once
   const pins = pinMap(design)
@@ -3774,6 +4371,31 @@ function analyze(design) {
   } else if (harness) {
     checks.push({ level: 'ok', msg: `Servo harness: all ${harness.rows.length} joints are inside stock lead reach — worst run ${harness.worst.label} ~${harness.worst.run}mm.` })
   }
+  // ── drones: thrust margin and hover time ─────────────────────────────────
+  // A quad has two numbers that decide whether it flies at all: how much lift
+  // four discs make against its own weight, and how many minutes that buys.
+  // Both come from momentum theory in droneReport(), not from a lookup table.
+  let drone = null
+  if (design.drone) {
+    drone = droneReport(design.drone, totalMassG)
+    const twr = drone.twr
+    if (twr < 1.0) {
+      checks.push({ level: 'fail', msg: `Lift-to-weight is ${twr.toFixed(2)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g of thrust for a ${Math.round(totalMassG)}g machine. It cannot leave the ground. Bigger props, more voltage, or less mass.` })
+    } else if (twr < 1.5) {
+      checks.push({ level: 'warn', msg: `Lift-to-weight is ${twr.toFixed(2)}:1. It will hover, but with almost no control authority — a quad wants 2:1 minimum and 3:1 to handle wind.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Lift-to-weight ${twr.toFixed(1)}:1 — four ${drone.propMm}mm props make ${Math.round(drone.thrustG)}g for a ${Math.round(totalMassG)}g machine, hovering at ${Math.round(drone.hoverThrottle * 100)}% throttle.` })
+    }
+    if (drone.hoverThrottle > 0.75) {
+      checks.push({ level: 'warn', msg: `Hover sits at ${Math.round(drone.hoverThrottle * 100)}% throttle — almost no headroom left for gusts or climb. Either the props are too small for this mass or the pack is sagging.` })
+    }
+    if (drone.minutes < 3) {
+      checks.push({ level: 'warn', msg: `Hover endurance is ${drone.minutes.toFixed(1)} min on ${design.drone.mah}mAh — short even for FPV. A bigger pack costs mass, which costs hover power: check the trade before buying.` })
+    } else {
+      checks.push({ level: 'ok', msg: `Hover endurance ${drone.minutes.toFixed(1)} min at ${drone.hoverAmps.toFixed(1)}A on ${design.drone.mah}mAh (80% usable), drawing ${Math.round(drone.hoverWatts)}W.` })
+    }
+  }
+
   if (!checks.some((c) => c.level === 'fail')) {
     checks.unshift({ level: 'ok', msg: 'Sizing checks pass: torque, peak current, pin budget and print volume are all inside limits.' })
   }
@@ -3788,7 +4410,11 @@ function analyze(design) {
       const tip = whole || armChainFor(design, 'r')
       const b = armReachBound(tip)
       // multi-limb fallback: the bound describes ONE arm, say which
-      return b && !whole ? { ...b, side: 'r' } : b
+      const out = b && !whole ? { ...b, side: 'r' } : b
+      // the sphere is an outer bound, not a reachability proof — IK-probe the
+      // desk props so fix suggestions can tell "inside but unreachable" apart
+      if (out && tip) out.unreachable = deskUnreachableProps(design, tip, out)
+      return out
     })(),
     cost,
     costBuy,
@@ -3796,6 +4422,7 @@ function analyze(design) {
     spoolCost,
     print: { grams: printGrams, hours: printHours, mm3: printMm3, material: mat, overhang, pack, wall, interference },
     mass: { totalG: totalMassG, printedG: printGrams, partsG: partMassG },
+    drone,
     dims,
     checks,
     mcu: pins.mcu,
@@ -4918,6 +5545,61 @@ function sphereTris(r) {
 /** Spur gear: trapezoid-tooth profile extruded — one clean solid. The old
  *  build fused a root disc with penetrating tooth boxes: intersecting
  *  surfaces, non-manifold edges, BRepCheck-invalid solids. */
+// Involute gear outline: tooth flanks follow the true involute curve so meshing
+// pairs actually look like gears, not trapezoids. θ(ρ) is the standard tooth
+// half-thickness at radius ρ: π/2T at pitch, thinner toward the tip, thicker
+// toward the root — falls back to the old 4-pt trapezoid when the space between
+// teeth gets too thin for an involute (very high tooth counts).
+function gearOutline(T, pitchR, rootR, tipR) {
+  const aPitch = Math.PI / (2 * T)
+  const ALPHA = 0.34906585 // 20° pressure angle
+  const rb = pitchR * Math.cos(ALPHA)
+  const inv = (x) => Math.tan(x) - x
+  const invA = inv(ALPHA)
+  const halfThick = (rho) => {
+    const r = Math.max(rho, rb * 1.000001)
+    return aPitch + invA - inv(Math.acos(Math.min(1, rb / r)))
+  }
+  const flankBot = Math.max(rootR, rb)
+  const thRoot = halfThick(flankBot)
+  const space = Math.PI / T
+  if (space - thRoot < space * 0.08) {
+    // tooth gap nearly closed — trapezoid fallback
+    const aRoot = Math.min(aPitch * pitchR / rootR, space * 0.42)
+    const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
+    const out = []
+    for (let i = 0; i < T; i += 1) {
+      const a = (i / T) * Math.PI * 2
+      out.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
+      out.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
+      out.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
+      out.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
+    }
+    return out
+  }
+  const FLANK = 5
+  const out = []
+  for (let i = 0; i < T; i += 1) {
+    const a = (i / T) * Math.PI * 2
+    const pt = (rho, ang) => [Math.cos(ang) * rho, Math.sin(ang) * rho]
+    out.push(pt(rootR, a - space))                    // root-land midpoint
+    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a - thRoot)) // back root
+    for (let k = 0; k <= FLANK; k += 1) {             // back flank, root→tip
+      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
+      out.push(pt(rho, a - halfThick(rho)))
+    }
+    const thTip = halfThick(tipR)
+    for (let k = 1; k <= 2; k += 1)                   // tip land arc
+      out.push(pt(tipR, a - thTip + (2 * thTip * k) / 3))
+    for (let k = FLANK; k >= 0; k -= 1) {             // front flank, tip→root
+      const rho = flankBot + ((tipR - flankBot) * k) / FLANK
+      out.push(pt(rho, a + halfThick(rho)))
+    }
+    if (rootR < flankBot - 1e-6) out.push(pt(rootR, a + thRoot)) // front root
+  }
+  return out
+}
+
 function gearTris(m, teeth, width, axis) {
   const T = Math.max(3, Math.round(teeth))
   const pitchR = (m * T) / 2
@@ -4925,19 +5607,7 @@ function gearTris(m, teeth, width, axis) {
   const tipR = pitchR + 0.85 * m
   const hh = width / 2
   const mm = Math.max(0.2, m)
-  // outline: 4 pts per tooth — root/tip flanks at angular half-widths scaled
-  // by radius so tooth thickness stays credible at root and tip
-  const aPitch = Math.PI / (2 * T)              // half-thickness angle at pitch
-  const aRoot = Math.min(aPitch * pitchR / rootR, (Math.PI / T) * 0.42)
-  const aTip = Math.max(0.15 * aPitch, aPitch * pitchR / tipR)
-  const outline = []
-  for (let i = 0; i < T; i += 1) {
-    const a = (i / T) * Math.PI * 2
-    outline.push([Math.cos(a - aRoot) * rootR, Math.sin(a - aRoot) * rootR])
-    outline.push([Math.cos(a - aTip) * tipR, Math.sin(a - aTip) * tipR])
-    outline.push([Math.cos(a + aTip) * tipR, Math.sin(a + aTip) * tipR])
-    outline.push([Math.cos(a + aRoot) * rootR, Math.sin(a + aRoot) * rootR])
-  }
+  const outline = gearOutline(T, pitchR, rootR, tipR)
   const N = outline.length
   // proper rotations only (det=+1) — a mirrored map flips every face inward
   const map = (x, y, z) => axis === 'z' ? [x, y, z] : axis === 'y' ? [x, z, -y] : [z, x, y]
@@ -8737,19 +9407,30 @@ function fixSuggestions(s) {
   // solver's problem, only provable outsiders get the prescription.
   if (s.reach && s.reach.c && s.reach.r) {
     let worst = null
+    const deskById = new Map(DESK_PROPS.map((p) => [p.id, p]))
     for (const p of DESK_PROPS) {
       const dx = Math.max(Math.abs(p.pos[0] - s.reach.c[0]) - p.size[0] / 2, 0)
       const dy = Math.max(Math.abs(p.pos[1] - s.reach.c[1]) - p.size[1] / 2, 0)
       const dz = Math.max(Math.abs(p.pos[2] - s.reach.c[2]) - p.size[2] / 2, 0)
       const gap = Math.hypot(dx, dy, dz) - s.reach.r
-      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap }
+      if (gap > 0 && (!worst || gap > worst.gap)) worst = { prop: p, gap, sphere: true }
+    }
+    // the bound sphere is an outer bound — a prop inside it can still be
+    // unreachable at every joint angle (analysis IK-probes each prop). Those
+    // get the same prescription, sized by the solver's miss distance.
+    for (const u of s.reach.unreachable || []) {
+      const p = deskById.get(u.id)
+      if (p && (!worst || u.miss > worst.gap)) worst = { prop: p, gap: u.miss, sphere: false }
     }
     if (worst) {
       const arch = brief.archetype || ''
       const DEF = { arm: 450, robot: 450, humanoid: 620 }
       const cur = brief.reachMm || DEF[arch] || 450
       const next = Math.min(1200, Math.ceil((cur + worst.gap * 1.2) / 20) * 20)
-      push('warn', `Fix reach: ${worst.prop.name} sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound — lengthen the arm`,
+      const how = worst.sphere
+        ? `sits ${Math.round(worst.gap)}mm outside the arm's ${Math.round(s.reach.r)}mm bound`
+        : `is inside the ${Math.round(s.reach.r)}mm bound but no joint solve reaches it (~${Math.round(worst.gap)}mm miss)`
+      push('warn', `Fix reach: ${worst.prop.name} ${how} — lengthen the arm`,
         next > cur ? { reachMm: next } : null)
     }
   }
@@ -9043,7 +9724,8 @@ const DEFAULT_BRIEF = {
 
 const PRESETS = [
   { id: 'iot', label: 'IoT sensor node', brief: { archetype: 'iot', mission: 'a plant sensor that reports soil moisture to my phone', reachMm: 0, payloadKg: 0, battery: 'lipo2s' } },
-  { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 90mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 92, payloadKg: 0 } },
+  { id: 'drone', label: 'FPV drone', brief: { archetype: 'drone', mission: 'a 5-inch FPV quad that carries a camera for 6 minutes', reachMm: 127, payloadKg: 0.2, battery: 'lipo4s' } },
+  { id: 'pcb', label: 'Controller board', brief: { archetype: 'pcb', mission: 'a 120mm controller board: ESP32-S3, climate sensor, OLED, power', reachMm: 120, payloadKg: 0 } },
   { id: 'arm', label: 'Pick & place arm', brief: { archetype: 'arm', mission: '5-DoF arm that sorts 3D-printed parts into bins', payloadKg: 0.8, reachMm: 420, dof: 5 } },
   { id: 'rover', label: 'Survey rover', brief: { archetype: 'rover', mission: '4WD rover with a camera mast that maps a room', payloadKg: 2, wheelMm: 100 } },
   { id: 'quad', label: 'Quadruped', brief: { archetype: 'quadruped', mission: '12-servo quadruped that trots and holds its attitude', payloadKg: 1, reachMm: 400, battery: 'lipo3s' } },
@@ -9149,7 +9831,8 @@ function composeDesign(brief) {
   const b = { ...DEFAULT_BRIEF, ...brief }
   const key = JSON.stringify(b)
   if (cache.has(key)) return cache.get(key)
-  const design = b.archetype === 'pcb' ? buildPcb(b)
+  const design = b.archetype === 'drone' ? buildDrone(b)
+    : b.archetype === 'pcb' ? buildPcb(b)
     : b.archetype === 'iot' ? buildIot(b)
     : b.archetype === 'gantry' ? buildGantry(b)
     : b.archetype === 'custom' ? buildCustom(b)
@@ -10040,27 +10723,6 @@ function project(p, cam, target, w, h) {
   return { x: w / 2 + vx * s, y: h / 2 - vy * s, depth }
 }
 
-/**
- * Where a screen pixel lands on a horizontal plane at height z0. This is the
- * inverse of project() for the one case dragging needs: the user's pointer is
- * a ray, and the part lives on a plane, so they meet in exactly one place.
- */
-function unprojectToPlane(px, py, z0, cam, target, w, h) {
-  const b = cam._basis || camBasis(cam, target)
-  const f = ((w < h ? w : h) * 0.9) / (cam.dist > 1 ? cam.dist : 1)
-  const dx = (px - w / 2) / (f * cam.dist)
-  const dy = -(py - h / 2) / (f * cam.dist)
-  const dir = [
-    -b.back[0] + b.x[0] * dx + b.y[0] * dy,
-    -b.back[1] + b.x[1] * dx + b.y[1] * dy,
-    -b.back[2] + b.x[2] * dx + b.y[2] * dy,
-  ]
-  if (Math.abs(dir[2]) < 1e-6) return null
-  const t = (z0 - b.eye[2]) / dir[2]
-  if (t <= 0) return null
-  return [b.eye[0] + dir[0] * t, b.eye[1] + dir[1] * t]
-}
-
 /** Material for a triangle, with the multicolour-print tint applied to shells. */
 function materialFor(t, tint) {
   const m = MAT[t.mat] || MAT.shell
@@ -10893,7 +11555,7 @@ function scaleOf(dims) {
   return n === 1 ? '1:1' : `1:${n}`
 }
 
-function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, onGrab, onMoveNode, onDropNode, movedCount, onResetMoves }) {
+function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus }) {
   const ref = useRef(null)
   const glRef = useRef(null)
   const paintRef = useRef(null)
@@ -10968,16 +11630,6 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, o
       if (!raf) raf = requestAnimationFrame(paint)
     }
     paintRef.current = schedule
-    // a probe for tests and for the interaction harness: what is under this pixel
-    globalThis.__rfPick = (px, py) => {
-      const cv = ref.current
-      if (!cv || !glRef.current || !glRef.current.pick) return null
-      const r = cv.getBoundingClientRect()
-      const hit = glRef.current.pick(mesh, px * (cv.width / r.width), py * (cv.height / r.height))
-      if (!hit) return null
-      const node = design.nodes.find((n) => n.id === hit.node)
-      return { node: hit.node, mat: hit.mat, grabbable: !!(node && !node.joint) }
-    }
     schedule()
     const ro = new ResizeObserver(schedule)
     ro.observe(cv)
@@ -11019,63 +11671,11 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, o
   const drag = useRef(null)
   const [picked, setPicked] = useState(null)
 
-  // the drag state carries which kind of drag it is: an orbit of the camera, or
-  // a part being carried. A part under the pointer before the button went down
-  // is a grabbable thing — that is the hand.
-  const grab = useRef(null)
-
-  const nodeUnder = (e) => {
-    const cv = ref.current
-    if (!cv || !glRef.current || !glRef.current.pick) return null
-    const rect = cv.getBoundingClientRect()
-    const px = (e.clientX - rect.left) * (cv.width / rect.width)
-    const py = (e.clientY - rect.top) * (cv.height / rect.height)
-    const hit = glRef.current.pick(mesh, px, py)
-    if (!hit) return null
-    return design.nodes.find((n) => n.id === hit.node && !n.joint) || null
-  }
-
   const onDown = (e) => {
-    const node = nodeUnder(e)
-    if (node) {
-      grab.current = {
-        node,
-        z0: node.pos[2],
-        rect: ref.current.getBoundingClientRect(),
-        start: unprojectToPlane(
-          e.clientX - ref.current.getBoundingClientRect().left,
-          e.clientY - ref.current.getBoundingClientRect().top,
-          node.pos[2], cam, target, ref.current.width, ref.current.height,
-        ),
-        last: null,
-      }
-      if (onGrab) onGrab(node.id)
-      e.currentTarget.setPointerCapture?.(e.pointerId)
-      e.preventDefault()
-      return
-    }
     drag.current = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, moved: 0, cx: e.clientX, cy: e.clientY }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
   const onMove = (e) => {
-    const g = grab.current
-    if (g) {
-      const cv = ref.current
-      const rect = g.rect
-      const p = unprojectToPlane(
-        e.clientX - rect.left, e.clientY - rect.top,
-        g.z0, cam, target, cv.width, cv.height,
-      )
-      if (!p || !g.start) return
-      // 1mm snap: a part that cannot sit on the integer millimetre is a part
-      // you cannot dimension, and this is a drawing, so the grid is the truth
-      const dx = Math.round(p[0] - g.start[0])
-      const dy = Math.round(p[1] - g.start[1])
-      if (g.last && g.last[0] === dx && g.last[1] === dy) return
-      g.last = [dx, dy]
-      if (onMoveNode) onMoveNode(g.node.id, dx, dy)
-      return
-    }
     const d = drag.current
     if (!d) return
     const dx = e.clientX - d.x
@@ -11088,22 +11688,10 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, o
     })
   }
   const onUp = (e) => {
-    if (grab.current) {
-      const g = grab.current
-      grab.current = null
-      if (g.last && (g.last[0] !== 0 || g.last[1] !== 0) && onDropNode) onDropNode(g.node.id, g.last[0], g.last[1])
-      // a press with no movement is still a click: it opens the inspector
-      else inspectAt(e)
-      return
-    }
     const d = drag.current
     drag.current = null
     // a click, not a drag: pick the part under the pointer
-    if (!d || d.moved > 5) return
-    inspectAt(e)
-  }
-  const inspectAt = (e) => {
-    if (!glRef.current || !glRef.current.pick) return
+    if (!d || d.moved > 5 || !glRef.current || !glRef.current.pick) return
     const cv = ref.current
     if (!cv) return
     const rect = cv.getBoundingClientRect()
@@ -11182,12 +11770,6 @@ function Viewport({ mesh, cam, setCam, opts, design, analysis, overlay, focus, o
       h('div', { style: S.chipHint }, 'click the part again to clear'),
     ) : null,
     h('div', { style: S.viewTitle, 'data-rf': 'viewtitle' }, design.title, h('span', { style: S.viewSub }, ' — ', design.subtitle)),
-    // what you moved, and the way back. A part you can carry but not put back is
-    // a trap, not a tool.
-    movedCount ? h('div', { style: S.moveChip, 'data-rf': 'movedchip' },
-      h('span', {}, `${movedCount} part${movedCount > 1 ? 's' : ''} moved · mass and checks recomputed`),
-      h('button', { style: S.moveChipBtn, onClick: onResetMoves, title: 'put everything back' }, 'RESET'),
-    ) : null,
     // Drawing title block, bottom right: drawing number, revision, scale,
     // units and tolerance, material and the review state. This is what turns a
     // viewport into a sheet an engineer can hand to a client.
@@ -12536,16 +13118,6 @@ const S = {
   viewChipOn: {
     padding: '4px 9px', borderRadius: '5px', border: 'none', background: 'rgba(255,106,26,0.16)',
     color: C.accent, fontSize: '10px', fontFamily: C.mono, letterSpacing: '0.06em', cursor: 'pointer',
-  },
-  moveChip: {
-    position: 'absolute', left: '12px', bottom: '96px', display: 'flex', alignItems: 'center',
-    gap: '8px', padding: '5px 8px 5px 10px', borderRadius: '6px',
-    border: `1px solid ${C.accentLine}`, background: 'rgba(255,106,26,0.10)',
-    fontFamily: C.mono, fontSize: '9.5px', color: C.accent, letterSpacing: '0.04em', zIndex: 6,
-  },
-  moveChipBtn: {
-    padding: '2px 6px', borderRadius: '4px', border: 'none', background: 'rgba(255,106,26,0.22)',
-    color: C.accent, fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.08em', cursor: 'pointer',
   },
   viewHint: { fontFamily: C.mono, fontSize: '9.5px', color: C.faint, letterSpacing: '0.04em', whiteSpace: 'nowrap' },
 
@@ -13998,9 +14570,14 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
     },
       h('span', { style: { fontFamily: C.mono, fontSize: '9px', letterSpacing: '0.1em', paddingTop: '2px', color: levelColor(benchOk ? 'ok' : benchWorst.status === 'fail' ? 'fail' : 'warn') } },
         benchOk ? 'BENCH ✓' : 'BENCH !'),
-      h('span', {}, benchOk
-        ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
-        : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
+      h('span', {}, design.archetype === 'drone'
+        // a quad does not climb ramps: it either has thrust margin or it does not
+        ? (analysis.drone
+          ? `Hovers at ${Math.round(analysis.drone.hoverThrottle * 100)}% throttle with ${analysis.drone.twr.toFixed(1)}:1 lift-to-weight, ${analysis.drone.minutes.toFixed(1)} min of hover on the pack.`
+          : 'Flight report unavailable for this design.')
+        : benchOk
+          ? `Would stand, climb a 15° ramp and hold — ${Math.round(bench.massG)}g, CoM ${Math.round(bench.flatMm)}mm inside its footprint.`
+          : `Heads up: ${benchWorst.label.toLowerCase()} — ${benchWorst.detail}`)),
     h(LivePrices, { design }),
     (analysis.checks.filter((c) => c.level !== 'ok').length
       ? h('div', {},
@@ -14146,39 +14723,7 @@ function Studio() {
   const [history, setHistory] = useState([])
 
   const spec = useMemo(() => composeDesign(brief), [brief])
-  // ── hands ─────────────────────────────────────────────────────────────────
-  // A part can be picked up and put down somewhere else. Geometry moves every
-  // frame (30ms mesh rebuild); the analysis is recomputed ONCE on release,
-  // because analyze() costs 190-245ms and a number that lags the part is a
-  // number that lies about it.
-  const [moves, setMoves] = useState({})
-  const [reAnalysis, setReAnalysis] = useState(null)
-  const design = useMemo(() => {
-    const ids = Object.keys(moves)
-    if (!ids.length) return spec.design
-    return {
-      ...spec.design,
-      nodes: spec.design.nodes.map((n) => {
-        const m = moves[n.id]
-        return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
-      }),
-    }
-  }, [spec, moves])
-  const movesKey = useMemo(() => JSON.stringify(moves), [moves])
-  const analysis = reAnalysis && reAnalysis.key === movesKey ? reAnalysis.value : spec.analysis
-  const dropNode = useCallback((id, dx, dy) => {
-    const next = { ...moves, [id]: [dx, dy] }
-    setMoves(next)
-    const nodes = spec.design.nodes.map((n) => {
-      const m = next[n.id]
-      return m ? { ...n, pos: [n.pos[0] + m[0], n.pos[1] + m[1], n.pos[2]] } : n
-    })
-    setReAnalysis({ key: JSON.stringify(next), value: analyze({ ...spec.design, nodes }) })
-    // instrumentation for the interaction harness: a drop must recompute, and a
-    // test that cannot see the recompute cannot tell a tool from a screenshot
-    globalThis.__rfStats = { ...(globalThis.__rfStats || {}), drops: ((globalThis.__rfStats || {}).drops || 0) + 1 }
-  }, [moves, spec])
-  useEffect(() => { setMoves({}); setReAnalysis(null) }, [spec])
+  const { design, analysis } = spec
 
   const [pose, setPose] = useState(() => design.joints.map(() => 0))
   // `pose` is the COMMAND (what the sliders ask for); `dispPose` is the STATE
@@ -15535,14 +16080,7 @@ function Studio() {
 
       // centre: viewport
       h('div', { style: { ...S.col, minWidth: 0, position: 'relative' }, 'data-rf': 'view' },
-        h(Viewport, {
-          mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis,
-          overlay: benchOvWorld, focus: camFocus,
-          onMoveNode: (id, dx, dy) => setMoves((m) => ({ ...m, [id]: [dx, dy] })),
-          onDropNode: dropNode,
-          movedCount: Object.keys(moves).length,
-          onResetMoves: () => { setMoves({}); setReAnalysis(null) },
-        }),
+        h(Viewport, { mesh: viewMesh, cam, setCam, opts: viewOpts, design, analysis, overlay: benchOvWorld, focus: camFocus }),
         driveHud ? h('div', {
           style: {
             position: 'absolute', left: '14px', bottom: '14px', zIndex: 5,
