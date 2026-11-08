@@ -12930,19 +12930,22 @@ const S = {
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
 
   // ── spec rail ───────────────────────────────────────────────────────────
+  // nine tabs must fit a 374px rail: wrap to a second row rather than
+  // hiding CODE and STEPS behind an invisible horizontal scroll
   tabs: {
-    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
-    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+    display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px 0', padding: '0 4px',
+    borderBottom: `1px solid ${C.line}`, background: C.panel,
   },
   tab: {
-    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
-    letterSpacing: '0.05em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
-    background: 'transparent', border: 'none',
+    padding: '9px 2px 8px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 600,
+    letterSpacing: '0.03em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
+    background: 'transparent', border: 'none', textAlign: 'center', whiteSpace: 'nowrap',
   },
   tabOn: {
-    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 700,
-    letterSpacing: '0.06em', color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`,
+    padding: '9px 2px 8px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 700,
+    letterSpacing: '0.03em', color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`,
     background: 'transparent', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+    textAlign: 'center', whiteSpace: 'nowrap',
   },
   tabBody: { overflowY: 'auto', padding: '14px 16px 48px', flex: '1 1 auto', minHeight: 0 },
 
@@ -15493,17 +15496,17 @@ function Studio() {
       // the numbers belong to the build, so they read as one object, not six chips
       h('div', { style: S.projectStrip, 'data-rf': 'strip' },
         strip('COST', money(analysis.cost), C.text, true),
-        strip('MASS', `${Math.round(analysis.mass.totalG)}g`),
-        strip('PEAK', `${fmt(analysis.power.peak, 1)}A`, analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text),
-        strip('PRINT', `${fmt(analysis.print.hours, 0)}h`),
+        strip('MASS', `${Math.round(analysis.mass.totalG)} g`),
+        strip('PEAK', `${fmt(analysis.power.peak, 1)} A`, analysis.power.peak > (analysis.power.bat?.maxA || 99) ? C.amber : C.text),
+        strip('PRINT', `${fmt(analysis.print.hours, 0)} h`),
         h('button', {
           style: {
             ...S.stripItem, borderLeft: `1px solid ${C.lineSoft}`, background: 'transparent',
             cursor: 'pointer', textAlign: 'left', border: 'none', borderLeftWidth: '1px',
             borderLeftStyle: 'solid', borderLeftColor: C.lineSoft,
           },
-          title: 'jump to the engineering self-checks for this design',
-          onClick: () => { setSimple(false); if (CTX) CTX.storage.set('simple', false); setTab('spec') },
+          title: 'open every self-check behind this design, with the fix for each one',
+          onClick: () => setAuditOpen(true),
         },
           h('span', { style: S.stripKey }, 'CHECKS'),
           h('span', { style: { ...S.stripVal, color: fails ? C.red : warns ? C.amber : C.green } },
@@ -15525,7 +15528,7 @@ function Studio() {
           }, 'Engineer')),
 
         h('button', {
-          style: { ...S.btn, borderColor: 'rgba(255,106,26,0.5)', color: C.accent, gap: '7px' },
+          style: { ...S.btn, gap: '7px' },
           onClick: askHermes,
           title: link === 'live' ? 'Hermes is connected — hand it this build' : 'hand this build to Hermes',
         },
@@ -16383,22 +16386,20 @@ function Studio() {
             },
           },
           TABS.map(([id, label]) => {
-            // a badge is information scent: how much sits behind the tab
-            // badges only where the count changes a decision: how much to buy,
-            // how much to print. A number on every tab is noise.
-            const badge = id === 'parts' ? design.parts.length
-              : id === 'print' ? design.nodes.filter((n) => n.print).length
-                : null
+            // no numeric badges: those counts already sit inside the panel and
+            // in the rail footer, and a number here breaks the grid's rhythm
             return h('button', {
               key: id,
-              style: tab === id ? S.tabOn : S.tab,
+              style: id === 'steps'
+                // the ninth tab spans the free cells so the second row is flush
+                ? { ...(tab === id ? S.tabOn : S.tab), gridColumn: 'span 2' }
+                : (tab === id ? S.tabOn : S.tab),
               role: 'tab',
               'data-tab': id,
               'aria-selected': tab === id,
               tabIndex: tab === id ? 0 : -1,
               onClick: () => setTab(id),
-            }, label,
-            badge ? h('span', { style: { ...S.tabBadge, color: tab === id ? C.accent : C.faint } }, badge) : null)
+            }, label)
           })),
         simple ? null : h('div', { style: S.tabBody }, panel),
         simple ? null : h('div', { style: S.footer },
