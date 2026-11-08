@@ -14278,6 +14278,9 @@ function CommandPalette({ open, commands, onClose }) {
 
 /** The plain-language panel: what it costs, what to buy, what to print. */
 function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare, onTest }) {
+  // plain words still owes the reader the whole order: six rows and a dead end
+  // was the only way to see the rest of the BOM without switching modes
+  const [showAllParts, setShowAllParts] = useState(false)
   // The primary CTA is picked by meaning: the export list keeps growing, and
   // selecting the "print pack" by index once shipped a whole-machine STL under a
   // button that promised a zip.
@@ -14365,11 +14368,20 @@ function SimplePanel({ design, analysis, exports, onEngineer, onAudit, onCompare
         title: 'read real unit prices from the LCSC parts index (asks Hermes to run the price tool)',
         onClick: () => askPrices(design),
       }, '⌁ LIVE PRICES')),
-    h('div', { style: { marginBottom: '14px' } }, rows.slice(0, 6).map((r) => h('div', { key: r.key, style: S.buyRow },
+    h('div', { style: { marginBottom: '14px' } }, (showAllParts ? rows : rows.slice(0, 6)).map((r) => h('div', { key: r.key, style: S.buyRow },
       h('span', { style: S.buyName }, r.part.name),
       h('span', { style: S.buyQty }, `×${r.qty}`),
       h('span', { style: S.buyPrice }, money(r.part.price * r.qty)))),
-      rows.length > 6 ? h('div', { style: S.buyMore }, `+ ${rows.length - 6} more line items`) : null),
+      rows.length > 6
+        // the count used to be a dead end: plain words showed six rows and the
+        // rest of the order was unreachable unless you switched to Engineer
+        ? h('button', {
+          style: { ...S.buyMore, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, font: 'inherit', color: C.accent },
+          'aria-expanded': showAllParts,
+          onClick: () => setShowAllParts((v) => !v),
+          title: showAllParts ? 'collapse the order' : 'show every part in the order',
+        }, showAllParts ? '− show fewer' : `+ ${rows.length - 6} more line items`)
+        : null),
     // A board is not printed, so this block says what actually happens to it:
     // the fab makes the PCB, you place the parts, or an assembly house does.
     design.pcb
