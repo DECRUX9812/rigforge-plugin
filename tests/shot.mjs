@@ -13,7 +13,7 @@ const errors = []
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
 page.on('console', (m) => { if (m.type() === 'error' && !/404/.test(m.text())) errors.push('console: ' + m.text()) })
 
-await page.goto('http://127.0.0.1:18735/preview.html')
+await page.goto('http://127.0.0.1:18734/preview.html')
 await page.waitForTimeout(1200)
 
 for (const a of actions) {
