@@ -521,13 +521,22 @@ check('firmware channel count equals the servos in the BOM', () => {
   eachPreset((p, { design }) => {
     const servos = design.parts.reduce((n, x) => (A.PARTS[x.key]?.cat === 'servo' ? n + x.qty : n), 0)
     const fw = design.firmware || ''
-    const m = fw.match(/SERVO_COUNT\s*=\s*(\d+)/)
-    if (m) {
-      declared += 1
-      assert(Number(m[1]) === servos, `${p.id}: firmware drives ${m[1]} servos, BOM buys ${servos}`)
-    }
-    if (servos === 0) {
-      assert(!/SERVO_COUNT/.test(fw), `${p.id}: servo code with no servo in the BOM`)
+    if (design.archetype === 'scene') {
+      // Composite doc: one sketch per machine, each header declares its servo
+      // count — the doc must account for every servo the merged BOM buys.
+      const blocks = [...fw.matchAll(/MACHINE \d+\/\d+: [^\n]*?— (\d+) servos? /g)]
+      assert(blocks.length >= 2, `${p.id}: scene firmware should carry per-machine blocks`)
+      const docServos = blocks.reduce((n, b) => n + Number(b[1]), 0)
+      assert(docServos === servos, `${p.id}: firmware doc drives ${docServos} servos, BOM buys ${servos}`)
+    } else {
+      const m = fw.match(/SERVO_COUNT\s*=\s*(\d+)/)
+      if (m) {
+        declared += 1
+        assert(Number(m[1]) === servos, `${p.id}: firmware drives ${m[1]} servos, BOM buys ${servos}`)
+      }
+      if (servos === 0) {
+        assert(!/SERVO_COUNT/.test(fw), `${p.id}: servo code with no servo in the BOM`)
+      }
     }
     assert(/void setup\(/.test(fw) && /void loop\(/.test(fw), `${p.id}: firmware missing setup/loop`)
     const braces = fw.split('{').length - fw.split('}').length
@@ -1857,6 +1866,66 @@ check('pose presets: named poses resolve in-limits, presets are FK-verified', ()
   const fl = qFoot('tibia-fl'), rl = qFoot('tibia-rl')
   assert(fl[0] > 105 && rl[0] < -105, `PROWL should stagger feet (fl ${fl[0].toFixed(0)} / rl ${rl[0].toFixed(0)})`)
   return `7 archetypes × presets in-limits · gripper hits live limits · WAVE=R-arm · WIDE/PROWL replant feet · gantry PROBE/EXTREME resolve · unknown→null`
+})
+
+// ── 27b. scene mode: machines share a bench without sharing a bus ──────────
+check('scene mode: machines compose on one bench, keep own kinematics and BOM', () => {
+  const { design, analysis } = A.composeDesign({ archetype: 'scene' })
+  // several machines merged, joint ids namespaced so nothing collides
+  const prefixes = [...new Set(design.joints.map((j) => j.id.split('-')[0]))]
+  assert(prefixes.length >= 2, `scene should span multiple machines, got ${prefixes}`)
+  const ids = design.joints.map((j) => j.id)
+  assert(new Set(ids).size === ids.length, 'scene joint ids must be unique')
+  const nodeIds = design.nodes.map((n) => n.id)
+  assert(new Set(nodeIds).size === nodeIds.length, 'scene node ids must be unique')
+  // every machine floors on the bench and keeps a real footprint
+  const bb = A.boundsOf(design.nodes)
+  assert(bb.min[2] >= -0.5, `scene dips below the bench: zmin ${bb.min[2]}`)
+  for (const pre of prefixes) {
+    const ns = design.nodes.filter((n) => n.id.startsWith(pre + '-'))
+    assert(ns.length > 10, `${pre}: machine lost its nodes in the merge`)
+  }
+  // kinematics survive: posing member joints moves their links in world space.
+  // Pivot-centred nodes don't translate, so sweep every joint and keep the best.
+  let bestMove = 0, bestId = ''
+  for (const j of design.joints) {
+    const tagged = design.nodes.filter((n) => n.joint === j.id)
+    if (!tagged.length) continue
+    const chains = A.chainsFor(design, j.id)
+    const rest = j.angle || 0
+    const before = tagged.map((n) => A.benchNodeWorld(design, chains, n))
+    j.angle = rest + 25
+    const deltas = tagged.map((n, i) => {
+      const w = A.benchNodeWorld(design, chains, n)
+      return Math.hypot(w[0] - before[i][0], w[1] - before[i][1], w[2] - before[i][2])
+    })
+    j.angle = rest
+    const m = Math.max(...deltas)
+    if (m > bestMove) { bestMove = m; bestId = j.id }
+  }
+  assert(bestMove > 5, `no scene joint moved its links (best ${bestId} ${bestMove.toFixed(1)}mm)`)
+  // the BOM keeps per-machine provenance and the merged totals reconcile
+  const roles = new Set(design.parts.map((p) => String(p.role || '').split(':')[0]))
+  assert(roles.size >= prefixes.length, `BOM roles should name each machine, got ${[...roles]}`)
+  assert(analysis.cost > 50 && analysis.mass.totalG > 500, 'scene totals should reflect all members')
+  // power is per-machine: no single pack is asked to carry the whole lineup
+  assert(analysis.power.systems >= prefixes.length - 1, `expected per-machine power systems, got ${analysis.power.systems}`)
+  // honest refusals: empty scene fails, bad slots are skipped, nesting refused
+  const empty = A.composeDesign({ archetype: 'scene', scene: [] })
+  assert(empty.design.checks.some((c) => c.level === 'fail'), 'empty scene must fail, not default silently')
+  const bad = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm' }, { preset: 'not-a-machine' }] })
+  assert(bad.design.notes.some((n) => n.includes('not-a-machine')), 'bad slot should be named in notes')
+  assert(!bad.design.checks.some((c) => c.level === 'fail'), 'one bad slot must not sink the lineup')
+  const nested = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'scene' }, { preset: 'arm' }] })
+  assert(nested.design.notes.some((n) => n.includes('scene') && n.includes('not a buildable')), 'scene-in-scene must be refused')
+  assert(nested.design.joints.every((jj) => jj.id.startsWith('s0-')), 'only the arm should survive a nested-scene refusal')
+  // determinism and member-check propagation
+  const again = A.composeDesign({ archetype: 'scene' })
+  assert(JSON.stringify(again.design.joints) === JSON.stringify(design.joints), 'scene must be deterministic')
+  const overloaded = A.composeDesign({ archetype: 'scene', scene: [{ preset: 'arm', payloadKg: 99 }, { preset: 'iot' }] })
+  assert(overloaded.design.checks.some((c) => c.level === 'fail' && /arm/i.test(c.msg)), 'member failure must fail the scene')
+  const machineCount = new Set(design.nodes.map((n) => n.id.split('-')[0])).size
+  return `${machineCount} machines · ${design.nodes.length} nodes · ${design.joints.length} joints · ${analysis.power.systems} power systems`
 })
 
 // ── 28. baked occlusion is real occlusion ──────────────────────────────────
