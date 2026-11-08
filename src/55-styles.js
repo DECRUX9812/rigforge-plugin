@@ -398,19 +398,22 @@ const S = {
   jointTop: { display: 'flex', justifyContent: 'space-between', fontFamily: C.mono, fontSize: '9.5px', color: C.faint },
 
   // ── spec rail ───────────────────────────────────────────────────────────
+  // nine tabs must fit a 374px rail: wrap to a second row rather than
+  // hiding CODE and STEPS behind an invisible horizontal scroll
   tabs: {
-    display: 'flex', gap: '1px', padding: '0 4px', borderBottom: `1px solid ${C.line}`,
-    background: C.panel, overflowX: 'auto', scrollbarWidth: 'none',
+    display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px 0', padding: '0 4px',
+    borderBottom: `1px solid ${C.line}`, background: C.panel,
   },
   tab: {
-    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '11px', fontWeight: 600,
-    letterSpacing: '0.05em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
-    background: 'transparent', border: 'none',
+    padding: '9px 2px 8px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 600,
+    letterSpacing: '0.03em', color: C.faint, cursor: 'pointer', borderBottom: '2px solid transparent',
+    background: 'transparent', border: 'none', textAlign: 'center', whiteSpace: 'nowrap',
   },
   tabOn: {
-    padding: '11px 9px 10px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 700,
-    letterSpacing: '0.06em', color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`,
+    padding: '9px 2px 8px', fontFamily: C.sans, fontSize: '10.5px', fontWeight: 700,
+    letterSpacing: '0.03em', color: C.accent, cursor: 'pointer', borderBottom: `2px solid ${C.accent}`,
     background: 'transparent', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+    textAlign: 'center', whiteSpace: 'nowrap',
   },
   tabBody: { overflowY: 'auto', padding: '14px 16px 48px', flex: '1 1 auto', minHeight: 0 },
 
